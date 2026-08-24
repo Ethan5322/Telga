@@ -1,0 +1,64 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": false,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
+    "paths": {
+      "@telga/domain": [
+        "./packages/domain/src/index.ts"
+      ],
+      "@telga/provider-mock-airtime": [
+        "./services/provider-adapters/mock-airtime/src/index.ts"
+      ],
+      "@telga/persistence": [
+        "./packages/persistence/src/index.ts"
+      ],
+      "@telga/localization": [
+        "./packages/localization/src/index.ts"
+      ],
+      "@telga/pos-view-model": [
+        "./packages/pos-view-model/src/index.ts"
+      ],
+      "@telga/merchant-pos": [
+        "./apps/merchant-pos/src/index.ts"
+      ],
+      "@telga/api": [
+        "./services/api/src/index.ts"
+      ],
+      "@telga/worker": [
+        "./services/worker/src/index.ts"
+      ]
+    },
+    "baseUrl": "."
+  },
+  "include": [
+    "packages/**/src/**/*.ts",
+    "services/**/src/**/*.ts",
+    "apps/**/src/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.mjs"
+  ],
+  "exclude": [
+    "node_modules",
+    "graphify-out",
+    "docs"
+  ]
+}

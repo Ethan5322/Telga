@@ -1,0 +1,18 @@
+{
+  "name": "@telga/domain",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga domain layer — pure types and functions. No I/O, no database, no network, no framework.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --build"
+  }
+}

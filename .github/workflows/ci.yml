@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# Only one run per ref; a newer push supersedes an in-flight one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the current LTS. Local development is on 25.x; the matrix exists
+        # so a version difference is caught here rather than at deploy time.
+        node: ['22.x', '24.x']
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install from the lockfile
+        # `npm ci` fails if package.json and the lockfile disagree, which is the
+        # behaviour we want in CI.
+        run: npm ci
+
+      - name: Check for committed secrets and build output
+        run: node scripts/check-committed.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Clean build
+        run: npm run build:clean
+
+      - name: Confirm dist is not committed
+        run: |
+          if git ls-files --error-unmatch 'packages/*/dist/*' 'services/**/dist/*' 'apps/*/dist/*' > /dev/null 2>&1; then
+            echo "Build output is committed to git. It must be generated, not tracked."
+            exit 1
+          fi
+          echo "dist is not tracked."
+
+      - name: Persistence tests
+        run: npx vitest run tests/persistence/
+
+      - name: Orchestration tests
+        run: npx vitest run tests/orchestration/
+
+      - name: Recovery tests
+        run: npx vitest run tests/recovery/
+
+      - name: Worker tests
+        run: npx vitest run tests/worker/
+
+      - name: Merchant POS and API-surface tests
+        run: npx vitest run tests/ui/ --testTimeout=180000
+
+      - name: Authentication and authorization tests
+        run: npx vitest run tests/auth/ --testTimeout=180000
+
+      - name: Transport and TLS tests
+        run: npx vitest run tests/transport/ --testTimeout=180000
+
+      - name: Recovery failure-path tests
+        run: npx vitest run tests/recovery/ --testTimeout=180000
+
+      - name: Child-process build tests
+        run: npx vitest run tests/build/ --testTimeout=180000
+
+      - name: Full suite
+        run: npm test
+
+      - name: Validate vault links and frontmatter
+        run: npm run docs:validate
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs-node-${{ matrix.node }}
+          path: |
+            stress-logs/
+            npm-debug.log*
+          if-no-files-found: ignore
+          retention-days: 7
+
+  stress:
+    name: recovery stress
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Only on the default branch: a soak on every pull request would cost more
+    # than it catches.
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install from the lockfile
+        run: npm ci
+
+      - name: Recovery stress
+        run: npm run test:recovery:stress -- --iterations 200 --repeats 5
+
+      - name: Upload stress logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-logs
+          path: stress-logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+# Graphify is deliberately not run here.
+#
+# It is a locally-installed Python tool, not a declared dependency of this
+# repository, so a CI step for it would either install an unpinned tool or
+# quietly no-op. `npm run docs:validate` is the deterministic documentation
+# check — links, orphans and frontmatter — and it runs on every job above.
+# Graphify export stays a documented local step; see `09 Engineering/CI Pipeline.md`.

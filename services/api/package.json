@@ -1,0 +1,22 @@
+{
+  "name": "@telga/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga application services. Transaction orchestration over the domain, the persistence driver and the deterministic mock provider.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@telga/domain": "*",
+    "@telga/persistence": "*",
+    "@telga/provider-mock-airtime": "*",
+    "@telga/pos-view-model": "*",
+    "@telga/localization": "*"
+  }
+}

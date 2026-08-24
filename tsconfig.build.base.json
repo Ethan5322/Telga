@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+
+    // CommonJS at runtime, deliberately.
+    //
+    // The sources use extensionless relative imports (`./errors`), which Node's
+    // ESM resolver refuses — it requires a real file path. Rather than append
+    // `.js` to every import across five packages, the build emits CommonJS,
+    // whose resolver handles extensionless specifiers natively. Each package's
+    // `dist/package.json` declares `{"type":"commonjs"}` so Node reads the
+    // emitted `.js` correctly despite the package itself being `"type":
+    // "module"` for the TypeScript tooling.
+    //
+    // See `09 Engineering/Build Pipeline.md` for the alternatives considered.
+    "module": "commonjs",
+    "moduleResolution": "node10",
+
+    // Off for the build only: it forbids emitting CommonJS from ESM syntax.
+    "verbatimModuleSyntax": false,
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noEmit": false,
+    "types": ["node"]
+  }
+}

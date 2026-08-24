@@ -1,0 +1,22 @@
+{
+  "name": "@telga/merchant-pos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga merchant POS, training mode only. Server-rendered screens over the existing application services. No live money, no live provider.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@telga/api": "*",
+    "@telga/domain": "*",
+    "@telga/localization": "*",
+    "@telga/persistence": "*",
+    "@telga/pos-view-model": "*"
+  }
+}

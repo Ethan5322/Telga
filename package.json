@@ -1,0 +1,42 @@
+{
+  "name": "telga",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga â€” merchant digital-vending platform of MuleSoo Digital Services. TRAINING MODE ONLY: no live provider, no live money.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/provider-adapters/*",
+    "services/api",
+    "services/worker",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "docs:validate": "node scripts/validate-vault.mjs",
+    "build": "node scripts/build.mjs",
+    "clean": "node scripts/build.mjs --only",
+    "build:clean": "node scripts/build.mjs --clean",
+    "test:recovery:stress": "node scripts/stress-recovery.mjs",
+    "test:stress": "vitest run --config vitest.stress.config.ts",
+    "training:serve": "node apps/merchant-pos/dist/cli.js",
+    "training:provision": "node apps/merchant-pos/dist/cli.js",
+    "training:smoke": "node scripts/https-smoke.mjs",
+    "test:child-process:stress": "node scripts/stress-child-process.mjs",
+    "check-committed": "node scripts/check-committed.mjs"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.2.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  }
+}

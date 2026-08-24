@@ -1,0 +1,15 @@
+{
+  "name": "@telga/localization",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga bilingual strings. English is authoritative; Amharic is a draft that REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  }
+}

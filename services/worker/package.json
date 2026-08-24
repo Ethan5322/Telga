@@ -1,0 +1,20 @@
+{
+  "name": "@telga/worker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga background workers. Supervised recovery sweep loop with backoff, health and graceful shutdown.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@telga/api": "*",
+    "@telga/domain": "*",
+    "@telga/persistence": "*"
+  }
+}

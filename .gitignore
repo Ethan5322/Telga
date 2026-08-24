@@ -1,0 +1,56 @@
+# --- build and dependency output -------------------------------------------
+node_modules/
+dist/
+build/
+.next/
+*.tsbuildinfo
+
+# --- generated and diagnostic artifacts -------------------------------------
+stress-logs/
+graphify-out/
+.smart-env/
+
+# --- secrets and local state -------------------------------------------------
+# Telga never generates or stores TLS key material, and no .env is used by the
+# application. These patterns exist so an accidentally created one cannot be
+# published — see `09 Engineering/Local Certificate Handling.md`.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db
+
+# --- editor, agent and plugin configuration ---------------------------------
+# Personal to this machine, ~19 MB of third-party plugin bundles, and four
+# duplicate copies of the same agent skill set. None of it is needed to build,
+# test or run Telga.
+.obsidian/
+.agents/
+.claude/
+.opencode/
+copilot/
+
+# --- commercial and strategic material ---------------------------------------
+# Business strategy, provider assessment, engagement records, agreement terms,
+# pilot budget and merchant selection. None of it is required by the source,
+# tests, build, CI or runtime. Publishing it — even to a private repository — is
+# an irreversible disclosure to a third party, and would weaken MuleSoo's
+# position before a single agreement exists.
+#
+# It stays in the vault on this machine. `npm run docs:validate` enforces the
+# boundary: a published note that links to one, or names a file inside one, is a
+# failure rather than a warning.
+docs/obsidian/01 Strategy/
+docs/obsidian/06 Partnerships/
+docs/obsidian/08 Pilot/
+docs/obsidian/00 Home (Local).md
+
+# --- source material and personal workspace files ---------------------------
+# The founder's source PDF, and Obsidian's default scratch files.
+CLAUDE.pdf
+Untitled.canvas
+Welcome.md
