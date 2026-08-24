@@ -1,7 +1,13 @@
 # --- build and dependency output -------------------------------------------
+# `build/` was previously listed here as a generic output pattern, but nothing
+# in this repository ever writes to a directory literally named `build` — the
+# real compiled output is `dist/`, already covered below. As an unanchored
+# pattern, `build/` silently matched `tests/build/` too, which is a real
+# source directory (the child-process build tests), not generated output. It
+# was never tracked, never committed, and CI's "Child-process build tests"
+# step failed with "No test files found" as a result. See A57.
 node_modules/
 dist/
-build/
 .next/
 *.tsbuildinfo
 
