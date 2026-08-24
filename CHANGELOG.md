@@ -8,6 +8,41 @@ All notable changes to Telga. Format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed — CI verified green on the remote runner, after two real defects (A43, A57, A58) (2026-08-24)
+
+CI executed on GitHub's hosted runners for the first time and reached a complete green result on
+the third push (`d540200`): `verify (Node 22.x)`, `verify (Node 24.x)` and `recovery stress` all
+passed. **A43 is resolved.** The first two pushes each failed on a genuine, distinct defect — full
+account in [[CI Pipeline]].
+
+**A57 — `.gitignore` shadowed a real source directory.** A bare `build/` pattern meant for generated
+compiler output also matched `tests/build/`, so that directory was never tracked or committed
+despite existing on disk and being referenced by CI and the README. Every local run passed regardless,
+because Vitest reads the filesystem, not git state. Fixed by removing the pattern and adding
+`scripts/check-ci-test-paths.mjs`, a new first CI step that fails fast if any workflow-referenced
+test path has zero tracked files.
+
+**A58 — a stress script ran the wrong scenario and reported it under the wrong name.**
+`scripts/stress-recovery.mjs`'s soak pass ran its vitest config with no file argument, so the
+shared `tests/stress/` glob silently also executed the unrelated A54 multi-process test — which
+needs a compiled worker binary the `recovery stress` CI job never builds. Its failure was reported
+as `soak-200`. The actual A44 escalation-to-manual-review scenario was never broken: verified
+passing in every reproduction, including 3 consecutive isolated local runs. Fixed by scoping the
+soak invocation to its own file, adding the same `--reporter=dot` mitigation
+`stress-child-process.mjs` already had (A51), and classifying every failure as ASSERTION,
+INFRASTRUCTURE, or HARNESS with full output printed to the job log.
+
+| Evidence | Before | After |
+|---|---|---|
+| `verify (Node 22.x)`, `verify (Node 24.x)` | FAIL — "No test files found" | **PASS** |
+| `recovery stress` — `soak-200` | FAIL — actually the unrelated A54 scenario | **PASS** — correctly scoped to the A44 scenario |
+| `recovery stress` — 5 shuffled repeats | PASS throughout | PASS |
+| Full remote run | — | <https://github.com/Ethan5322/Telga/actions/runs/32718640781>, 1m43s |
+
+Neither defect was in the recovery worker, the ledger, or the domain layer. A44 stays open on its
+own terms — it tracks a different, still-unreproduced failure shape.
+
+
 ### Fixed — A54: a deferred write transaction could fail un-waitably (2026-08-21)
 
 **A real product defect in the persistence layer**, found by instrumenting
