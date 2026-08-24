@@ -83,10 +83,17 @@ of the `d540200` remote run, not a local inference.
 | 9 | `npm run docs:validate` | **Passes** |
 | 10 | Recovery stress (`soak-200` + 5 shuffled repeats) | **Passes** |
 
-Three deprecation warnings appeared (`actions/checkout@v4`, `actions/setup-node@v4` being forced
-onto Node 24 because they target the deprecated Node 20): warnings only, did not fail the run. A
-separate low-risk maintenance task is open to evaluate upgrading those action versions — not bundled
-with a functional CI fix, and not urgent.
+Three deprecation warnings appeared on this run (`actions/checkout@v4`, `actions/setup-node@v4`
+being forced onto Node 24 because they target the deprecated Node 20): warnings only, did not fail
+the run. **Resolved as A59**, in its own maintenance commit (`96b3d4e`), separate from any
+functional CI fix: each action's actual `action.yml` was checked directly at both tags — `v4`
+declares `node20`, `v5` declares `node24` — rather than trusting a summarized changelog page, which
+had produced an internally inconsistent version history when tried first. Upgraded both actions to
+`v5` in all four occurrences (`verify` job ×2, `stress` job ×2); no inputs, triggers, timeouts,
+reporters, or the Node matrix (`22.x`/`24.x`) changed. Remote run
+[`32730213755`](https://github.com/Ethan5322/Telga/actions/runs/32730213755) — Success, 1m41s, every
+job green — and the Annotations panel confirmed empty by direct owner inspection of the
+authenticated page.
 
 A second job runs the recovery stress soak, on pushes to the default branch only — a soak on every
 pull request would cost more than it catches.

@@ -8,6 +8,18 @@ All notable changes to Telga. Format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Maintenance — Node 20 Actions deprecation warning resolved (A59) (2026-08-24)
+
+Not a product, recovery, or CI-functionality fix — `actions/checkout` and `actions/setup-node` were
+pinned at `v4`, both targeting the Node 20 runtime GitHub now retires, printing a warning on every
+job (`d540200`, `9c784cf`). Upgraded both to `v5` (`node24` runtime, confirmed directly from each
+action's own metadata) in a dedicated commit (`96b3d4e`), kept separate from any functional CI
+change. No inputs, triggers, timeouts, reporters, or the Node matrix (`22.x`/`24.x`) changed.
+
+Remote run [`32730213755`](https://github.com/Ethan5322/Telga/actions/runs/32730213755) — Success,
+1m41s, every job green, Annotations panel confirmed empty by direct owner inspection of the
+authenticated page.
+
 ### Fixed — CI verified green on the remote runner, after two real defects (A43, A57, A58) (2026-08-24)
 
 CI executed on GitHub's hosted runners for the first time and reached a complete green result on
