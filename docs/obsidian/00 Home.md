@@ -82,6 +82,10 @@ publication by `.gitignore`.
 - [[Manual Review Runbook]] — working an under-review case, and who may authorize a reversal
 - [[Worker Operations Runbook]] — **Mermaid: multi-worker claim lease** · restart, inspect, recover
 - [[Deployment Runbook]] — sequence, rollback, and what still blocks a deploy
+- [[Persistent Host Runbook]] — prerequisite audit for a real training host
+- The backup/restore implementation note (implemented separately) — the backup/restore tool that exists, and what still doesn't
+- [[Service Startup and Shutdown]] — **Mermaid: startup sequence** · the exact command order
+- [[Backup and Restore Runbook]] — design only; launch gate 10 acceptance criteria
 - [[Source Specification Clipped In PDF]] — incident: the source PDF was clipped; names reconstructed
 
 ## 06 Partnerships — kept outside this repository
@@ -125,13 +129,17 @@ material, excluded on the same basis as the partnership folder.
 - [[Build Pipeline]] — how the runtime is compiled, and why CommonJS
 - [[Training HTTPS Deployment]] — real TLS for the controlled training machine
 - [[Vercel Deployment Limits]] — why a Vercel build is not a running Telga
+- [[Training Deployment Architecture]] — **Mermaid: the persistent-host architecture**
+- [[Deployment Target Evaluation]] — five hosting categories compared, none purchased
+- The health endpoints note (implemented separately) — `/api/health/live` and `/api/health/ready`, implemented and tested
+- [[Security Deployment Checklist]] — what deployment security is enforced today, and what is not
 - [[TLS and Proxy Configuration]] — where TLS ends, and what may be believed about it
 - [[Local Certificate Handling]] — Telga never generates a key
 - [[Authentication and Sessions]] — identity from a session, not a URL. Closes A49
 - [[Device Binding]] — enrolment, revocation, and why this is training-grade
 - [[Threat Model]] — who would attack, and what actually stops them
 - [[Training Operations Runbook]] — provisioning, lockouts, lost devices
-- [[CI Pipeline]] — authored, **not yet run on a runner**
+- [[CI Pipeline]] — **verified green on the remote runner**
 - [[Test Stability Runbook]] — how a flake is investigated, and the four we have had
 - [[Migration Ownership]] — single-writer migrations, enforced in code
 - [[Multi-Process Migration Plan]] — what closing A30 would take

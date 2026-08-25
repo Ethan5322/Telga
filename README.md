@@ -31,11 +31,13 @@ npm test
 | Command | What it does |
 |---|---|
 | `npm run typecheck` | Type-checks every package and test, no emit |
-| `npm test` | The full suite — 417 tests |
+| `npm test` | The full suite — 866 tests |
 | `npm run build` | Compiles every package to its own `dist/` |
 | `npm run build:clean` | Removes every `dist/`, then builds |
 | `npm run clean` | Removes every `dist/` |
 | `npm run docs:validate` | Checks the vault for broken links, orphans and frontmatter |
+| `npm run backup -- --db <path> --output <path>` | Checkpoints and copies the database, with a manifest — see `docs/obsidian/05 Operations/Backup Restore Implementation.md` |
+| `npm run restore -- --backup <path> --target <path>` | Verifies and restores into an isolated target, never the live path |
 
 ## Build output
 
@@ -248,6 +250,20 @@ together.
 >
 > Full reasoning: `docs/obsidian/09 Engineering/Vercel Deployment Limits.md`. Recorded as
 > **A56 / R30 — OPEN, deployment-blocking**.
+
+### Evaluating a real training host
+
+A category (small VPS, or a local/office machine) has been **recommended**,
+not selected — no vendor named, no account created, nothing deployed or
+purchased. See:
+
+- `docs/obsidian/09 Engineering/Training Deployment Architecture.md` — the target shape
+- `docs/obsidian/09 Engineering/Deployment Target Evaluation.md` — the comparison
+- `docs/obsidian/05 Operations/Persistent Host Runbook.md` — what already exists vs. what still needs infrastructure
+- `docs/obsidian/05 Operations/Service Startup and Shutdown.md` — the exact command sequence
+- `docs/obsidian/09 Engineering/Health Endpoints.md` — `/api/health/live` and `/api/health/ready`, implemented and tested
+- `docs/obsidian/05 Operations/Backup and Restore Runbook.md` and `Backup Restore Implementation.md` — implemented and tested; launch gate 10 still open pending real infrastructure
+- `docs/obsidian/09 Engineering/Security Deployment Checklist.md` — what deployment security is already enforced, and what remains an open limitation (A52, A48)
 
 Open assumptions are tracked in [ASSUMPTIONS.md](ASSUMPTIONS.md); decisions in
 `docs/obsidian/07 Governance/Decision Log.md`.

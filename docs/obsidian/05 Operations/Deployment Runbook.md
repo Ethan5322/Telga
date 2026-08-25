@@ -4,7 +4,7 @@ type: operations
 status: draft
 owner: telga
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-24
 tags:
   - telga
   - operations
@@ -17,6 +17,8 @@ related:
   - "[[Worker Configuration]]"
   - "[[Migration Strategy]]"
   - "[[Launch Gates]]"
+  - "[[Training Deployment Architecture]]"
+  - "[[Persistent Host Runbook]]"
 depends_on:
   - "[[Worker Configuration]]"
 implements: []
@@ -52,7 +54,7 @@ deliberately.
 
 | Component | Status |
 |---|---|
-| Build output `dist/` | **Exists.** 58 `.js`, 58 `.d.ts`, 0 `.ts` |
+| Build output `dist/` | **Exists.** 101 `.js`, 101 `.d.ts`, 0 `.ts` |
 | `packages/domain` | Library — no runtime |
 | `packages/persistence` | Library — owns the SQLite file |
 | `services/provider-adapters/mock-airtime` | **Mock only.** No live provider exists |
@@ -96,10 +98,12 @@ never appears in a log or on a receipt — see [[Security Model]].
 |---|---|
 | No environment defined | Everything below |
 | All worker configuration `NOT_YET_CONFIRMED` | Step 1 |
-| Backup and restore untested | [[Launch Gates]] gate 10 |
+| Backup and restore untested **on real infrastructure** | [[Launch Gates]] gate 10 — implemented and tested against real synthetic data, see the backup/restore implementation note (implemented separately); not yet run against a chosen host |
 | Multi-process migration untested (A30) | Step 2 at more than one instance |
 | ~~Multi-process worker safety untested (A37)~~ | **Resolved** — proved with real child processes |
-| CI authored but never executed (A43) | Confidence in any deploy |
+| ~~CI authored but never executed (A43)~~ | **Resolved** — verified green on the remote runner, see [[CI Pipeline]] |
+| No hosting target selected | See [[Deployment Target Evaluation]] — a category is recommended, no vendor chosen, nothing purchased |
+| ~~No health-check HTTP endpoint~~ | **Resolved** — `GET /api/health/live`, `GET /api/health/ready`, see the health endpoints note (implemented separately) |
 | No monitoring or alerting wired | Steps 4 and 5 |
 
 ## What must never be done
@@ -138,14 +142,17 @@ Migration **006** adds `merchant_users`, `device_enrollments`, `sessions` and
 nothing, and leaves the ledger and its append-only triggers untouched. Asserted
 directly in `tests/auth/migration.test.ts`.
 
-> [!warning] `--https` is false by default
-> The training machine serves plain HTTP, so session cookies are **not** marked
-> `Secure` — claiming it over HTTP makes browsers drop them. Pass
-> `--https true` only behind a real TLS terminator. Until then this is a
-> single-machine deployment and nothing else. **A53 OPEN.**
+> [!warning] Plain HTTP is loopback-only, not a deployment default to rely on
+> Without `--transport TRAINING_HTTPS`, the POS serves plain HTTP **bound to
+> loopback only** — a LAN binding is refused, not warned about — and session
+> cookies are not marked `Secure`. See [[Training HTTPS Deployment]] for the
+> real TLS flags. Until a CA-signed certificate exists, this remains a
+> single-controlled-machine deployment and nothing else. **A53 OPEN.**
 
 Operational procedures — lockouts, lost devices, stale forms — are in
-[[Training Operations Runbook]].
+[[Training Operations Runbook]]. The full startup/shutdown command sequence
+for a persistent host is in [[Service Startup and Shutdown]]; the
+architecture it assumes is in [[Training Deployment Architecture]].
 
 
 ## Transport — 2026-08-21
@@ -177,6 +184,10 @@ refuses to let `.pem` or `.key` be tracked.
 - [[Migration Strategy]]
 - [[Database Operations Runbook]]
 - [[Launch Gates]]
-
+- [[Training Deployment Architecture]]
+- [[Deployment Target Evaluation]]
+- [[Persistent Host Runbook]]
+- [[Service Startup and Shutdown]]
+- [[Backup and Restore Runbook]]
 ---
 Back to [[00 Home]]

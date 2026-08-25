@@ -87,6 +87,15 @@ Procedures in [[Database Operations Runbook]].
 **Stuck `PROCESSING` is the one to watch.** It means unit of work 2 failed after the provider was
 called, and there is no automatic sweep yet — see [[Transaction Failure Runbook]].
 
+## HTTP health endpoints — A62, resolved
+
+`GET /api/health/live` and `GET /api/health/ready` are implemented and
+tested — see the health endpoints note (implemented separately). Readiness reuses `recoveryGauges` and
+`evaluateAlerts` from this package rather than a second definition of "the
+recovery queue is fine." Neither endpoint can see the worker's own
+in-memory health (the two processes share only the database); readiness is
+an inference from persisted state, documented as such.
+
 ## Reading a worker process
 
 The CLI emits **one machine-readable line** per run with `--json`: worker id, process id, claimed,
@@ -221,6 +230,6 @@ provider body.
 - [[Provider Health]]
 - [[Security Model]]
 - [[Runbooks]]
-
+- [[Persistent Host Runbook]]
 ---
 Back to [[00 Home]]

@@ -8,6 +8,65 @@ All notable changes to Telga. Format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added — health endpoints and backup/restore tooling, A61/A62 resolved (2026-08-24)
+
+Two host-independent gaps from [[Persistent Host Runbook]], built and tested before any hosting
+target is chosen.
+
+**`GET /api/health/live` and `GET /api/health/ready`** (`services/api/src/http/health.ts`, closes
+A62). Reuses `recoveryGauges`/`evaluateAlerts` — the same numbers the worker's own observability
+already computes — rather than a second, possibly-conflicting definition of recovery health.
+Readiness reports `NOT_READY`/`UNHEALTHY`/`DEGRADED`/`HEALTHY` from real checks: training mode,
+database integrity and migration currency, ledger residual, recovery-queue lag, claim readability.
+Neither route can mutate state, expose a secret, or read a proxy header. 17 tests
+(`tests/ui/health.test.ts`), including real injected failures — a non-zero residual via a direct
+unbalanced insert, a missing migration, a transaction stuck past the safe period.
+
+**`@telga/backup`** (`services/backup/`, closes the implementation half of A61). `npm run backup`
+and `npm run restore`. Backup checkpoints (`PRAGMA wal_checkpoint(TRUNCATE)`) before copying, so a
+torn WAL-mode file is never captured; writes a manifest with a SHA-256 checksum, row counts, and
+the ledger residual, never a full host path. Restore verifies the checksum against the backup file
+itself **before** any copy — a corrupt backup produces no partial target — then, on the isolated
+target only, verifies schema currency, integrity, that the append-only triggers still refuse a real
+mutation, and that the residual is zero. Every session is revoked and every recovery claim released,
+unconditionally, on restore (D61) — stronger than the runbook's original "expired only" framing.
+Every path is checked against an explicit allow-list with no default. 27 tests
+(`tests/backup/backup-restore.test.ts`) including a full round trip for a transaction deliberately
+left `PROCESSING` by fault injection (the same technique used to reproduce A44), proving restore
+neither resolves nor duplicates it — residual stays zero throughout. Plus 5 tests against the real
+compiled CLI binary.
+
+**Launch gate 10 stays OPEN.** Implementation is not the same as having run this against real
+infrastructure — see the backup/restore implementation note (implemented separately) "What remains open": no chosen host, no
+real backup schedule, no measured time-to-restore, no full worker-sweep-after-restore integration
+test. Recorded as R31.
+
+### Added — persistent training deployment evaluation and design (A60–A62) (2026-08-24)
+
+Documentation and evaluation only — no infrastructure created, no account
+opened, nothing purchased or deployed, no code changed.
+
+Six new notes: [[Training Deployment Architecture]] (the smallest supported
+shape — HTTPS termination, a persistent POS/API process, a persistent SQLite
+database, a supervised recovery worker, all on one host),
+[[Deployment Target Evaluation]] (five hosting categories compared against
+nineteen criteria each, recommending a small VPS or a local/office machine —
+category chosen, no vendor), [[Persistent Host Runbook]] (a prerequisite audit: what already
+exists with a test behind it, what needs code, what needs infrastructure, what
+is blocked by an unresolved decision — including a real gap found while
+auditing: **no HTTP health-check route exists**, confirmed by reading the
+full route table), [[Service Startup and Shutdown]] (the exact command
+sequence, health checks, and shutdown order), [[Backup and Restore Runbook]]
+(design only — checkpoint-before-copy, isolated restore, eleven acceptance
+criteria — no script written, no restore ever run, launch gate 10 stays open),
+and [[Security Deployment Checklist]] (a review distinguishing what deployment
+security is already enforced in code, with a test, from what remains an open
+limitation — A52 and A48 are not fixable by any deployment choice).
+
+Recorded as A60 (deployment-target category, proposed not accepted — see
+[[Decision Log]] D59), A61 (backup/restore design completeness is not
+implementation completeness), and A62 (the missing health endpoint).
+
 ### Maintenance — Node 20 Actions deprecation warning resolved (A59) (2026-08-24)
 
 Not a product, recovery, or CI-functionality fix — `actions/checkout` and `actions/setup-node` were
