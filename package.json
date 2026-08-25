@@ -9,6 +9,7 @@
     "services/provider-adapters/*",
     "services/api",
     "services/worker",
+    "services/backup",
     "apps/*"
   ],
   "scripts": {
@@ -25,7 +26,9 @@
     "training:provision": "node apps/merchant-pos/dist/cli.js",
     "training:smoke": "node scripts/https-smoke.mjs",
     "test:child-process:stress": "node scripts/stress-child-process.mjs",
-    "check-committed": "node scripts/check-committed.mjs"
+    "check-committed": "node scripts/check-committed.mjs",
+    "backup": "node services/backup/dist/cli.js backup",
+    "restore": "node services/backup/dist/cli.js restore"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

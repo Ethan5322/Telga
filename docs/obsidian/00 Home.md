@@ -83,7 +83,7 @@ publication by `.gitignore`.
 - [[Worker Operations Runbook]] — **Mermaid: multi-worker claim lease** · restart, inspect, recover
 - [[Deployment Runbook]] — sequence, rollback, and what still blocks a deploy
 - [[Persistent Host Runbook]] — prerequisite audit for a real training host
-- The backup/restore implementation note (implemented separately) — the backup/restore tool that exists, and what still doesn't
+- [[Backup Restore Implementation]] — the backup/restore tool that exists, and what still doesn't
 - [[Service Startup and Shutdown]] — **Mermaid: startup sequence** · the exact command order
 - [[Backup and Restore Runbook]] — design only; launch gate 10 acceptance criteria
 - [[Source Specification Clipped In PDF]] — incident: the source PDF was clipped; names reconstructed
@@ -131,7 +131,7 @@ material, excluded on the same basis as the partnership folder.
 - [[Vercel Deployment Limits]] — why a Vercel build is not a running Telga
 - [[Training Deployment Architecture]] — **Mermaid: the persistent-host architecture**
 - [[Deployment Target Evaluation]] — five hosting categories compared, none purchased
-- The health endpoints note (implemented separately) — `/api/health/live` and `/api/health/ready`, implemented and tested
+- [[Health Endpoints]] — `/api/health/live` and `/api/health/ready`, implemented and tested
 - [[Security Deployment Checklist]] — what deployment security is enforced today, and what is not
 - [[TLS and Proxy Configuration]] — where TLS ends, and what may be believed about it
 - [[Local Certificate Handling]] — Telga never generates a key

@@ -31,4 +31,5 @@ export * from './http/readModel';
 export * from './http/guard';
 export * from './http/handlers';
 export * from './http/authHandlers';
+export * from './http/health';
 export * from './http/router';

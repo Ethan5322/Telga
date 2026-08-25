@@ -1,0 +1,19 @@
+{
+  "name": "@telga/backup",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga training-mode backup and restore tooling. Host-neutral: no cloud SDK, no vendor lock-in.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@telga/domain": "*",
+    "@telga/persistence": "*"
+  }
+}

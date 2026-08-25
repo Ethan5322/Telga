@@ -30,6 +30,7 @@ import type { HttpRequest, HttpResponse } from './contract';
 import type { AuthedApiDeps } from './deps';
 import { guard } from './guard';
 import { getBalance, getQueue, getTransaction, listTransactions, meta, postSale } from './handlers';
+import { getLiveness, getReadiness } from './health';
 import {
   getSession,
   postEnrolDevice,
@@ -39,6 +40,7 @@ import {
 } from './authHandlers';
 
 export const TRAINING_PREFIX = '/api/training';
+export const HEALTH_PREFIX = '/api/health';
 
 type ProtectedHandler = (
   deps: AuthedApiDeps,
@@ -74,6 +76,22 @@ interface PublicRoute {
 type Route = ProtectedRoute | PublicRoute;
 
 export const ROUTES: readonly Route[] = Object.freeze([
+  // Public, read-only, outside the training namespace on purpose: a process
+  // supervisor or reverse proxy checks these without a session, and they must
+  // work identically regardless of whether TRAINING_PREFIX ever changes.
+  {
+    method: 'GET',
+    pattern: `${HEALTH_PREFIX}/live`,
+    public: true,
+    handler: (d, r, c) => getLiveness(d, r, c),
+  },
+  {
+    method: 'GET',
+    pattern: `${HEALTH_PREFIX}/ready`,
+    public: true,
+    handler: (d, r, c) => getReadiness(d, r, c),
+  },
+
   // The only route that may be reached without a session. It carries its own
   // rate limit and lockout inside `login()`.
   { method: 'POST', pattern: `${TRAINING_PREFIX}/auth/login`, public: true, handler: postLogin },

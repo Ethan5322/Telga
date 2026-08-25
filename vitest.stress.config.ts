@@ -21,6 +21,7 @@ export default defineConfig({
     alias: {
       '@telga/api': resolve('./services/api/src/index.ts'),
       '@telga/worker': resolve('./services/worker/src/index.ts'),
+      '@telga/backup': resolve('./services/backup/src/index.ts'),
       '@telga/domain': resolve('./packages/domain/src/index.ts'),
       '@telga/persistence': resolve('./packages/persistence/src/index.ts'),
       '@telga/localization': resolve('./packages/localization/src/index.ts'),

@@ -27,6 +27,7 @@ export const BUILD_ORDER = [
   'packages/localization',
   'packages/pos-view-model',
   'packages/persistence',
+  'services/backup',
   'services/provider-adapters/mock-airtime',
   'services/api',
   'services/worker',

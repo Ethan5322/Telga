@@ -45,6 +45,9 @@
       ],
       "@telga/worker": [
         "./services/worker/src/index.ts"
+      ],
+      "@telga/backup": [
+        "./services/backup/src/index.ts"
       ]
     },
     "baseUrl": "."
