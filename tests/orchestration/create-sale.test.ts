@@ -55,13 +55,49 @@ describe('immediate success', () => {
     expect(debits).toHaveLength(1);
   });
 
-  it('writes no commission entry, because no rate is configured', async () => {
+  it('writes a training profit entry, marked as training and never as a negotiated rate', async () => {
+    // This test previously asserted *no* credit entry existed at all, because
+    // no commission rate was configured. A training profit rate is now
+    // configured deliberately (Decision Log D69), so the assertion changes
+    // shape rather than disappearing: an entry exists, and what matters is
+    // that it cannot be mistaken for a real provider commission.
     const { deps, driver } = harness('success-commission', { behaviour: 'SUCCESS' });
     await createSale(deps, saleRequest());
 
     const entries = driver.readEntries();
-    expect(entries.some((e) => e.entry_type === 'COMMISSION_CREDIT')).toBe(false);
+    const credits = entries.filter((e) => e.entry_type === 'COMMISSION_CREDIT');
+    expect(credits).toHaveLength(1);
+
+    // `rule_version` names the training rate explicitly, so no reader can
+    // take this for a negotiated commission.
+    expect(credits[0]?.rule_version).toMatch(/^training-profit-\d+bps$/);
+    expect(credits[0]?.account_type).toBe('TELGA_REVENUE');
+
+    // A real fee still has no rate and is still never written.
     expect(entries.some((e) => e.entry_type === 'FEE_DEBIT')).toBe(false);
+  });
+
+  it('applies the confirmed profit model: float −face value, revenue +profit', async () => {
+    const { deps, driver } = harness('success-profit-model', { behaviour: 'SUCCESS' });
+    const SALE_AMOUNT_MINOR = 2500; // the fixture sells 25 birr
+    const before = driver.balanceFor(MERCHANT_A).available.minor;
+
+    await createSale(deps, saleRequest());
+
+    // The float drops by exactly the face value the customer paid — the
+    // profit is never added to what they hand over.
+    const after = driver.balanceFor(MERCHANT_A).available.minor;
+    expect(before - after).toBe(SALE_AMOUNT_MINOR);
+
+    // And the profit is credited separately, at the default 4%.
+    const entries = driver.readEntries();
+    const revenue = entries.filter((e) => e.account_type === 'TELGA_REVENUE');
+    expect(revenue).toHaveLength(1);
+    expect(revenue[0]?.direction).toBe('CREDIT');
+    expect(revenue[0]?.amount_minor).toBe(Math.round((SALE_AMOUNT_MINOR * 400) / 10_000));
+
+    // The posting still balances, so the ledger residual stays zero.
+    expect(driver.ledgerResidualMinor()).toBe(0);
   });
 
   it('writes audit events for creation and every transition', async () => {

@@ -29,9 +29,10 @@ import {
   SESSION_COOKIE,
   TRAINING_SESSION_POLICY,
 } from '@telga/api';
+import { simulatedCatalog, simulatedVoucherCatalog } from '@telga/api';
 import type { ApiDeps, AuthConfig, HttpRequest, HttpResponse } from '@telga/api';
-import { TRAINING_LOCKOUT_POLICY } from '@telga/domain';
-import type { ActorRole, DeviceId, MerchantId, MerchantUserId } from '@telga/domain';
+import { TRAINING_LOCKOUT_POLICY, VOUCHER_PIN_LOCKOUT_POLICY } from '@telga/domain';
+import type { ActorRole, DeviceId, MerchantId, MerchantUserId, ProductId } from '@telga/domain';
 import { MOCK_BEHAVIOURS } from '@telga/provider-mock-airtime';
 import type { MockBehaviour } from '@telga/provider-mock-airtime';
 import type {
@@ -56,16 +57,101 @@ export const OWNER_USER = 'owner_alpha_1' as MerchantUserId;
 export const OPERATOR_B = 'operator_beta_1' as MerchantUserId;
 
 /**
- * Training auth policy for tests.
+ * Auth policy for tests that are **not** about the idle timeout.
  *
  * `secureCookies: false` because the fixtures speak plain HTTP; the production
  * value is a deployment decision, not a test one.
+ *
+ * The production idle window is one minute. Many tests advance the injected
+ * clock well past that to exercise recovery, pending resolution, order expiry
+ * or a lockout window — and with the real value they would all fail on an
+ * expired session instead of the thing they are testing, coupling every
+ * clock-advancing test to an unrelated policy.
+ *
+ * So the default fixture uses fifteen minutes — the value the policy carried
+ * before the one-minute change, which is what these tests were written
+ * against. It must stay comfortably **below** `absoluteLifetimeMs`, or the
+ * tests that distinguish an idle expiry from a lifetime expiry would collapse
+ * into each other.
+ *
+ * `tests/auth/idle-timeout.test.ts` opts back in to the production policy via
+ * `makeUiHarness(..., { sessionPolicy: TRAINING_SESSION_POLICY })`, so the
+ * real one-minute behaviour is still tested against the real number.
  */
+const FIXTURE_IDLE_TIMEOUT_MS = 15 * 60_000;
+
 export const TRAINING_AUTH_CONFIG: AuthConfig = Object.freeze({
-  session: TRAINING_SESSION_POLICY,
+  session: Object.freeze({
+    ...TRAINING_SESSION_POLICY,
+    idleTimeoutMs: FIXTURE_IDLE_TIMEOUT_MS,
+  }),
   lockout: TRAINING_LOCKOUT_POLICY,
+  pinLockout: VOUCHER_PIN_LOCKOUT_POLICY,
   secureCookies: false,
 });
+
+/** Same shape as `TRAINING_VOUCHER_CATALOG` in `apps/merchant-pos/src/cli.ts`. */
+export const TEST_VOUCHER_NETWORKS = Object.freeze([
+  { id: 'NETWORK_A', label: 'Network A (simulated)' },
+  { id: 'NETWORK_B', label: 'Network B (simulated)' },
+]);
+
+export const TEST_VOUCHER_CATALOG = Object.freeze(
+  TEST_VOUCHER_NETWORKS.flatMap((network) => [
+    ...[1000, 2500, 5000, 10_000].map((amountMinor) => ({
+      productId: `${network.id}_AIRTIME_${amountMinor}`,
+      network: network.id,
+      productType: 'AIRTIME' as const,
+      amountMinor,
+      available: true,
+      isCustom: false,
+    })),
+    // Mirrors `TRAINING_VOUCHER_CATALOG`: the amount is supplied per order.
+    {
+      productId: `${network.id}_AIRTIME_CUSTOM`,
+      network: network.id,
+      productType: 'AIRTIME' as const,
+      amountMinor: 0,
+      available: true,
+      isCustom: true,
+    },
+    ...[1000, 2500].map((amountMinor) => ({
+      productId: `${network.id}_TOPUP_${amountMinor}`,
+      network: network.id,
+      productType: 'TOPUP' as const,
+      amountMinor,
+      available: true,
+      isCustom: false,
+    })),
+    {
+      productId: `${network.id}_TOPUP_CUSTOM`,
+      network: network.id,
+      productType: 'TOPUP' as const,
+      amountMinor: 0,
+      available: true,
+      isCustom: true,
+    },
+    // A representative data bundle from each of two categories. The screens
+    // render the full `TRAINING_DATA_BUNDLES` list; the server only needs
+    // enough here to validate an order against.
+    {
+      productId: `${network.id}_DATA_MONTHLY_1GB_30D`,
+      network: network.id,
+      productType: 'DATA' as const,
+      amountMinor: 12_500,
+      available: true,
+      isCustom: false,
+    },
+    {
+      productId: `${network.id}_DATA_DAILY_100MB_1D`,
+      network: network.id,
+      productType: 'DATA' as const,
+      amountMinor: 1500,
+      available: true,
+      isCustom: false,
+    },
+  ]),
+);
 
 export interface UiHarness extends Harness {
   readonly api: ApiDeps;
@@ -75,16 +161,40 @@ export interface UiHarness extends Harness {
 
 export function makeUiHarness(
   name: string,
-  options: Parameters<typeof makeHarness>[1] = {},
+  options: Parameters<typeof makeHarness>[1] & {
+    /** Opt in to a specific session policy — the idle tests pass the real one. */
+    readonly sessionPolicy?: AuthConfig['session'];
+  } = {},
 ): UiHarness {
   const harness = makeHarness(`ui-${name}`, options);
+  const authConfig: AuthConfig =
+    options.sessionPolicy === undefined
+      ? TRAINING_AUTH_CONFIG
+      : { ...TRAINING_AUTH_CONFIG, session: options.sessionPolicy };
+
+  // `createSale` validates every sale's productId against `deps.catalog`,
+  // including a sale created through voucher PIN authorization — so the
+  // voucher products must resolve there too, alongside whatever the
+  // orchestration harness already seeded (`PRODUCT`).
+  const voucherAsCatalogProducts = simulatedCatalog(
+    TEST_VOUCHER_CATALOG.map((entry) => ({
+      id: entry.productId as ProductId,
+      label: entry.productId,
+      available: entry.available,
+    })),
+  );
+  const mergedCatalog = {
+    find: (id: ProductId) => harness.deps.catalog.find(id) ?? voucherAsCatalogProducts.find(id),
+  };
 
   const api: ApiDeps = {
     ...harness.deps,
+    catalog: mergedCatalog,
     statusCheckIntervalMs: STATUS_CHECK_INTERVAL_MS,
     maxClientPolls: MAX_CLIENT_POLLS,
     maxStatusAttempts: 5,
-    authConfig: TRAINING_AUTH_CONFIG,
+    authConfig,
+    voucherCatalog: simulatedVoucherCatalog(TEST_VOUCHER_CATALOG),
     // Exactly how a real deps factory would wire it: validate the name, then
     // re-script the mock. Unknown names throw, and the handler turns that into
     // a 400 rather than letting it escape.
@@ -159,7 +269,7 @@ export async function enrolTestDevice(
   input: { deviceId?: DeviceId; merchantId?: MerchantId } = {},
 ): Promise<string> {
   const result = await enrolDevice(api, {
-    deviceId: input.deviceId ?? (DEVICE_A as DeviceId),
+    deviceId: input.deviceId ?? (DEVICE_A),
     merchantId: input.merchantId ?? MERCHANT_A,
     actor: { userId: 'system', role: 'ADMIN' },
     correlationId: 'corr_test_enrol',
@@ -179,7 +289,7 @@ export async function signInAs(
   } = {},
 ): Promise<TestSession> {
   const merchantId = input.merchantId ?? MERCHANT_A;
-  const deviceId = input.deviceId ?? (DEVICE_A as DeviceId);
+  const deviceId = input.deviceId ?? (DEVICE_A);
   const userId = await provisionOperator(api, {
     userId: input.userId,
     merchantId,
@@ -267,7 +377,11 @@ export async function seedSale(
   harness: UiHarness,
   overrides: Parameters<typeof saleRequest>[0] = {},
 ): Promise<string> {
-  const result = await createSale(harness.deps, saleRequest(overrides));
+  // `harness.api`, not `harness.deps`: the api deps carry the *merged*
+  // catalog, so a voucher product id resolves here exactly as it does through
+  // the HTTP surface. Using `deps` meant a seeded voucher sale was refused
+  // `PRODUCT_UNAVAILABLE` while the same id worked over the wire.
+  const result = await createSale(harness.api, saleRequest(overrides));
   const id = 'transactionId' in result ? result.transactionId : undefined;
   if (typeof id !== 'string') {
     throw new Error(`Expected a transaction id, got kind ${result.kind}`);

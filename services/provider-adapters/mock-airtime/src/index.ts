@@ -137,7 +137,7 @@ export class MockAirtimeProvider implements AirtimeProvider {
     if (this.options.behaviour) return this.options.behaviour;
     const seed = this.options.seed ?? 0;
     const index = hash(`${idempotencyKey}:${String(seed)}`) % MOCK_BEHAVIOURS.length;
-    return MOCK_BEHAVIOURS[index] as MockBehaviour;
+    return MOCK_BEHAVIOURS[index];
   }
 
   private reference(idempotencyKey: string): string {
@@ -330,3 +330,4 @@ export class MockAirtimeProvider implements AirtimeProvider {
     return this.submissions.get(idempotencyKey)?.seen ?? 0;
   }
 }
+export * from './cardSimulator';

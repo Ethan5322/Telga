@@ -40,8 +40,27 @@ export interface WorkerClock {
   random(): number;
 }
 
-/** The only place in the worker that touches the real system clock. */
-export function systemWorkerClock(): WorkerClock {
+/**
+ * The only place in the worker that touches the real system clock.
+ *
+ * ## `keepAlive`, and the bug it exists to prevent
+ *
+ * The sleep timer used to be **unconditionally `unref`'d**, on the reasoning
+ * that a pending sleep should not delay shutdown. For `runOnce()` that is
+ * right. For the supervised loop it was fatal: after the first sweep the
+ * worker awaits the next interval, that timer is the only thing left in the
+ * event loop, and Node — seeing nothing keeping the process alive — exits
+ * **cleanly with code 0, mid-await**.
+ *
+ * The symptom was a worker that printed nothing and returned to the prompt
+ * instantly. It looked exactly like a successful background start, which is
+ * why it survived: nothing failed, the process simply stopped existing.
+ *
+ * So the flag is explicit. `keepAlive: true` refs the timer and the process
+ * stays up until something stops it; the default stays `false` so one-shot
+ * runs and tests exit the moment their work is done.
+ */
+export function systemWorkerClock(options: { keepAlive?: boolean } = {}): WorkerClock {
   return {
     now: () => timestamp(new Date()),
     monotonicMs: () => Number(process.hrtime.bigint() / 1_000_000n),
@@ -61,8 +80,9 @@ export function systemWorkerClock(): WorkerClock {
           resolve();
         };
         const timer = setTimeout(finish, ms);
-        // Do not hold the process open purely to finish a sleep.
-        timer.unref?.();
+        // A supervised worker must outlive its own sleep; a one-shot must not.
+        // See the note on `systemWorkerClock`.
+        if (options.keepAlive !== true) timer.unref?.();
         const off = shutdown?.onStop(finish);
         if (shutdown?.stopRequested === true) finish();
       });
@@ -153,7 +173,7 @@ export class RecoveryWorkerLoop {
     logger.log({ level: 'info', event: 'worker.started', workerId, at: clock.now() });
 
     if (!policy.runInitialSweepOnStart) {
-      await clock.sleep(nextDelayMs(policy, this.backoff, clock.random), shutdown);
+      await clock.sleep(nextDelayMs(policy, this.backoff, () => clock.random()), shutdown);
     }
 
     while (!shutdown.stopRequested) {
@@ -161,7 +181,7 @@ export class RecoveryWorkerLoop {
       if (shutdown.stopRequested) break;
 
       // Fixed delay from the end of the sweep: cannot run away.
-      const delay = nextDelayMs(policy, this.backoff, clock.random);
+      const delay = nextDelayMs(policy, this.backoff, () => clock.random());
       this.sweepsScheduled += 1;
       await clock.sleep(delay, shutdown);
     }
@@ -271,7 +291,7 @@ export class RecoveryWorkerLoop {
       return;
     }
 
-    this.backoff = advanceBackoff(policy, this.backoff, clock.random);
+    this.backoff = advanceBackoff(policy, this.backoff, () => clock.random());
     this.status = 'BACKING_OFF';
     metrics.increment(METRIC.backoffEvents);
     logger.log({

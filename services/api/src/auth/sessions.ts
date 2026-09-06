@@ -358,10 +358,28 @@ function contextOf(
  * Returns a failure rather than throwing, so every call site has to handle the
  * refusal explicitly. Sliding the idle window is the only write.
  */
+export interface AuthenticateOptions {
+  /**
+   * Whether this request counts as activity.
+   *
+   * Default true. Background polling passes false: a screen left open on a
+   * counter polls a pending transaction every few seconds, and if that slid
+   * the idle window the session would never expire while the tab was open —
+   * which is the opposite of what an inactivity timeout is for. The session
+   * is still fully validated either way; only the sliding is suppressed.
+   *
+   * This is a UX control, not a security control. A client that omits the
+   * background marker merely keeps its own session alive, exactly as a real
+   * request would, so the failure direction is safe.
+   */
+  readonly extendIdle?: boolean;
+}
+
 export function authenticate(
   deps: AuthDeps,
   sessionToken: string | undefined,
   correlationId: string,
+  options: AuthenticateOptions = {},
 ): AuthResult {
   const now = deps.now();
   if (sessionToken === undefined || sessionToken.length === 0) return failure('SESSION_MISSING');
@@ -439,9 +457,16 @@ export function authenticate(
     return failure('SESSION_REVOKED');
   }
 
-  const idleExpiresAt = shiftBy(now, deps.authConfig.session.idleTimeoutMs);
-  deps.driver.touchSession(session.id, now, idleExpiresAt);
-  deps.driver.touchDevice(session.device_id as DeviceId, now);
+  // A background poll validates the session but does not renew it — see
+  // `AuthenticateOptions.extendIdle`.
+  const extendIdle = options.extendIdle ?? true;
+  const idleExpiresAt = extendIdle
+    ? shiftBy(now, deps.authConfig.session.idleTimeoutMs)
+    : (session.idle_expires_at as Timestamp);
+  if (extendIdle) {
+    deps.driver.touchSession(session.id, now, idleExpiresAt);
+    deps.driver.touchDevice(session.device_id as DeviceId, now);
+  }
 
   return success(
     contextOf(user, {

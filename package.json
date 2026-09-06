@@ -28,12 +28,30 @@
     "test:child-process:stress": "node scripts/stress-child-process.mjs",
     "check-committed": "node scripts/check-committed.mjs",
     "backup": "node services/backup/dist/cli.js backup",
-    "restore": "node services/backup/dist/cli.js restore"
+    "restore": "node services/backup/dist/cli.js restore",
+    "brand:logo": "python scripts/brand/build-logo.py",
+    "brand:icons": "python scripts/brand/build-icons.py",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "audit": "npm audit --omit=dev",
+    "mobile:configure": "node scripts/mobile/configure-shell.mjs",
+    "mobile:sync": "npm run mobile:configure && cd apps/mobile && npx cap sync android",
+    "mobile:open": "cd apps/mobile && npx cap open android",
+    "mobile:icons": "node scripts/mobile/generate-icons.mjs",
+    "mobile:release": "cd apps/mobile/android && gradlew.bat assembleRelease bundleRelease",
+    "mobile:diagnose": "powershell -ExecutionPolicy Bypass -File scripts/mobile/diagnose-install.ps1",
+    "mobile:package": "node scripts/mobile/package-release.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
+    "eslint": "^9.39.5",
+    "prettier": "^3.9.6",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.68.0",
     "vitest": "^3.2.4"
   },
   "engines": {

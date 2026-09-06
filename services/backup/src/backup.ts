@@ -148,7 +148,15 @@ export async function runBackup(options: BackupOptions): Promise<BackupResult> {
 
     const manifest: BackupManifest = {
       manifestVersion: 1,
-      schemaVersion: missing.length > 0 ? `${latestApplied} (incomplete: missing ${missing.join(', ')})` : latestApplied,
+      // `missing` holds migration records, not version strings. Joining them
+      // directly produced `[object Object], [object Object]` in the one field
+      // that says *which* migrations a restored database would be short of —
+      // so the manifest reported an incomplete schema without saying what was
+      // incomplete about it. Found by the linter, not by a test.
+      schemaVersion:
+        missing.length > 0
+          ? `${latestApplied} (incomplete: missing ${missing.map((m) => m.version).join(', ')})`
+          : latestApplied,
       createdAt: now(),
       databaseSizeBytes: sizeBytes,
       ledgerResidualMinor: residual,

@@ -62,6 +62,43 @@ export function saveMerchantUser(db: Db, input: MerchantUserInput): MerchantUser
   return findMerchantUser(db, input.id) as MerchantUserRow;
 }
 
+/**
+ * Replace one user's PIN, and nothing else.
+ *
+ * Deliberately not `saveMerchantUser`: that upsert also writes display name,
+ * role and status, so a caller who only meant to change a PIN could silently
+ * change what somebody is allowed to do. This touches three columns.
+ *
+ * Scoped by merchant as well as id, so one shop can never rewrite another
+ * shop's credentials even with a guessed user id. Returns `false` when
+ * nothing matched, which the caller reports as a refusal rather than
+ * treating as success.
+ *
+ * `failed_attempts` and `locked_until` are left alone: a new PIN does not
+ * clear a lockout, or setting one would become a way around it.
+ */
+export function updateMerchantUserPin(
+  db: Db,
+  input: {
+    readonly id: MerchantUserId;
+    readonly merchantId: MerchantId;
+    readonly pinHash: string;
+    readonly pinSalt: string;
+    readonly pinParams: string;
+    readonly at: Timestamp;
+  },
+): boolean {
+  const result = db
+    .prepare(
+      `UPDATE merchant_users
+          SET pin_hash = @pinHash, pin_salt = @pinSalt, pin_params = @pinParams,
+              updated_at = @at
+        WHERE id = @id AND merchant_id = @merchantId`,
+    )
+    .run(input);
+  return result.changes === 1;
+}
+
 export function findMerchantUser(
   db: Db,
   id: MerchantUserId,
@@ -337,6 +374,29 @@ export function countAttemptsSince(
   const row = db
     .prepare(
       'SELECT COUNT(*) AS n FROM auth_attempts WHERE scope = ? AND subject = ? AND created_at > ?',
+    )
+    .get(scope, subject, since) as { n: number };
+  return row.n;
+}
+
+/**
+ * How many **failures** a subject has recorded since `since`.
+ *
+ * Backs the voucher `PIN_AUTH` lockout, which is deliberately a trailing
+ * failure count rather than a stored `locked_until` — the lock lifts on its
+ * own as old failures age out of the window, and nothing here ever touches
+ * `merchant_users`.
+ */
+export function countFailuresSince(
+  db: Db,
+  scope: AttemptScope,
+  subject: string,
+  since: Timestamp,
+): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM auth_attempts
+        WHERE scope = ? AND subject = ? AND outcome = 'FAILURE' AND created_at > ?`,
     )
     .get(scope, subject, since) as { n: number };
   return row.n;

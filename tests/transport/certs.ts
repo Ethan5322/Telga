@@ -48,14 +48,14 @@ const set = (...parts: Buffer[]): Buffer => tlv(0x31, Buffer.concat(parts));
 function int(value: Buffer | number): Buffer {
   let body = typeof value === 'number' ? Buffer.from([value]) : value;
   if (body.length === 0) body = Buffer.from([0]);
-  if ((body[0] as number) & 0x80) body = Buffer.concat([Buffer.from([0]), body]);
+  if ((body[0]) & 0x80) body = Buffer.concat([Buffer.from([0]), body]);
   return tlv(0x02, body);
 }
 
 /** An OID, from its dotted form. */
 function oid(dotted: string): Buffer {
   const parts = dotted.split('.').map(Number);
-  const first = (parts[0] as number) * 40 + (parts[1] as number);
+  const first = (parts[0]) * 40 + (parts[1]);
   const bytes: number[] = [first];
   for (const part of parts.slice(2)) {
     const chunks: number[] = [];
@@ -64,7 +64,7 @@ function oid(dotted: string): Buffer {
       chunks.unshift(value & 0x7f);
       value >>>= 7;
     } while (value > 0);
-    for (let i = 0; i < chunks.length - 1; i += 1) chunks[i] = (chunks[i] as number) | 0x80;
+    for (let i = 0; i < chunks.length - 1; i += 1) chunks[i] = (chunks[i]) | 0x80;
     bytes.push(...chunks);
   }
   return tlv(0x06, Buffer.from(bytes));

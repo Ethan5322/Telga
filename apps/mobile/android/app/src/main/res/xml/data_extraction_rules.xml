@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What may leave this device. Nothing.
+
+    Android 12 replaced `allowBackup` with these two channels, and a build that
+    sets only the old attribute is silently backed up anyway on newer phones.
+    Both are declared here so the answer is the same on every Android version
+    Telga supports (minSdk 24 through the current target).
+
+    `cloud-backup` is Google Drive backup. `device-transfer` is the
+    phone-to-phone copy during setup. Excluding the whole domain set on both
+    means the WebView's cookies, the saved server address and any live session
+    stay on the device they were created on.
+
+    There is no cost to this: the shell stores nothing a merchant would miss.
+    Everything that matters - transactions, balances, the ledger - lives on the
+    Telga server, and signing in again restores the app completely.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

@@ -39,7 +39,7 @@ No incident note is an orphan.
 | 6 | Device loss or theft | TO BE WRITTEN |
 | 7 | Refund and reversal | TO BE WRITTEN |
 | 8 | Incident response | TO BE WRITTEN |
-| 9 | Restore from backup | TO BE WRITTEN — placeholder in [[Database Operations Runbook]] |
+| 9 | Restore from backup | **PROCEDURE TESTED LOCALLY 2026-09-05** — steps and evidence in [[Localhost Setup]]; a backup was restored to a new file with a matching SHA-256, `integrityCheck: "ok"`, `appendOnlyVerified: true`, and the restored database then served traffic with all health checks green. **Launch gate 10 stays OPEN**: this was a developer machine, not real infrastructure, and no restore has been timed or rehearsed on a host — see [[Backup and Restore Runbook]] and R31 |
 | 10 | Database operations — health, residual, migrations | **WRITTEN** — [[Database Operations Runbook]] |
 | 11 | Transaction failure — triage, stuck sales, reversals | **WRITTEN** — [[Transaction Failure Runbook]] |
 | 12 | Recovery sweep — daily checks, failures, worker contention | **WRITTEN** — [[Recovery Sweep Runbook]] |

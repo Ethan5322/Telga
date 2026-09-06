@@ -36,6 +36,15 @@ export interface RecoveryWorkerOptions {
   /** Deterministic id generation. The worker supplies one if omitted. */
   readonly newId?: (prefix: string) => string;
   readonly clock?: WorkerClock;
+  /**
+   * Keep the process alive between sweeps.
+   *
+   * Set by a caller that intends to run the supervised loop. Without it the
+   * default clock unrefs its sleep timer, and a worker with nothing else in
+   * the event loop exits cleanly, silently, mid-sleep — see
+   * `systemWorkerClock`. Ignored when an explicit `clock` is supplied.
+   */
+  readonly keepAlive?: boolean;
   readonly shutdown?: ShutdownController;
   readonly logger?: Logger;
   readonly metrics?: MetricsSink;
@@ -77,7 +86,9 @@ export function createRecoveryWorker(options: RecoveryWorkerOptions): RecoveryWo
     throw new LiveMoneyDisabledError();
   }
 
-  const clock = options.clock ?? systemWorkerClock();
+  // `keepAlive` only when this worker is going to supervise. A one-shot sweep
+  // should exit the moment it is done; a loop must not exit while it sleeps.
+  const clock = options.clock ?? systemWorkerClock({ keepAlive: options.keepAlive === true });
   const shutdown = options.shutdown ?? new ShutdownController();
   const logger = options.logger ?? noopLogger();
   const metrics = options.metrics ?? noopMetrics();

@@ -283,6 +283,14 @@ describe('sale rate limiting', () => {
       });
     }
 
+    // The sale window is deliberately shorter than the inactivity timeout, so
+    // waiting the limit out does not sign the operator out. This assertion is
+    // what keeps the two values from silently converging again.
+    expect(
+      harness.api.authConfig.session.saleRateWindowMs,
+      'the sale window must stay below the idle timeout',
+    ).toBeLessThan(harness.api.authConfig.session.idleTimeoutMs);
+
     advance(harness, harness.api.authConfig.session.saleRateWindowMs + 1000);
 
     const { response } = await callWith(harness.api, 'POST', '/api/training/sales', {

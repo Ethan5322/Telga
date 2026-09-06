@@ -194,6 +194,85 @@ export function balanceFor(db: Db, merchantId: MerchantId): BalanceView {
   });
 }
 
+/** True when a posting id has already been written. Used to make a retry idempotent. */
+export function postingExists(db: Db, postingId: string): boolean {
+  const row = db
+    .prepare('SELECT 1 AS present FROM ledger_entries WHERE posting_id = ? LIMIT 1')
+    .get(postingId) as { present: number } | undefined;
+  return row !== undefined;
+}
+
+/**
+ * A merchant's training profit for one calendar day.
+ *
+ * Summed from the ledger, never recomputed from a rate: entries carry the
+ * rate that was in force when the sale happened (`rule_version`), so changing
+ * the setting tomorrow cannot restate what a shop earned today.
+ *
+ * `dayPrefix` is the `YYYY-MM-DD` of the timestamps, which are stored as ISO
+ * strings — so this is a prefix match on the server's clock, matching how the
+ * rest of the POS decides what "today" means.
+ *
+ * ## Why `ADJUSTMENT` entries are excluded
+ *
+ * Reported from the counter, 2026-08-29: *"when I want to deposit profit it
+ * allows more than existing profit and makes it negative"*.
+ *
+ * The transfer itself was never the problem — it is bounded, and refuses to
+ * move more than `profitAvailableMinor`. The problem was **this** figure. A
+ * transfer posts a `DEBIT` to `TELGA_REVENUE` dated the day it is made, and
+ * this sum counted it. So an owner who earned 40 birr on Monday and moved it
+ * on Tuesday saw Tuesday's profit as **−40**: the dashboard reported a day of
+ * losses for the act of collecting what was already earned. Move it twice and
+ * the figure grows more negative, which is what "later on it allows more to
+ * transfer" describes — the pill and the transfer screen were answering two
+ * different questions with the same-looking number.
+ *
+ * `ADJUSTMENT` is the reason a transfer posts under (`transferProfitToBalance`),
+ * and a transfer is a **movement between the shop's own buckets**, not an
+ * un-earning. Earnings post as `COMMISSION_CREDIT`.
+ *
+ * `REVERSAL` is deliberately **not** excluded: a reversed sale really is
+ * un-earned, and today's profit should fall when one happens.
+ */
+export function profitForDay(db: Db, merchantId: MerchantId, dayPrefix: string): number {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE direction WHEN 'CREDIT' THEN amount_minor ELSE -amount_minor END), 0) AS net
+         FROM ledger_entries
+        WHERE merchant_id = ?
+          AND account_type = 'TELGA_REVENUE'
+          AND created_at LIKE ? || '%'
+          AND entry_type <> 'ADJUSTMENT'`,
+    )
+    .get(merchantId, dayPrefix) as { net: number };
+  return row.net;
+}
+
+/**
+ * Profit a merchant has earned and not yet moved to their selling balance.
+ *
+ * All time, not one day: `profitForDay` answers "what did today earn", which
+ * is the dashboard's question. This answers "what is there to take", which is
+ * the transfer's question — and they are different the moment an owner earns
+ * on Monday and transfers on Tuesday.
+ *
+ * Because a transfer is posted as a DEBIT against the same account, this net
+ * *is* the untaken remainder: earned minus transferred, with no separate
+ * tally to drift out of agreement with the ledger.
+ */
+export function profitAvailableMinor(db: Db, merchantId: MerchantId): number {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE direction WHEN 'CREDIT' THEN amount_minor ELSE -amount_minor END), 0) AS net
+         FROM ledger_entries
+        WHERE merchant_id = ?
+          AND account_type = 'TELGA_REVENUE'`,
+    )
+    .get(merchantId) as { net: number };
+  return row.net;
+}
+
 /** Whole-ledger residual. Zero when double entry holds across every account. */
 export function ledgerResidualMinor(db: Db): number {
   const row = db

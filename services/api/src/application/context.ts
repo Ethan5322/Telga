@@ -36,6 +36,38 @@ export function simulatedCatalog(products: readonly CatalogProduct[]): ProductCa
   return { find: (productId) => byId.get(productId) };
 }
 
+/**
+ * What a voucher catalog entry is, from the order-creation service's point of
+ * view. Separate from `CatalogProduct`: `/sell` and the voucher order flow
+ * must never share one structure, so a change to one cannot silently change
+ * what the other validates against.
+ */
+export interface VoucherOrderProduct {
+  readonly productId: string;
+  readonly network: string;
+  readonly productType: 'AIRTIME' | 'TOPUP' | 'DATA';
+  /** The fixed denomination. Meaningless — and never used — when `isCustom`. */
+  readonly amountMinor: number;
+  readonly available: boolean;
+  /**
+   * True for the per-network custom entry, whose amount the operator types
+   * and the server validates against `TRAINING_CUSTOM_AMOUNT_LIMITS` and the
+   * available balance.
+   */
+  readonly isCustom?: boolean;
+}
+
+export interface VoucherOrderCatalog {
+  find(productId: string): VoucherOrderProduct | undefined;
+}
+
+export function simulatedVoucherCatalog(
+  products: readonly VoucherOrderProduct[],
+): VoucherOrderCatalog {
+  const byId = new Map(products.map((p) => [p.productId, p]));
+  return { find: (productId) => byId.get(productId) };
+}
+
 export interface SaleDeps {
   readonly driver: SqliteLedgerDriver;
   readonly provider: AirtimeProvider;
@@ -64,6 +96,17 @@ export interface SaleRequest {
   readonly productId: ProductId;
   readonly amount: Money;
   readonly recipient: string;
+  /**
+   * The mask to store, when the caller already holds one and the full number
+   * no longer exists.
+   *
+   * The voucher flow masks a phone number at order creation and deliberately
+   * never keeps the full value, so by authorization time there is nothing
+   * left to mask — re-masking a mask would print nonsense. An empty string
+   * means the product genuinely has no recipient, and the slip omits the
+   * line rather than printing a row of stars.
+   */
+  readonly recipientMasked?: string;
   /**
    * Generated once per user intent — when the confirmation screen opens, not
    * when the button is pressed — so a second press carries the same value.

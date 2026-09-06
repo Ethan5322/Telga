@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Telga</title>
+    <!--
+      The screen the app opens on before it has a server.
+
+      Telga's screens are rendered by the Telga server, so this shell has none
+      of them. What it has is the one thing a freshly installed app needs and
+      cannot get from a server it has not been told about yet: somewhere to
+      enter the address.
+
+      Why this page exists at all, rather than pointing the app straight at a
+      URL baked into the build: an app installed from the Play Store lands on
+      phones in shops Telga has not met. Some will be on a pilot server, some on
+      the production one, and during the pilot the address is genuinely not
+      known at build time. A build-time constant would mean a new APK, a new
+      review and a new rollout every time an address changed. It is also the
+      honest design — the alternative is an app that opens to a blank white
+      WebView error, which is what every "wrapped web app" does badly.
+
+      Bilingual and inline. Every other string in Telga comes from
+      @telga/localization, but this page runs before the app has reached a
+      server, so it cannot ask one for translations. The two languages are
+      side by side rather than behind a toggle: a toggle is another thing to
+      find, and there are only a few lines here.
+    -->
+    <style>
+      :root {
+        --ink: #0f2224;
+        --ground: #122e30;
+        --card: #ffffff;
+        --line: #cfdcdc;
+        --muted: #4a6264;
+        --accent: #0d7a70;
+        --accent-ink: #ffffff;
+        --bad: #8c2f22;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--ground);
+        color: var(--ink);
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans Ethiopic', sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* Keeps the card clear of the notch and the gesture bar. */
+        padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+      }
+      .card {
+        background: var(--card);
+        border-radius: 18px;
+        width: 100%;
+        max-width: 26rem;
+        padding: 1.5rem 1.25rem 1.75rem;
+        box-shadow: 0 18px 40px rgb(0 0 0 / 35%);
+      }
+      .brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+        margin-bottom: 1.25rem;
+      }
+      .brand img {
+        width: 92px;
+        height: 92px;
+        border-radius: 20px;
+      }
+      .brand strong {
+        font-size: 1.4rem;
+        letter-spacing: 0.02em;
+      }
+      .brand span {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      h1 {
+        font-size: 1.1rem;
+        margin: 0 0 0.25rem;
+      }
+      .am {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin: 0 0 1rem;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.35rem;
+        font-size: 0.95rem;
+      }
+      input[type='url'] {
+        width: 100%;
+        padding: 0.85rem 0.75rem;
+        font-size: 1rem;
+        border: 2px solid var(--line);
+        border-radius: 10px;
+        /* 16px minimum, or the phone zooms the whole page on focus. */
+        font-family: inherit;
+      }
+      input[type='url']:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin: 0.4rem 0 1rem;
+      }
+      button {
+        width: 100%;
+        /* 48dp: the Android touch-target floor, and a counter is a hurried place. */
+        min-height: 52px;
+        font-size: 1.05rem;
+        font-weight: 700;
+        font-family: inherit;
+        color: var(--accent-ink);
+        background: var(--accent);
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+      }
+      button:focus-visible {
+        outline: 3px solid #0f2224;
+        outline-offset: 2px;
+      }
+      .status {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        border-radius: 10px;
+        font-size: 0.92rem;
+        display: none;
+      }
+      .status[data-kind='working'] {
+        display: block;
+        background: #eef4f4;
+        color: var(--muted);
+      }
+      .status[data-kind='bad'] {
+        display: block;
+        background: #fbecea;
+        color: var(--bad);
+        font-weight: 600;
+      }
+      .foot {
+        margin-top: 1.25rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .training {
+        margin-top: 0.75rem;
+        background: #fff4d6;
+        border: 1px solid #d8b24a;
+        color: #6a4c07;
+        border-radius: 8px;
+        padding: 0.6rem 0.7rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="brand">
+        <img src="icon.png" alt="" />
+        <strong>Telga</strong>
+        <span>MuleSoo Digital Services</span>
+      </div>
+
+      <h1>Which Telga server?</h1>
+      <p class="am">የቴልጋ አገልጋይ አድራሻ</p>
+
+      <form id="form" novalidate>
+        <label for="server">Server address</label>
+        <input
+          id="server"
+          name="server"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          placeholder="https://"
+          required
+        />
+        <p class="hint">
+          Ask MuleSoo for this address. It starts with <code>https://</code>.
+          <br />ይህን አድራሻ ከሙሌሶ ይጠይቁ።
+        </p>
+        <button id="go" type="submit">Connect · አገናኝ</button>
+      </form>
+
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+
+      <p class="training">TRAINING MODE — NO REAL VALUE</p>
+
+      <p class="foot">
+        Telga is an authorised-provider merchant platform. It is not a bank, a
+        wallet, or a payment institution, and it does not hold customer money.
+      </p>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="connect.js"></script>
+    <script>
+      // No framework and no bundler, matching the rest of Telga. This page has
+      // one job and it does not need 40KB of library to do it.
+      (function () {
+        'use strict';
+
+        var KEY = 'telga.server';
+        var SHELL = window.TELGA_SHELL || { allowedHosts: [], defaultServer: null };
+
+        var form = document.getElementById('form');
+        var input = document.getElementById('server');
+        var button = document.getElementById('go');
+        var status = document.getElementById('status');
+
+        function say(kind, text) {
+          status.setAttribute('data-kind', kind);
+          status.textContent = text;
+        }
+
+        // Validation lives in connect.js so it can be tested against the
+        // exact source the APK ships. See tests/mobile/connect.test.ts.
+        function parseServer(raw) {
+          return window.TelgaConnect.parseServer(raw, SHELL.allowedHosts);
+        }
+
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          var parsed = parseServer(input.value);
+          if (parsed.error) {
+            say('bad', parsed.error);
+            input.focus();
+            return;
+          }
+          button.disabled = true;
+          say('working', 'Connecting… · በመገናኘት ላይ…');
+          try {
+            window.localStorage.setItem(KEY, parsed.origin);
+          } catch (e) {
+            // A phone with site data blocked still gets one working session;
+            // it just has to be told the address again next time.
+          }
+          window.location.replace(parsed.origin + '/launcher');
+        });
+
+        // A build with one known server does not ask at all. This is the shape
+        // a Play Store release takes: production has a single address, so the
+        // connect screen would be a question with one possible answer.
+        if (SHELL.defaultServer) {
+          var preset = parseServer(SHELL.defaultServer);
+          if (preset.origin) {
+            say('working', 'Opening Telga… · ቴልጋን በመክፈት ላይ…');
+            window.location.replace(preset.origin + '/launcher');
+            return;
+          }
+        }
+
+        // A phone that has already been set up should not be asked again.
+        try {
+          var saved = window.localStorage.getItem(KEY);
+          if (saved) {
+            var check = parseServer(saved);
+            if (check.origin) {
+              say('working', 'Opening Telga… · ቴልጋን በመክፈት ላይ…');
+              window.location.replace(check.origin + '/launcher');
+            } else {
+              // A stored value that no longer passes the rules above is
+              // discarded rather than trusted because it is already saved.
+              window.localStorage.removeItem(KEY);
+            }
+          }
+        } catch (e) {
+          /* No stored value available; the form below is the fallback. */
+        }
+      })();
+    </script>
+  </body>
+</html>

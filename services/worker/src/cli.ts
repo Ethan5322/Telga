@@ -105,7 +105,7 @@ export function parseArgs(argv: readonly string[], env: NodeJS.ProcessEnv = {}):
     statusOverride: (flags.get('status') ?? env.TELGA_MOCK_STATUS) as ProviderStatus['outcome'] | undefined,
     json: bare.has('json') || env.TELGA_JSON === 'true',
     migrate: bare.has('migrate') || flags.get('migrate') === 'true' || env.TELGA_MIGRATE === 'true',
-    overrides: overrides as Partial<RecoveryWorkerPolicy>,
+    overrides: overrides,
   };
 }
 
@@ -206,6 +206,11 @@ export async function run(
   try {
     const worker = createRecoveryWorker({
       workerId: args.workerId,
+      // Without `--once` this process supervises, so its sleep must hold the
+      // event loop open. Omitting this made the worker exit 0 the moment it
+      // reached its first sleep, printing nothing — indistinguishable from a
+      // successful background start.
+      keepAlive: !args.once,
       policy,
       driver,
       provider: new MockAirtimeProvider({
@@ -225,6 +230,17 @@ export async function run(
     });
 
     if (!args.once) {
+      // Say so before blocking.
+      //
+      // The loop below runs for hours and prints nothing until it stops, so
+      // without this line a working worker and a dead one look identical at
+      // the prompt — which is exactly how the unref'd-sleep bug survived. One
+      // line naming the id, the pid and the database is what makes a silent
+      // start distinguishable from no start.
+      write(
+        `${args.workerId} pid=${String(process.pid)} watching ${args.db} — ` +
+          `sweeping every ${String(Math.round(policy.recoveryIntervalMs / 1000))}s. Ctrl+C to stop.`,
+      );
       // A long-running supervised loop. Stops on SIGTERM or SIGINT.
       const health = await worker.start();
       emit(write, args, health, driver, args.workerId, undefined);

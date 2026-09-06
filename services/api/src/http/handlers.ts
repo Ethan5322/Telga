@@ -30,8 +30,8 @@
  * known limitation in `09 Engineering/Merchant POS UI.md`.
  */
 
-import { money, transactionId as toTransactionId } from '@telga/domain';
-import type { DeviceId, MerchantUserId, ProductId, TransactionState } from '@telga/domain';
+import { money, profitBpsFrom, trainingProfitMinor, transactionId as toTransactionId } from '@telga/domain';
+import type { MerchantId, ProductId, TransactionState } from '@telga/domain';
 import type {
   ApiEnvelope,
   BalanceDto,
@@ -42,9 +42,24 @@ import type {
   TransactionDto,
 } from '@telga/pos-view-model';
 import { assertSafeForDisplay } from '@telga/pos-view-model';
+import { transferProfit } from '../application/profitTransfer';
+import { changePin } from '../application/changePin';
+import type { PendingOrderRow } from '@telga/persistence';
 import { createSale } from '../application/createSale';
 import { isOutcome } from '../application/results';
 import type { SaleResult } from '../application/results';
+import {
+  authorizeOrder,
+  cancelOrder,
+  batchTransactionIds,
+  createPendingOrder,
+  getOrderForContext,
+} from '../application/voucherOrders';
+import type { CreatePendingOrderRequest } from '../application/voucherOrders';
+import { depositTrainingFunds } from '../application/deposits';
+import { readSettings, writeSettings } from '../application/settings';
+import { lookupReceipt, reprintReceipt } from '../application/reprint';
+import type { ReceiptDto, ReceiptResult } from '../application/reprint';
 import type { AuthContext } from '../auth/context';
 import { json } from './contract';
 import type { HttpRequest, HttpResponse } from './contract';
@@ -360,8 +375,8 @@ export async function postSale(
 
   const result = await createSale(deps, {
     merchantId: context.merchantId,
-    deviceId: context.deviceId as DeviceId,
-    operatorId: context.userId as MerchantUserId,
+    deviceId: context.deviceId,
+    operatorId: context.userId,
     productId: parsed.productId as ProductId,
     amount: money(parsed.amountMinor),
     recipient: parsed.recipient,
@@ -369,6 +384,20 @@ export async function postSale(
     correlationId,
   });
 
+  return saleResultResponse(deps, correlationId, result);
+}
+
+/**
+ * A `SaleResult` turned into an `HttpResponse`. Shared between `postSale` and
+ * `postAuthorizeOrder`: a sale created through the voucher PIN flow gets
+ * exactly the same status-code mapping as one created through `/sell` — there
+ * is only one way a sale outcome becomes a wire response.
+ */
+function saleResultResponse(
+  deps: AuthedApiDeps,
+  correlationId: string,
+  result: SaleResult,
+): HttpResponse {
   const dto = toSaleResultDto(deps, result, correlationId);
 
   if (!isOutcome(result) && result.kind !== 'DUPLICATE_REQUEST') {
@@ -394,4 +423,494 @@ export async function postSale(
   }
 
   return ok<CreateSaleResultDto>(deps, correlationId, dto, 201);
+}
+
+// --- receipts and reprints ---------------------------------------------------
+
+/**
+ * `GET /api/training/transactions/:id/receipt`
+ *
+ * A pure read: writes nothing, not even an audit event. Scoped to the
+ * session's merchant, so another shop's transaction is a plain 404.
+ */
+export function getReceipt(
+  deps: AuthedApiDeps,
+  _request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+  params: Readonly<Record<string, string>>,
+): HttpResponse {
+  const result = lookupReceipt(deps, context, params['id'] ?? '');
+  return receiptResponse(deps, correlationId, result);
+}
+
+/**
+ * `POST /api/training/transactions/:id/reprint`
+ *
+ * Records a reprint and returns the slip. Creates no sale, posts no ledger
+ * entry, and leaves the original timestamp alone — see `reprint.ts`.
+ */
+export function postReprint(
+  deps: AuthedApiDeps,
+  _request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+  params: Readonly<Record<string, string>>,
+): HttpResponse {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+  const result = reprintReceipt(deps, context, params['id'] ?? '', correlationId);
+  return receiptResponse(deps, correlationId, result);
+}
+
+function receiptResponse(
+  deps: AuthedApiDeps,
+  correlationId: string,
+  result: ReceiptResult,
+): HttpResponse {
+  switch (result.kind) {
+    case 'NOT_FOUND':
+      return fail(deps, correlationId, 404, 'NOT_FOUND', 'TRANSACTION_NOT_FOUND', 'error.permission.denied');
+    case 'NOT_ELIGIBLE':
+      // An unresolved sale has no receipt to print — saying so is the point.
+      return fail(
+        deps,
+        correlationId,
+        409,
+        'INVALID_REQUEST',
+        'RECEIPT_NOT_AVAILABLE',
+        'receipt.not_available',
+      );
+    case 'FOUND':
+      return ok<ReceiptDto>(deps, correlationId, result.receipt);
+  }
+}
+
+// --- training voucher orders -------------------------------------------------
+
+export interface CreateOrderDto {
+  readonly orderId: string;
+  readonly network: string;
+  readonly productId: string;
+  readonly productType: string;
+  /** The price of **one** voucher. Multiply by `quantity` for the order. */
+  readonly amountMinor: number;
+  readonly quantity: number;
+  readonly totalMinor: number;
+  readonly expiresAt: string;
+  readonly status: string;
+  readonly transactionId: string | null;
+  /** Every transaction the order produced, in print order. Empty until authorized. */
+  readonly transactionIds: readonly string[];
+  /** Already masked at write time; the full number is never stored or sent. */
+  readonly recipientMasked: string | null;
+  /**
+   * The shop's margin on this sale, shown before the operator confirms.
+   * Never added to what the customer pays — see Decision Log D69.
+   */
+  readonly profitMinor: number;
+  readonly profitBps: number;
+}
+
+// The whole row, not a structural subset: `batchTransactionIds` re-derives the
+// batch from the order's device and client request id, so it needs the fields
+// a hand-written subset kept leaving out.
+function toCreateOrderDto(deps: AuthedApiDeps, order: PendingOrderRow): CreateOrderDto {
+  const profitBps = profitBpsFrom(
+    deps.driver.readSetting(order.merchant_id as MerchantId, 'PROFIT_PERCENT_BPS'),
+  );
+  return {
+    orderId: order.id,
+    network: order.network,
+    productId: order.product_id,
+    productType: order.product_type,
+    amountMinor: order.amount_minor,
+    quantity: order.quantity,
+    totalMinor: order.total_minor,
+    expiresAt: order.expires_at,
+    status: order.status,
+    transactionId: order.transaction_id,
+    transactionIds: order.status === 'AUTHORIZED' ? batchTransactionIds(deps, order) : [],
+    recipientMasked: order.recipient,
+    // Profit on the whole order, so a batch of ten shows what ten earns.
+    profitMinor: trainingProfitMinor(order.amount_minor, profitBps) * order.quantity,
+    profitBps,
+  };
+}
+
+function validateOrderBody(body: unknown): CreatePendingOrderRequest | string {
+  if (typeof body !== 'object' || body === null) return 'BODY_NOT_AN_OBJECT';
+  const b = body as Record<string, unknown>;
+  for (const field of ['network', 'productType', 'productId', 'clientRequestId']) {
+    const value = b[field];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      return `${field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`).toUpperCase()}_REQUIRED`;
+    }
+  }
+  // Optional, and only meaningful for a custom product. Accepted as a number
+  // or a numeric string, because a form body carries strings; anything else
+  // is refused here rather than coerced into a surprising value.
+  const supplied = b['customAmountMinor'];
+  const request = { ...(b as unknown as CreatePendingOrderRequest) };
+
+  if (supplied !== undefined && supplied !== '') {
+    const parsed = typeof supplied === 'number' ? supplied : Number(supplied);
+    if (!Number.isSafeInteger(parsed)) return 'AMOUNT_NOT_A_NUMBER';
+    (request as { customAmountMinor?: number }).customAmountMinor = parsed;
+  }
+
+  // Same treatment for the bulk-print quantity: a form body carries strings,
+  // and anything that is not a whole number is refused here rather than
+  // coerced. Absent means one, which is what every order was before.
+  const quantity = b['quantity'];
+  if (quantity !== undefined && quantity !== '') {
+    const parsed = typeof quantity === 'number' ? quantity : Number(quantity);
+    if (!Number.isSafeInteger(parsed)) return 'QUANTITY_INVALID';
+    (request as { quantity?: number }).quantity = parsed;
+  }
+
+  return request;
+}
+
+/**
+ * `POST /api/training/profit/transfers` — move earned profit to the balance.
+ *
+ * The refusal for "more than you earned" carries the actual figure, so the
+ * screen can tell an owner what they *can* move rather than only that they
+ * cannot move what they asked for.
+ */
+export function postProfitTransfer(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const body = request.body as Record<string, unknown> | null;
+  const raw = body?.['amountBirr'];
+  const birr = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(birr)) {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'AMOUNT_NOT_A_NUMBER', 'profit.transfer.amount_invalid');
+  }
+
+  const result = transferProfit(deps, context, {
+    amountMinor: Math.round(birr * 100),
+    correlationId,
+  });
+
+  switch (result.kind) {
+    case 'SIMULATED_ONLY':
+      return fail(deps, correlationId, 403, 'ACCESS_DENIED', 'LIVE_MODE_REFUSED', 'status.sales_unavailable');
+    case 'AMOUNT_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', `AMOUNT_${result.reason}`, 'profit.transfer.amount_invalid');
+    case 'EXCEEDS_PROFIT':
+      return fail(
+        deps,
+        correlationId,
+        400,
+        'INVALID_REQUEST',
+        `EXCEEDS_PROFIT:${String(result.profitAvailableMinor)}`,
+        'profit.transfer.exceeds',
+      );
+    case 'TRANSFERRED':
+      return ok(deps, correlationId, {
+        amountMinor: result.amountMinor,
+        profitRemainingMinor: result.profitRemainingMinor,
+        availableAfterMinor: result.availableAfterMinor,
+      });
+  }
+}
+
+/**
+ * `POST /api/training/operators/pin` — change a transaction PIN.
+ *
+ * The new PIN is hashed before anything else touches it and is never put in
+ * a response, a log line, or an audit `metadata` blob. The current PIN is
+ * required as well: possession of an open owner session should not be enough
+ * to change the credential that authorizes sales, because a session left open
+ * on a counter is exactly the case this protects against.
+ */
+export async function postChangePin(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): Promise<HttpResponse> {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const body = request.body as Record<string, unknown> | null;
+  const currentPin = typeof body?.['currentPin'] === 'string' ? (body['currentPin']) : '';
+  const newPin = typeof body?.['newPin'] === 'string' ? (body['newPin']) : '';
+
+  const result = await changePin(deps, context, { currentPin, newPin, correlationId });
+  switch (result.kind) {
+    case 'SIMULATED_ONLY':
+      return fail(deps, correlationId, 403, 'ACCESS_DENIED', 'LIVE_MODE_REFUSED', 'status.sales_unavailable');
+    case 'CURRENT_PIN_WRONG':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'CURRENT_PIN_WRONG', 'settings.pin.wrong_current');
+    case 'NEW_PIN_WEAK':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', `NEW_PIN_${result.reason}`, 'settings.pin.weak');
+    case 'CHANGED':
+      return ok(deps, correlationId, { changed: true });
+  }
+}
+
+/** `POST /api/training/orders` — creates a pending order, nothing else. */
+export function postOrder(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const parsed = validateOrderBody(request.body);
+  if (typeof parsed === 'string') {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', parsed, 'voucher.amount.invalid');
+  }
+
+  const result = createPendingOrder(deps, context, parsed);
+  switch (result.kind) {
+    case 'SIMULATED_ONLY':
+      return fail(deps, correlationId, 403, 'SIMULATED_ONLY', 'LIVE_MODE_REFUSED', 'mode.training');
+    case 'PRODUCT_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'PRODUCT_INVALID', 'voucher.amount.invalid');
+    case 'AMOUNT_INVALID':
+      // The reason code names which rule was broken, so the operator is told
+      // "below the minimum" rather than a vague "invalid".
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', result.reason, 'voucher.amount.invalid');
+    case 'QUANTITY_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'QUANTITY_INVALID', 'voucher.quantity.invalid');
+    case 'RECIPIENT_INVALID':
+      return fail(
+        deps,
+        correlationId,
+        400,
+        'INVALID_REQUEST',
+        'RECIPIENT_INVALID',
+        'error.validation.recipient',
+      );
+    case 'INSUFFICIENT_BALANCE':
+      // The available figure travels in the reason code so the screen can
+      // state it without a second round trip.
+      return fail(
+        deps,
+        correlationId,
+        400,
+        'INSUFFICIENT_BALANCE',
+        `INSUFFICIENT_AVAILABLE_BALANCE:${String(result.availableMinor)}`,
+        'voucher.error.insufficient_balance',
+      );
+    case 'CREATED':
+      return ok(deps, correlationId, toCreateOrderDto(deps, result.order), 201);
+  }
+}
+
+/** `GET /api/training/orders/:id` */
+export function getOrder(
+  deps: AuthedApiDeps,
+  _request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+  params: Readonly<Record<string, string>>,
+): HttpResponse {
+  const id = params['id'];
+  if (id === undefined || id.trim().length === 0) {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'ORDER_ID_REQUIRED', 'voucher.amount.invalid');
+  }
+  const found = getOrderForContext(deps, context, id);
+  if (found.kind === 'NOT_FOUND') {
+    return fail(deps, correlationId, 404, 'NOT_FOUND', 'ORDER_NOT_FOUND', 'error.permission.denied');
+  }
+  return ok(deps, correlationId, toCreateOrderDto(deps, found.order));
+}
+
+/** `POST /api/training/orders/:id/cancel` */
+export function postCancelOrder(
+  deps: AuthedApiDeps,
+  _request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+  params: Readonly<Record<string, string>>,
+): HttpResponse {
+  const id = params['id'];
+  if (id === undefined || id.trim().length === 0) {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'ORDER_ID_REQUIRED', 'voucher.amount.invalid');
+  }
+  const result = cancelOrder(deps, context, id);
+  if (result.kind === 'NOT_FOUND') {
+    return fail(deps, correlationId, 404, 'NOT_FOUND', 'ORDER_NOT_FOUND', 'error.permission.denied');
+  }
+  return ok(deps, correlationId, { cancelled: true });
+}
+
+/**
+ * `POST /api/training/orders/:id/authorize`
+ *
+ * The PIN is read once, from the body, and never written to any variable
+ * that outlives `authorizeOrder`'s own call — this handler never logs it,
+ * never echoes it, and never puts it anywhere but the one function call that
+ * needs it.
+ */
+export async function postAuthorizeOrder(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+  params: Readonly<Record<string, string>>,
+): Promise<HttpResponse> {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const id = params['id'];
+  const body = request.body as Record<string, unknown> | undefined;
+  const pin = typeof body?.['pin'] === 'string' ? (body['pin']) : '';
+  if (id === undefined || id.trim().length === 0 || pin.length === 0) {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'PIN_REQUIRED', 'voucher.pin.wrong');
+  }
+
+  const result = await authorizeOrder(deps, context, id, pin, correlationId);
+  switch (result.kind) {
+    case 'SIMULATED_ONLY':
+      return fail(deps, correlationId, 403, 'SIMULATED_ONLY', 'LIVE_MODE_REFUSED', 'mode.training');
+    case 'NOT_FOUND':
+      return fail(deps, correlationId, 404, 'NOT_FOUND', 'ORDER_NOT_FOUND', 'error.permission.denied');
+    case 'NOT_OPEN':
+      return fail(deps, correlationId, 409, 'INVALID_REQUEST', 'ORDER_NOT_OPEN', 'voucher.amount.invalid');
+    case 'EXPIRED':
+      return fail(deps, correlationId, 409, 'INVALID_REQUEST', 'ORDER_EXPIRED', 'voucher.amount.invalid');
+    case 'LOCKED':
+      return fail(deps, correlationId, 423, 'RATE_LIMITED', 'PIN_LOCKED', 'voucher.pin.locked');
+    case 'PIN_INVALID':
+      return fail(deps, correlationId, 401, 'UNAUTHORIZED', 'PIN_INVALID', 'voucher.pin.wrong');
+    case 'SALE':
+      return saleResultResponse(deps, correlationId, result.result);
+  }
+}
+
+// --- settings ---------------------------------------------------------------
+
+/**
+ * `GET /api/training/settings`
+ *
+ * Readable by any operator: the slip has to print with the shop's chosen
+ * width and advertising line whoever is at the counter. Only the write below
+ * is owner-only.
+ */
+export function getSettings(
+  deps: AuthedApiDeps,
+  _request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  return ok(deps, correlationId, readSettings(deps, context.merchantId));
+}
+
+/** `POST /api/training/settings` — owner only, per the route table. */
+export function postSettings(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const body = request.body as Record<string, unknown> | undefined;
+  if (typeof body !== 'object' || body === null) {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'BODY_NOT_AN_OBJECT', 'error.validation.recipient');
+  }
+
+  // Only strings are forwarded. A number, an array or an object for any of
+  // these fields is a malformed request, not a value to coerce.
+  const stringOrUndefined = (key: string): string | undefined =>
+    typeof body[key] === 'string' ? (body[key]) : undefined;
+
+  const result = writeSettings(
+    deps,
+    context,
+    {
+      slipSize: stringOrUndefined('slipSize'),
+      slipAdvert: stringOrUndefined('slipAdvert'),
+      profitPercent: stringOrUndefined('profitPercent'),
+      businessName: stringOrUndefined('businessName'),
+      businessAddress: stringOrUndefined('businessAddress'),
+      businessPhone: stringOrUndefined('businessPhone'),
+      businessTin: stringOrUndefined('businessTin'),
+      businessLicence: stringOrUndefined('businessLicence'),
+      slipFooter: stringOrUndefined('slipFooter'),
+      soundEnabled: stringOrUndefined('soundEnabled'),
+      hideBalance: stringOrUndefined('hideBalance'),
+      lowBalanceAlert: stringOrUndefined('lowBalanceAlert'),
+      statementsAdminOnly: stringOrUndefined('statementsAdminOnly'),
+      printBarcode: stringOrUndefined('printBarcode'),
+      printLookupSlip: stringOrUndefined('printLookupSlip'),
+      screenLockEnabled: stringOrUndefined('screenLockEnabled'),
+      lockSeconds: stringOrUndefined('lockSeconds'),
+    },
+    correlationId,
+  );
+
+  switch (result.kind) {
+    case 'SIMULATED_ONLY':
+      return fail(deps, correlationId, 403, 'SIMULATED_ONLY', 'LIVE_MODE_REFUSED', 'mode.training');
+    case 'SLIP_SIZE_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'SLIP_SIZE_INVALID', 'settings.slip_size.label');
+    case 'ADVERT_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'ADVERT_INVALID', 'settings.advert.hint');
+    case 'LOCK_SECONDS_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'LOCK_SECONDS_INVALID', 'settings.lock_seconds');
+    case 'PROFIT_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'PROFIT_INVALID', 'settings.profit.invalid');
+    case 'SAVED':
+      return ok(deps, correlationId, result.settings);
+  }
+}
+
+// --- Telga Pay training deposits --------------------------------------------
+
+/**
+ * `POST /api/training/pay/deposits`
+ *
+ * Credits the simulated float. Owner-only and CSRF-protected like every other
+ * write; see `application/deposits.ts` for why this is not payment acceptance.
+ */
+export function postDeposit(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const body = request.body as Record<string, unknown> | undefined;
+  const amountMinor = typeof body?.['amountMinor'] === 'number' ? (body['amountMinor']) : NaN;
+  const method = typeof body?.['method'] === 'string' ? (body['method']) : '';
+  const clientRequestId =
+    typeof body?.['clientRequestId'] === 'string' ? (body['clientRequestId']) : '';
+
+  if (clientRequestId.trim().length === 0) {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'CLIENT_REQUEST_ID_REQUIRED', 'error.validation.recipient');
+  }
+
+  const result = depositTrainingFunds(deps, context, { amountMinor, method, clientRequestId });
+  switch (result.kind) {
+    case 'SIMULATED_ONLY':
+      return fail(deps, correlationId, 403, 'SIMULATED_ONLY', 'LIVE_MODE_REFUSED', 'mode.training');
+    case 'METHOD_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'CARD_METHOD_INVALID', 'pay.deposit.invalid');
+    case 'AMOUNT_INVALID':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', result.reason, 'pay.deposit.invalid');
+    case 'CREDITED':
+      return ok(deps, correlationId, result.receipt, 201);
+    // 200, not 201: nothing was created this time. The operator still reaches
+    // the slip, because their deposit is exactly as done as they asked for.
+    case 'ALREADY_CREDITED':
+      return ok(deps, correlationId, result.receipt, 200);
+  }
 }

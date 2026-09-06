@@ -36,7 +36,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { timestamp, transactionId } from '@telga/domain';
+import { transactionId } from '@telga/domain';
 import { createSale } from '@telga/api';
 import { makeRecoveryHarness, MERCHANT_A, saleRequest } from '../recovery/helpers';
 import type { RecoveryHarness } from '../recovery/helpers';

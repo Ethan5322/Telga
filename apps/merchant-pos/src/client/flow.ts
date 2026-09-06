@@ -35,7 +35,7 @@ import {
   toTransactionViewModel,
 } from '@telga/pos-view-model';
 import type { Locale } from '@telga/localization';
-import { toRemoteFailure } from './apiClient';
+import { RemoteFailureError, asRemoteFailure, toRemoteFailure } from './apiClient';
 import type { TrainingApiClient } from './apiClient';
 
 export interface FlowOptions {
@@ -172,7 +172,9 @@ export class SaleFlow {
           id,
           correlationId,
         );
-        if (!envelope.ok) throw toRemoteFailure(envelope, this.options.now());
+        if (!envelope.ok) {
+          throw new RemoteFailureError(toRemoteFailure(envelope, this.options.now()));
+        }
         return envelope.data;
       },
       onResult: (attempt) => {
@@ -180,8 +182,11 @@ export class SaleFlow {
           this.set(succeed(attempt.value, this.options.now()));
           return;
         }
-        const failure = attempt.error as ReturnType<typeof toRemoteFailure>;
-        this.set(fail(this.state, failure));
+        // Narrowed, not cast. A dropped connection rejects with a `TypeError`,
+        // and the cast this replaced turned that into a failure whose reason
+        // code was `undefined` — a blank line on the screen for the condition
+        // an operator most needs named.
+        this.set(fail(this.state, asRemoteFailure(attempt.error, this.options.now())));
       },
       shouldContinue: (dto) => !isTerminal(dto.state),
     });

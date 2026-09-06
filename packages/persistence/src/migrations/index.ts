@@ -18,6 +18,14 @@ import { m003AuditAppendOnly } from './003_audit_append_only';
 import { m004PendingAndSupport } from './004_pending_and_support';
 import { m005RecoveryClaims } from './005_recovery_claims';
 import { m006AuthAndDevices } from './006_auth_and_devices';
+import { m007PendingOrders } from './007_pending_orders';
+import { m008RecipientTopupSettings } from './008_recipient_topup_settings';
+import { m009DataVouchers } from './009_data_vouchers';
+import { m010OrderQuantity } from './010_order_quantity';
+import { m011CorporateSettings } from './011_corporate_settings';
+import { m012ShiftsCustomersPreferences } from './012_shifts_customers_preferences';
+import { m013AttemptsAndProviderHealth } from './013_attempts_and_provider_health';
+import { m014AdminIdentityAndTenants } from './014_admin_identity_and_tenants';
 
 export interface Migration {
   /** Sort key. Zero-padded so lexical order is execution order. */
@@ -34,6 +42,14 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
   m004PendingAndSupport,
   m005RecoveryClaims,
   m006AuthAndDevices,
+  m007PendingOrders,
+  m008RecipientTopupSettings,
+  m009DataVouchers,
+  m010OrderQuantity,
+  m011CorporateSettings,
+  m012ShiftsCustomersPreferences,
+  m013AttemptsAndProviderHealth,
+  m014AdminIdentityAndTenants,
 ]);
 
 export {
@@ -43,4 +59,12 @@ export {
   m004PendingAndSupport,
   m005RecoveryClaims,
   m006AuthAndDevices,
+  m007PendingOrders,
+  m008RecipientTopupSettings,
+  m009DataVouchers,
+  m010OrderQuantity,
+  m011CorporateSettings,
+  m012ShiftsCustomersPreferences,
+  m013AttemptsAndProviderHealth,
+  m014AdminIdentityAndTenants,
 };

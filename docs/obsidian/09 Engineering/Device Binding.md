@@ -157,6 +157,36 @@ session's merchant, so another shop's device comes back as a plain 404.
 - **and the limitation itself**: two sign-ins with the same copied key both
   succeed, because nothing distinguishes the machines.
 
+## Where the key now lives on the client — and what that cost
+
+**Updated 2026-08-29.** This note previously described the device key as never
+stored client-side. [[Decision Log]] **D74** changed that: the key is held in an
+`httpOnly` cookie so that an enrolled machine survives a browser restart without
+an operator re-enrolling it mid-shift.
+
+The claim above — *"the key never stored in recoverable form, and absent from
+every column"* — remains true and is still tested. It is a statement about the
+**server**: the database stores an scrypt hash and salt, never the key. What
+changed is the **client**, which now retains a copy.
+
+State it plainly, because it is a reduction:
+
+| Before D74 | After D74 |
+|---|---|
+| The key existed only in memory for the life of a tab | The key persists on the machine until enrolment is revoked or expires |
+| Closing the browser required re-enrolment | Closing the browser does not |
+| A stolen machine yielded no key without an unlocked session | A stolen machine yields the key to anyone who can read its cookie store |
+
+`httpOnly` keeps the key away from page script, so an XSS bug cannot read it —
+which is the attack this build can realistically face. It does **not** protect
+against someone holding the hardware, and nothing in a training build does.
+
+This does not change A52's standing. The limitation was always that a copied key
+is indistinguishable from the original; D74 makes a key marginally easier to
+copy, and leaves revocation as the control that actually stops a stolen POS.
+Recorded as **A69** and tracked on **R33** (renumbered from R23 — two risks
+shared that number).
+
 ## What would close A52
 
 Not planned for training. Recorded so the option is costed rather than vague:

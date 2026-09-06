@@ -43,6 +43,13 @@ export const PERMISSIONS = [
   'POS_VIEW_UNDER_REVIEW_QUEUE',
   'POS_REQUEST_SUPPORT_REVIEW',
   'POS_LOGOUT',
+  // Shop-owner controls. Neither is a money control in the
+  // `FORBIDDEN_TO_MERCHANT` sense: settings change how a slip is printed and
+  // what training margin is displayed, and the deposit permission credits a
+  // *simulated* training float. Neither releases held funds, approves a
+  // reversal, nor forces a transaction state.
+  'POS_MANAGE_SETTINGS',
+  'POS_DEPOSIT_TRAINING_FUNDS',
   'DEVICE_ENROL',
   'DEVICE_REVOKE',
   // Beyond the POS. Listed so the table has to answer for them.
@@ -73,7 +80,15 @@ const OPERATOR_GRANTS: readonly Permission[] = [
  * Revocation stays with operations, because a stolen device is exactly the case
  * where the person holding it must not be able to tidy up after themselves.
  */
-const OWNER_GRANTS: readonly Permission[] = [...OPERATOR_GRANTS, 'DEVICE_ENROL'];
+const OWNER_GRANTS: readonly Permission[] = [
+  ...OPERATOR_GRANTS,
+  'DEVICE_ENROL',
+  // Withheld from the operator on purpose. An assistant at the counter sells;
+  // changing the printed slip, the displayed training margin, or the shop's
+  // float is the shop owner's decision.
+  'POS_MANAGE_SETTINGS',
+  'POS_DEPOSIT_TRAINING_FUNDS',
+];
 
 export const ROLE_PERMISSIONS: Readonly<Record<ActorRole, readonly Permission[]>> = Object.freeze({
   MERCHANT_OPERATOR: Object.freeze(OPERATOR_GRANTS),
@@ -291,3 +306,72 @@ export const TRAINING_LOCKOUT_POLICY: LockoutPolicy = Object.freeze({
 
 export const isLockedOut = (lockedUntil: Timestamp | undefined, now: Timestamp): boolean =>
   lockedUntil !== undefined && lockedUntil > now;
+
+/**
+ * Voucher PIN-authorization lockout.
+ *
+ * Deliberately **separate** from `TRAINING_LOCKOUT_POLICY`. A wrong voucher
+ * transaction PIN must never touch `merchant_users.failed_attempts` or
+ * `locked_until` — those belong to login alone. This policy backs a purely
+ * time-windowed check instead: locked out while the count of `PIN_AUTH`
+ * failures for the operator in the trailing `lockoutMs` is at least
+ * `maxFailedAttempts`. There is no stored "locked until" value to clear —
+ * the lock lifts on its own as old failures age out of the window. See
+ * `auth_attempts` (scope `PIN_AUTH`) and `09 Engineering/Voucher Purchase
+ * Flow.md`.
+ */
+/**
+ * Bounds for an operator-typed voucher amount.
+ *
+ * **Training values, not a commercial limit.** Real per-transaction limits
+ * depend on a provider agreement and a float policy that are NOT YET
+ * CONFIRMED — see `07 Governance/Decision Log.md`. These exist so a typed
+ * amount is bounded by *something* explicit rather than by whatever the
+ * operator's keyboard produced.
+ *
+ * The server enforces all three plus the available balance; the browser's own
+ * `min`/`max`/`step` attributes are a convenience and are never trusted.
+ */
+export interface CustomAmountLimits {
+  readonly minMinor: number;
+  readonly maxMinor: number;
+  /** A typed amount must be a whole multiple of this. */
+  readonly incrementMinor: number;
+}
+
+export const TRAINING_CUSTOM_AMOUNT_LIMITS: CustomAmountLimits = Object.freeze({
+  minMinor: 500, // 5 birr
+  maxMinor: 100_000, // 1 000 birr
+  incrementMinor: 100, // whole birr
+});
+
+export type CustomAmountRejection =
+  | 'AMOUNT_NOT_A_NUMBER'
+  | 'AMOUNT_BELOW_MINIMUM'
+  | 'AMOUNT_ABOVE_MAXIMUM'
+  | 'AMOUNT_NOT_A_MULTIPLE';
+
+/**
+ * Why a typed amount is unacceptable, or `undefined` if it is fine.
+ *
+ * Deliberately returns a reason rather than a boolean: the operator is told
+ * which rule they broke, and the caller cannot collapse four distinct
+ * refusals into one vague message.
+ */
+export function customAmountRejection(
+  amountMinor: number,
+  limits: CustomAmountLimits = TRAINING_CUSTOM_AMOUNT_LIMITS,
+): CustomAmountRejection | undefined {
+  if (!Number.isSafeInteger(amountMinor)) return 'AMOUNT_NOT_A_NUMBER';
+  if (amountMinor < limits.minMinor) return 'AMOUNT_BELOW_MINIMUM';
+  if (amountMinor > limits.maxMinor) return 'AMOUNT_ABOVE_MAXIMUM';
+  if (amountMinor % limits.incrementMinor !== 0) return 'AMOUNT_NOT_A_MULTIPLE';
+  return undefined;
+}
+
+export const VOUCHER_PIN_LOCKOUT_POLICY: LockoutPolicy = Object.freeze({
+  maxFailedAttempts: 5,
+  lockoutMs: 5 * 60_000,
+  maxAttemptsPerWindow: 10,
+  rateWindowMs: 60_000,
+});

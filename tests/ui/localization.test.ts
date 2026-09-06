@@ -41,8 +41,8 @@ function vaultRows(file: string): Map<string, { en: string; am?: string }> {
   for (const line of text.split('\n')) {
     const match = /^\|\s*`([a-z0-9._]+)`\s*\|([^|]*)\|(?:([^|]*)\|)?/.exec(line);
     if (!match) continue;
-    const key = match[1] as string;
-    const en = (match[2] as string).trim();
+    const key = match[1];
+    const en = (match[2]).trim();
     const third = match[3]?.trim();
     // In the Amharic note the third column is Amharic; in the English note it
     // does not exist, and the row ends after the English column.
@@ -101,6 +101,20 @@ describe('the Amharic gap is explicit', () => {
         'screen.funding',
         'screen.support',
         'screen.admin_queue',
+        'screen.menu',
+        'screen.vouchers',
+        'screen.product_type',
+        'screen.order_details',
+        'screen.pin_auth',
+        'screen.voucher_result',
+        // `screen.launcher` and `screen.launcher_apps` were translated when the
+        // launcher was rebuilt (D101), so they are no longer in the gap.
+        'screen.dashboard',
+        'screen.coming_soon',
+        'screen.pay_entry',
+        'screen.pay_amount',
+        'screen.pay_card',
+        'screen.pay_result',
         'support.response.notice',
       ].sort(),
     );
@@ -109,7 +123,7 @@ describe('the Amharic gap is explicit', () => {
   it('reports the coverage honestly', () => {
     const coverage = translationCoverage('am');
     expect(coverage.total).toBe(MESSAGE_KEYS.length);
-    expect(coverage.translated).toBe(MESSAGE_KEYS.length - 14);
+    expect(coverage.translated).toBe(MESSAGE_KEYS.length - 26);
     expect(translationCoverage('en').translated).toBe(MESSAGE_KEYS.length);
   });
 

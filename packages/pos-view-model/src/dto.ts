@@ -84,6 +84,19 @@ export interface BalanceDto {
   readonly reserved: MoneyDto;
   readonly underReview: MoneyDto;
   readonly total: MoneyDto;
+  /**
+   * Today's training profit, summed from the ledger rather than recomputed
+   * from the current rate. Optional so an older caller still type-checks.
+   */
+  readonly todayProfit?: MoneyDto;
+  /**
+   * Profit earned and not yet moved into the selling balance — all time.
+   *
+   * Distinct from `todayProfit`, which is what the dashboard pill shows. A
+   * transfer is bounded by this one, because a shop that earned yesterday can
+   * still move it today.
+   */
+  readonly profitAvailable?: MoneyDto;
 }
 
 export interface QueueDto {

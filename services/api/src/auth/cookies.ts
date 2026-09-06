@@ -33,6 +33,66 @@ export const SESSION_COOKIE = 'telga_session';
  * against the hash bound to that session. Leaving it readable lets a page
  * re-read it after a redirect without a round trip.
  */
+/**
+ * The enrolled device **identifier**, remembered between sessions.
+ *
+ * Not a secret and never treated as one: it authenticates nothing on its own,
+ * and a sign-in still requires the device key and the operator PIN. It exists
+ * so an idle timeout returns the operator to a form that already knows which
+ * device this is, instead of making them retype it every minute.
+ *
+ * **The device key is never stored in a cookie, in storage, or anywhere on
+ * the client.** It is shown once at provisioning and hashed on the server.
+ *
+ * Deliberately outlives both an idle expiry and an explicit logout — clearing
+ * it would be a device un-enrolment by the back door, and un-enrolment is a
+ * separate, explicit administrative action (`revokeDevice`).
+ */
+export const DEVICE_COOKIE = 'telga_device';
+
+/**
+ * The enrolled device **key**, remembered between sessions.
+ *
+ * ## This is a deliberate, founder-requested relaxation
+ *
+ * The comment above still describes the safer position, and it was the
+ * position until the founder specified the training sign-in model directly:
+ * an idle timeout must cost the operator their **PIN only**, and a device
+ * restart must cost them their operator id and PIN — never the device key.
+ * Meeting that means the key has to be remembered somewhere, and a
+ * `httpOnly` cookie is the least-bad somewhere: script on the page cannot
+ * read it, it never reaches `localStorage`, and it is sent back only to the
+ * login handler that prefills the field.
+ *
+ * ## What it costs
+ *
+ * Possession of the browser profile becomes possession of the device key.
+ * The key stops being a second factor beside the session and becomes part of
+ * what the device *is*. That is a real reduction and is recorded as such in
+ * `ASSUMPTIONS.md` and the Decision Log rather than buried here.
+ *
+ * ## What still holds
+ *
+ * The PIN is never stored, anywhere, in any form. Sign-out from Settings
+ * clears this cookie along with everything else, which is the escape hatch
+ * for a device changing hands. Device revocation remains a separate
+ * server-side action that no cookie can undo.
+ */
+export const DEVICE_KEY_COOKIE = 'telga_device_key';
+
+/**
+ * The operator id, remembered for the life of the **browser session only**.
+ *
+ * Written without a `Max-Age`, which is what makes the founder's two cases
+ * differ without any extra logic: an idle timeout leaves the browser open, so
+ * this survives and the operator re-enters a PIN alone; closing or restarting
+ * the app drops it, so the next sign-in asks which operator as well.
+ *
+ * An operator id is not a secret — it is a name on a shift rota — and it
+ * authenticates nothing on its own.
+ */
+export const OPERATOR_COOKIE = 'telga_operator';
+
 export const CSRF_COOKIE = 'telga_csrf';
 
 /** The form field a browser submits the CSRF token in. */

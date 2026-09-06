@@ -60,3 +60,32 @@ docs/obsidian/00 Home (Local).md
 CLAUDE.pdf
 Untitled.canvas
 Welcome.md
+
+# --- Android signing and machine-specific build state -----------------------
+# A release keystore signs every Telga update. Google Play ties an app's
+# identity to it: lose it and no update can ever be published for that listing
+# again; leak it and somebody else can sign something that installs as Telga.
+# It is a real secret in the sense of CLAUDE.md §24, and it must never enter
+# this repository — not even a private one.
+*.jks
+*.keystore
+apps/mobile/android/keystore.properties
+apps/mobile/android/local.properties
+
+# Generated from apps/mobile/shell.config.json by `npm run mobile:configure`.
+# Committing it would let a stale copy contradict the file that owns the list.
+apps/mobile/www/config.js
+
+# Capacitor copies the web assets in here on every sync; the source is www/.
+apps/mobile/android/app/src/main/assets/public/
+apps/mobile/android/app/src/main/assets/capacitor.config.json
+apps/mobile/android/app/src/main/assets/capacitor.plugins.json
+
+# SQLite writes three files, not one. `*.sqlite` alone let the write-ahead log
+# and shared-memory file through, and those hold real training ledger data.
+*.sqlite-wal
+*.sqlite-shm
+
+# Backup output and its manifests are operational artifacts, not source.
+backups/
+*.sqlite.manifest.json

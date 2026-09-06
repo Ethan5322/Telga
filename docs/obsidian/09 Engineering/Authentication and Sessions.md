@@ -4,7 +4,7 @@ type: engineering
 status: draft
 owner: telga
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-28
 tags:
   - telga
   - engineering
@@ -12,6 +12,7 @@ tags:
   - authentication
   - training
 related:
+  - "[[Bulk Printing and Sign Out]]"
   - "[[00 Home]]"
   - "[[Security Model]]"
   - "[[Device Binding]]"
@@ -270,6 +271,45 @@ Plain HTTP remains available as `TRAINING_HTTP_LOCAL`, and is **refused on any
 non-loopback binding** (D46). What is still open: the certificate is self-signed,
 which is not production trust.
 
+
+## Inactivity sign-out
+
+`TRAINING_SESSION_POLICY.idleTimeoutMs` is **one minute**. Two independent mechanisms enforce it,
+and the first is the authority:
+
+1. **The server** expires the session on its own clock. `authenticate()` refuses an idle-expired
+   session, revokes the row once, and audits `AUTH_SESSION_EXPIRED`. This holds with scripting
+   off, against a hostile client, and against a tab that never runs the watcher.
+2. **The client** watcher (`CLIENT_SCRIPT` in `ui/document.ts`) redirects to `/login` after the
+   same interval, so an unattended screen stops showing a balance whose session is already dead.
+   It resets only on real interaction — `pointerdown`, `keydown`, `click`, `submit`,
+   `touchstart` — never on a timer or a page load.
+
+**Background polling must not count as activity.** The pending-transaction poll sends
+`x-telga-background: 1`; `guard.ts` passes `extendIdle: false`, and `authenticate()` validates the
+session normally but does not slide `idle_expires_at`. Without this a screen left open on a
+counter would poll every few seconds and never time out, which is precisely what an inactivity
+timeout exists to prevent. This is a UX control, not a security control: a client that omits the
+marker merely keeps its own session alive, exactly as any real request would, so the failure
+direction is safe.
+
+> [!warning] One minute is aggressive
+> A slow multi-step sale can exceed it and return the operator to sign-in mid-order. Nothing is
+> completed and no order is authorized when that happens — safe, but disruptive. The current value
+> is acceptable for security testing but **should be configurable before any deployment**; a real
+> counter value is **NOT YET CONFIRMED** and belongs with a security review.
+
+### The sale window must stay below the idle timeout
+
+`saleRateWindowMs` is **30 seconds**, deliberately shorter than the 60-second `idleTimeoutMs`.
+When the two were equal, waiting out a sale rate-limit always outlasted the inactivity window, so
+a rate-limited operator was *guaranteed* to be signed out by the wait — they could never simply
+wait and continue. `tests/auth/csrf-and-abuse.test.ts` asserts the inequality directly, so the two
+values cannot silently converge again.
+
+Covered by `tests/auth/idle-timeout.test.ts`: expiry, activity resetting the timer, revocation
+persisting, background polling failing to renew, an unmarked request renewing normally, the
+watcher rendering with the server's own timeout, and no secret reaching the page.
 
 ## Related
 

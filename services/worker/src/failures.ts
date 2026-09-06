@@ -35,7 +35,7 @@ export interface ClassifiedFailure {
 
 const codeOf = (error: unknown): string => {
   if (error && typeof error === 'object' && 'code' in error) {
-    const code = (error as { code: unknown }).code;
+    const code = (error).code;
     if (typeof code === 'string') return code;
   }
   return error instanceof Error ? error.name : 'UNKNOWN_ERROR';

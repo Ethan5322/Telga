@@ -40,8 +40,10 @@ import {
   postingId,
   timestamp,
   transactionId as makeTransactionId,
+  profitBpsFrom,
+  trainingProfitMinor,
 } from '@telga/domain';
-import type { SaleIntent, Timestamp, Transaction, TransactionState } from '@telga/domain';
+import type { SaleIntent, Transaction, TransactionState } from '@telga/domain';
 import {
   finalizeSuccess,
   hashRecipient,
@@ -75,13 +77,31 @@ function reject(
 }
 
 /** Persist the transaction row at its current state. */
-function persist(deps: SaleDeps, transaction: Transaction, recipient: string, fingerprint: string): void {
+function persist(
+  deps: SaleDeps,
+  transaction: Transaction,
+  recipient: string,
+  fingerprint: string,
+  recipientMasked?: string,
+): void {
   deps.driver.saveTransaction({
     transaction,
-    recipientMasked: maskRecipient(recipient),
-    recipientHash: hashRecipient(recipient, deps.recipientSalt),
+    // Taken from the request when the caller already holds a mask: the
+    // voucher flow masks at order creation and never keeps the full number,
+    // so there is nothing left here to mask. The hash then covers the mask
+    // rather than the number, which is honest about what this build actually
+    // retains — it is a dedupe affordance, never a lookup key, and the salt
+    // is regenerated every run anyway.
+    recipientMasked: recipientMasked ?? maskRecipient(recipient),
+    recipientHash: hashRecipient(recipientMasked ?? recipient, deps.recipientSalt),
     payloadFingerprint: fingerprint,
-    productType: 'AIRTIME',
+    // The product actually sold, not the literal `'AIRTIME'` this used to
+    // write for every sale. That constant made `transactions.product_type`
+    // carry no information: the slip's Network line, which derives the
+    // network from the product id, could therefore never render, and neither
+    // could a redemption code. `product_type` has no CHECK constraint — it
+    // has always been a free-text column (migration 001).
+    productType: String(transaction.productId),
   });
 }
 
@@ -173,7 +193,7 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
     return {
       kind: 'DUPLICATE_REQUEST',
       originalTransactionId: existing.transaction_id,
-      state: (original?.state ?? 'CREATED') as TransactionState,
+      state: (original?.state ?? 'CREATED'),
       correlationId,
       idempotencyKey,
       simulated: true,
@@ -212,11 +232,11 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
         at: startedAt,
       });
       assertPositive(transaction.amount, 'A sale amount');
-      persist(deps, transaction, request.recipient, fingerprint);
+      persist(deps, transaction, request.recipient, fingerprint, request.recipientMasked);
       audit(deps, transaction, 'TRANSACTION_CREATED', correlationId);
 
       transaction = transitionTo(transaction, 'VALIDATED', { at: deps.now(), reason: 'server validation passed' });
-      persist(deps, transaction, request.recipient, fingerprint);
+      persist(deps, transaction, request.recipient, fingerprint, request.recipientMasked);
 
       // Reserve first, then move to RESERVED: if the reservation is refused the
       // state never advances, and the whole unit of work rolls back anyway.
@@ -233,7 +253,7 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
       });
 
       transaction = transitionTo(transaction, 'RESERVED', { at: deps.now(), reason: 'balance reserved' });
-      persist(deps, transaction, request.recipient, fingerprint);
+      persist(deps, transaction, request.recipient, fingerprint, request.recipientMasked);
       audit(deps, transaction, 'TRANSACTION_TRANSITIONED', correlationId, 'VALIDATED');
 
       deps.driver.saveIdempotencyRecord({
@@ -263,7 +283,7 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
   // --- 12. Submit, using the same logical transaction and key ---------------
   let processing = deps.driver.transaction(() => {
     const next = transitionTo(reserved, 'PROCESSING', { at: deps.now(), reason: 'submitted to provider' });
-    persist(deps, next, request.recipient, fingerprint);
+    persist(deps, next, request.recipient, fingerprint, request.recipientMasked);
     audit(deps, next, 'PROVIDER_SUBMITTED', correlationId, 'RESERVED');
     return next;
   });
@@ -322,7 +342,15 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
 
     if (outcome === 'SUCCESSFUL') {
       processing = transitionTo(processing, 'SUCCESSFUL', { at, reason: 'provider confirmed delivery', providerReference });
-      persist(deps, processing, request.recipient, fingerprint);
+      persist(deps, processing, request.recipient, fingerprint, request.recipientMasked);
+      // Training profit: the float drops by the face value, and a percentage
+      // of that face value is credited separately as the shop's margin. The
+      // customer pays the face value either way — profit is never a
+      // surcharge. Rate comes from merchant settings, defaulting to the
+      // training rate. See Decision Log D69.
+      const profitBps = profitBpsFrom(
+        deps.driver.readSetting(request.merchantId, 'PROFIT_PERCENT_BPS'),
+      );
       finalizeSuccess(deps.driver, {
         merchantId: request.merchantId,
         transactionId: txId,
@@ -332,6 +360,8 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
         actor: { userId: request.operatorId, role: 'MERCHANT_OPERATOR', deviceId: request.deviceId },
         postingId: postingId(deps.newId('post')),
         auditId: deps.newId('audit'),
+        profitMinor: trainingProfitMinor(request.amount.minor, profitBps),
+        profitBps,
       });
       audit(deps, processing, 'TRANSACTION_TRANSITIONED', correlationId, 'PROCESSING');
       deps.driver.recordIdempotencyResult(request.merchantId, idempotencyKey, 'SUCCESSFUL', at);
@@ -352,7 +382,7 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
 
     if (outcome === 'FAILED') {
       processing = transitionTo(processing, 'FAILED', { at, reason: 'provider confirmed failure', providerReference });
-      persist(deps, processing, request.recipient, fingerprint);
+      persist(deps, processing, request.recipient, fingerprint, request.recipientMasked);
       release(deps.driver, {
         merchantId: request.merchantId,
         transactionId: txId,
@@ -383,7 +413,7 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
     // PENDING. The reservation stays held; nothing is debited and nothing is
     // released. A resolution job carries the deadline for escalation.
     processing = transitionTo(processing, 'PENDING', { at, reason: 'no provider response', providerReference });
-    persist(deps, processing, request.recipient, fingerprint);
+    persist(deps, processing, request.recipient, fingerprint, request.recipientMasked);
     const deadlineAt = addMs(at, pendingMaximum(deps));
     deps.driver.upsertPendingResolution({
       transactionId: txId,
@@ -424,7 +454,7 @@ function releaseQuietly(
   deps.driver.transaction(() => {
     const at = deps.now();
     const failed = transitionTo(transaction, 'FAILED', { at, reason: 'refused: live mode' });
-    persist(deps, failed, request.recipient, fingerprint);
+    persist(deps, failed, request.recipient, fingerprint, request.recipientMasked);
     release(deps.driver, {
       merchantId: request.merchantId,
       transactionId: txId,
@@ -442,7 +472,7 @@ function releaseQuietly(
 function safeCode(error: unknown): string {
   if (error instanceof DomainError) return error.code;
   if (error && typeof error === 'object' && 'code' in error) {
-    const code = (error as { code: unknown }).code;
+    const code = (error).code;
     if (typeof code === 'string') return `PERSISTENCE_${code}`;
   }
   return 'UNEXPECTED_PERSISTENCE_ERROR';

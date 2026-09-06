@@ -26,6 +26,7 @@ import type { AuthContext, AuthFailure, AuthFailureCode } from '../auth/context'
 import { failure } from '../auth/context';
 import { authorize, consistentMerchantHint, isAllowed } from '../auth/authorize';
 import { CSRF_COOKIE, CSRF_HEADER, CSRF_FIELD, SESSION_COOKIE, parseCookies } from '../auth/cookies';
+import { BACKGROUND_REQUEST_HEADER } from '../auth/context';
 import { authenticate, csrfMatches, shiftByForRate } from './rate';
 import type { AuthedApiDeps } from './deps';
 import type { HttpRequest } from './contract';
@@ -86,7 +87,13 @@ export function guard(
   options: GuardOptions,
   correlationId: string,
 ): GuardResult {
-  const result = authenticate(deps, sessionTokenOf(request), correlationId);
+  // A request marked background validates the session but does not renew the
+  // idle window, so a polling screen cannot keep an unattended counter signed
+  // in forever.
+  const isBackground = request.headers[BACKGROUND_REQUEST_HEADER] === '1';
+  const result = authenticate(deps, sessionTokenOf(request), correlationId, {
+    extendIdle: !isBackground,
+  });
   if (!result.ok) return result;
   const context = result.context;
 

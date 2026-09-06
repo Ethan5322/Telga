@@ -18,7 +18,7 @@ import {
   providerId,
   timestamp,
 } from '@telga/domain';
-import type { MerchantId, Money, ProductId, Timestamp } from '@telga/domain';
+import type { MerchantId, ProductId, Timestamp } from '@telga/domain';
 import { createSqliteDriver, fundMerchant } from '@telga/persistence';
 import type { SqliteLedgerDriver } from '@telga/persistence';
 import { MockAirtimeProvider } from '@telga/provider-mock-airtime';
@@ -156,7 +156,7 @@ export function saleRequest(overrides: Partial<SaleRequest> = {}): SaleRequest {
     deviceId: DEVICE_A,
     operatorId: OPERATOR_A,
     productId: PRODUCT,
-    amount: fromBirr(25) as Money,
+    amount: fromBirr(25),
     recipient: '0900000000',
     clientRequestId: 'req_0001',
     ...overrides,
@@ -190,7 +190,7 @@ export function failAt(
       }
       return fn.bind(target);
     },
-  }) as SqliteLedgerDriver;
+  });
 }
 
 export const withDriver = (deps: SaleDeps, driver: SqliteLedgerDriver): SaleDeps => ({ ...deps, driver });

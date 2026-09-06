@@ -212,3 +212,51 @@ export function toRemoteFailure(
     at,
   };
 }
+
+/**
+ * A {@link RemoteFailure} in a form that can be thrown.
+ *
+ * The polling loop signals a failed attempt by rejecting, and a rejection
+ * carrying a bare object loses its stack and cannot be told apart from any
+ * other thrown value. Wrapping keeps `RemoteFailure` a plain data type — it is
+ * stored in screen state and compared in tests — while giving the throw path a
+ * real `Error`.
+ */
+export class RemoteFailureError extends Error {
+  constructor(readonly failure: RemoteFailure) {
+    super(`${failure.reasonCode} (${failure.status === null ? 'no response' : String(failure.status)})`);
+    this.name = 'RemoteFailureError';
+  }
+}
+
+/**
+ * Whatever was thrown, as something a screen can render.
+ *
+ * ## Why this is not a cast
+ *
+ * The caller used to write `attempt.error as RemoteFailure`. That is true only
+ * when the server answered with an error envelope. A **connection** failure —
+ * the shop's link dropping mid-poll, which is the ordinary case this build has
+ * to survive — rejects with a `TypeError` or an `AbortError`, and the cast
+ * turned it into an object whose `reasonCode` was `undefined`. The screen then
+ * rendered a blank reason for the one condition an operator most needs named.
+ *
+ * So this narrows instead, and synthesises an honest failure for anything it
+ * does not recognise. `status: null` already means *"the request never reached
+ * the server"*, which is exactly what a dropped connection is.
+ */
+export function asRemoteFailure(error: unknown, at: string): RemoteFailure {
+  if (error instanceof RemoteFailureError) return error.failure;
+  // A plain object that already has the shape — thrown by an older caller, or
+  // by a test that stubs the client directly.
+  if (typeof error === 'object' && error !== null && 'reasonCode' in error) {
+    return error as RemoteFailure;
+  }
+  return {
+    reasonCode: 'NETWORK_UNAVAILABLE',
+    messageKey: 'error.network_unavailable',
+    status: null,
+    correlationId: null,
+    at,
+  };
+}

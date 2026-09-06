@@ -21,6 +21,7 @@
 import { AMHARIC_REVIEW_WARNING, t } from '@telga/localization';
 import type { Locale } from '@telga/localization';
 import { h } from './element';
+import { telgaLogo } from './logo';
 import type { El, Node } from './element';
 
 export interface AuthChrome {
@@ -85,6 +86,20 @@ export function authPage(
   );
 }
 
+/**
+ * The cover screen was removed on 2026-08-30.
+ *
+ * It was the public front door: the animated mark, then two app tiles, then
+ * sign-in. **Login is the first screen now**, so a screen that came before it
+ * has nowhere to sit — and a chooser shown before anyone proves who they are
+ * tells a stranger holding the machine what Telga does.
+ *
+ * What it did lives on in two places: the launcher (`ui/launcher.ts`) is the
+ * Telga button an operator opens after signing in, and the animated mark is
+ * still `telgaLogo({ animate: true })` for wherever it is wanted next.
+ *
+ * See [[Decision Log]] D101.
+ */
 export interface LoginProps {
   readonly chrome: AuthChrome;
   /**
@@ -92,8 +107,23 @@ export interface LoginProps {
    * Never says which field was wrong.
    */
   readonly refusal?: string;
-  /** Prefilled only from a previous submission, never from a cookie. */
+  /** Prefilled from the remembered device cookie, so an idle timeout costs no retyping. */
   readonly deviceId?: string;
+  /**
+   * Prefilled from the remembered device-key cookie. A founder-specified
+   * relaxation of the "never remembered" rule — see `DEVICE_KEY_COOKIE`.
+   */
+  readonly deviceSecret?: string;
+  /** Prefilled for the life of the browser session only, so a restart asks again. */
+  readonly userId?: string;
+  /**
+   * Which app is being signed into, chosen on the launcher.
+   *
+   * Shown on the form so an operator can see they are entering the app they
+   * picked — and so a wrong choice is obvious before they type a PIN rather
+   * than after.
+   */
+  readonly app?: 'vending' | 'pay';
   /** Where to go after signing in. Same-origin path only; validated by the server. */
   readonly returnTo?: string;
 }
@@ -150,6 +180,21 @@ export function loginScreen(props: LoginProps): El {
       },
       props.returnTo !== undefined &&
         h('input', { type: 'hidden', name: 'returnTo', value: props.returnTo }),
+      // Which app this sign-in is for, and the way back to the chooser.
+      props.app !== undefined &&
+        h(
+          'p',
+          { class: 'login__app', 'data-testid': 'login-app' },
+          telgaLogo({ height: 34, title: '' }),
+          h(
+            'span',
+            { class: 'login__app-name' },
+            t(
+              locale,
+              props.app === 'pay' ? 'launcher.tile.telgapay.label' : 'launcher.tile.telga.label',
+            ),
+          ),
+        ),
       field(
         'userId',
         'Operator',
@@ -158,6 +203,7 @@ export function loginScreen(props: LoginProps): El {
           name: 'userId',
           type: 'text',
           required: true,
+          value: props.userId,
           autocomplete: 'username',
           'data-testid': 'login-user',
         }),
@@ -197,6 +243,7 @@ export function loginScreen(props: LoginProps): El {
           name: 'deviceSecret',
           type: 'password',
           required: true,
+          value: props.deviceSecret,
           autocomplete: 'off',
           'data-testid': 'login-device-secret',
           'aria-describedby': 'deviceSecret-hint',
@@ -204,6 +251,12 @@ export function loginScreen(props: LoginProps): El {
         'Issued by Telga when this device was enrolled.',
       ),
       h('button', { type: 'submit', 'data-testid': 'login-submit' }, t(locale, 'screen.login')),
+    ),
+    // Back to the chooser, so a wrong app is one tap to undo.
+    h(
+      'p',
+      { class: 'login__back' },
+      h('a', { href: '/launcher', 'data-testid': 'login-back-to-launcher' }, t(locale, 'settings.back')),
     ),
   );
 }

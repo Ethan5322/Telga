@@ -11,7 +11,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ApiEnvelope, BalanceDto, CreateSaleResultDto, QueueDto, TransactionDto } from '@telga/pos-view-model';
+import type { BalanceDto, CreateSaleResultDto, QueueDto, TransactionDto } from '@telga/pos-view-model';
 import { assertSafeForDisplay } from '@telga/pos-view-model';
 import {
   DEVICE_B,

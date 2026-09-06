@@ -29,7 +29,25 @@ import { json } from './contract';
 import type { HttpRequest, HttpResponse } from './contract';
 import type { AuthedApiDeps } from './deps';
 import { guard } from './guard';
-import { getBalance, getQueue, getTransaction, listTransactions, meta, postSale } from './handlers';
+import {
+  getBalance,
+  getOrder,
+  getQueue,
+  getReceipt,
+  getTransaction,
+  postReprint,
+  listTransactions,
+  meta,
+  getSettings,
+  postAuthorizeOrder,
+  postCancelOrder,
+  postDeposit,
+  postProfitTransfer,
+  postChangePin,
+  postOrder,
+  postSale,
+  postSettings,
+} from './handlers';
 import { getLiveness, getReadiness } from './health';
 import {
   getSession,
@@ -129,6 +147,21 @@ export const ROUTES: readonly Route[] = Object.freeze([
     permission: 'POS_VIEW_TRANSACTION',
     handler: getTransaction,
   },
+  // Receipts. Lookup is a pure read; reprint records an audit event and
+  // nothing else — no sale, no ledger entry, no timestamp change.
+  {
+    method: 'GET',
+    pattern: `${TRAINING_PREFIX}/transactions/:id/receipt`,
+    permission: 'POS_VIEW_TRANSACTION',
+    handler: getReceipt,
+  },
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/transactions/:id/reprint`,
+    permission: 'POS_VIEW_TRANSACTION',
+    write: true,
+    handler: postReprint,
+  },
   {
     method: 'GET',
     pattern: `${TRAINING_PREFIX}/queue`,
@@ -149,6 +182,92 @@ export const ROUTES: readonly Route[] = Object.freeze([
     rateScope: 'SALE',
     handler: (d, r, c, id) => postSale(d, r, c, id),
   },
+
+  // Voucher pending orders. `authorize` carries its own PIN_AUTH rate limit
+  // and lockout inside `authorizeOrder`, mirroring how `login()` carries its
+  // own — so no `rateScope` is declared here for it.
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/orders`,
+    permission: 'POS_CREATE_SALE',
+    write: true,
+    rateScope: 'SALE',
+    handler: (d, r, c, id) => postOrder(d, r, c, id),
+  },
+  {
+    method: 'GET',
+    pattern: `${TRAINING_PREFIX}/orders/:id`,
+    permission: 'POS_CREATE_SALE',
+    handler: getOrder,
+  },
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/orders/:id/cancel`,
+    permission: 'POS_CREATE_SALE',
+    write: true,
+    handler: postCancelOrder,
+  },
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/orders/:id/authorize`,
+    permission: 'POS_CREATE_SALE',
+    write: true,
+    handler: postAuthorizeOrder,
+  },
+
+  // Shop settings. The read is granted to every operator because a slip has
+  // to print with the shop's chosen width and advertising line whoever is at
+  // the counter; the write is owner-only, so an assistant cannot change the
+  // displayed training margin.
+  {
+    method: 'GET',
+    pattern: `${TRAINING_PREFIX}/settings`,
+    permission: 'POS_VIEW_HOME',
+    handler: (d, r, c, id) => getSettings(d, r, c, id),
+  },
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/settings`,
+    permission: 'POS_MANAGE_SETTINGS',
+    write: true,
+    handler: (d, r, c, id) => postSettings(d, r, c, id),
+  },
+
+  // Telga Pay training deposit. Owner-only and rate-limited as a sale is,
+  // because it is the one path in this build that adds value to a float.
+  // It is not payment acceptance — see `application/deposits.ts` and D70.
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/pay/deposits`,
+    permission: 'POS_DEPOSIT_TRAINING_FUNDS',
+    write: true,
+    rateScope: 'SALE',
+    handler: (d, r, c, id) => postDeposit(d, r, c, id),
+  },
+
+  // Moving earned profit into the selling balance. Owner-only: it changes
+  // what the shop can sell with, and an assistant should not be able to.
+  // Rate-limited as a sale is, and a write, so CSRF applies.
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/profit/transfers`,
+    permission: 'POS_DEPOSIT_TRAINING_FUNDS',
+    write: true,
+    rateScope: 'SALE',
+    handler: (d, r, c, id) => postProfitTransfer(d, r, c, id),
+  },
+
+  // Changing a transaction PIN. Owner-only, because it changes who can
+  // authorize a sale. The new PIN travels in the body and is hashed
+  // immediately; it is never logged, echoed, or stored in any other form.
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/operators/pin`,
+    permission: 'POS_MANAGE_SETTINGS',
+    write: true,
+    rateScope: 'SALE',
+    handler: (d, r, c, id) => postChangePin(d, r, c, id),
+  },
 ]);
 
 function match(pattern: string, path: string): Readonly<Record<string, string>> | undefined {
@@ -158,8 +277,8 @@ function match(pattern: string, path: string): Readonly<Record<string, string>> 
 
   const params: Record<string, string> = {};
   for (let i = 0; i < expected.length; i += 1) {
-    const segment = expected[i] as string;
-    const value = actual[i] as string;
+    const segment = expected[i];
+    const value = actual[i];
     if (segment.startsWith(':')) {
       if (value.length === 0) return undefined;
       params[segment.slice(1)] = decodeURIComponent(value);
@@ -183,7 +302,7 @@ function correlationOf(deps: AuthedApiDeps, request: HttpRequest): string {
   return deps.newId('corr');
 }
 
-export interface RouterDeps extends AuthedApiDeps {}
+export type RouterDeps = AuthedApiDeps;
 
 /**
  * Dispatch one request.

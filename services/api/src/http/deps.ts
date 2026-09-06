@@ -5,10 +5,15 @@
  * handlers it guards, which would be a cycle.
  */
 
-import type { SaleDeps } from '../application/context';
+import type { SaleDeps, VoucherOrderCatalog } from '../application/context';
 import type { AuthConfig } from '../auth/context';
 
 export interface AuthedApiDeps extends SaleDeps {
+  /**
+   * The training voucher catalog. Separate from `SaleDeps.catalog`, which
+   * `/sell` alone validates against — see `application/context.ts`.
+   */
+  readonly voucherCatalog: VoucherOrderCatalog;
   /** Poll interval handed to the client. The recovery policy's own number. */
   readonly statusCheckIntervalMs: number;
   /** Client-side poll cap, so a screen left open does not poll forever. */

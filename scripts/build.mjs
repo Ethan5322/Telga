@@ -32,6 +32,7 @@ export const BUILD_ORDER = [
   'services/api',
   'services/worker',
   'apps/merchant-pos',
+  'apps/operations-console',
 ];
 
 const args = process.argv.slice(2);

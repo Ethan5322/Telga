@@ -37,4 +37,41 @@ export {
 export * from './operations';
 export * as recoveryRepo from './repositories/recovery';
 export * as identityRepo from './repositories/identity';
+export * as settingsRepo from './repositories/settings';
+export type { SettingKey, SettingRow } from './repositories/settings';
+export * as shopbookRepo from './repositories/shopbook';
+export * as adminRepo from './repositories/admin';
+export {
+  clearAdminMfaSecret,
+  findAdminSession,
+  findAdminUser,
+  findAdminUserByEmail,
+  grantAdminPermission,
+  listActiveAdminSessions,
+  listAdminGrants,
+  listAdminUsers,
+  markAdminMfaSatisfied,
+  markAdminSteppedUp,
+  normalizeEmail,
+  recordAdminLoginFailure,
+  recordAdminLoginSuccess,
+  revokeAdminPermission,
+  revokeAdminSession,
+  revokeAllAdminSessions,
+  saveAdminSession,
+  saveAdminUser,
+  setAdminMfaSecret,
+  setAdminStatus,
+  touchAdminSession,
+} from './repositories/admin';
+export type { AdminSessionInput, AdminUserInput } from './repositories/admin';
+export type {
+  AdminPermissionRow,
+  AdminSessionRow,
+  AdminUserRow,
+  MerchantApplicationRow,
+  TenantRegistryRow,
+} from './schema/types';
+
+export type { CustomerInput, ShiftInput } from './repositories/shopbook';
 export { maskRecipient, hashRecipient, assertSafeMetadata, serializeMetadata } from './privacy';

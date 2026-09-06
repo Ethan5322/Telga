@@ -8,15 +8,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  AppendOnlyProtectionMissingError,
-  BackupNotFoundError,
   BackupTooLargeError,
   ChecksumMismatchError,
   DestinationExistsError,
   LiveModeRefusedError,
   ManifestMissingError,
   PathNotAllowedError,
-  RowCountMismatchError,
   SchemaMismatchError,
   SourceNotFoundError,
   TargetExistsError,

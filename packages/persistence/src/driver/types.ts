@@ -2,8 +2,25 @@
  * The `LedgerDriver` contract.
  *
  * Everything above this line talks to the interface; only `sqlite/` knows what
- * a SQLite handle is. Swapping SQLite for Postgres at Phase 3 means writing a
- * second implementation of this file, and changing nothing else.
+ * a SQLite handle is.
+ *
+ * ## What swapping to Postgres would actually cost
+ *
+ * This comment used to claim it meant writing a second implementation of this
+ * file "and changing nothing else". That was wrong, and the correction matters
+ * because the sentence was being used to size the work.
+ *
+ * Every method below is **synchronous**, and the unit of work is
+ * `transaction<T>(work: () => T): T` — a synchronous callback. Every Node
+ * Postgres client is asynchronous, so a Postgres driver forces this interface
+ * async, and with it ~80 files that touch driver methods and 21 `transaction()`
+ * call sites. The claim lease (A37/R16) would also need re-proving against a
+ * different engine's locking.
+ *
+ * The interface still does its job — callers say *what* they store, never
+ * *how*, so the change is mechanical rather than a redesign. It is simply a
+ * project, not a file. See `09 Engineering/Vercel Deployment Limits.md` and
+ * Decision Log D108.
  *
  * Note what is absent: there is **no** `updateLedgerEntry` and **no**
  * `deleteLedgerEntry`. The interface offers no way to mutate ledger history,
@@ -17,6 +34,7 @@ import type {
   DraftEntry,
   LedgerAccountKind,
   MerchantId,
+  MerchantUserId,
   OperatingMode,
   PostingId,
   Timestamp,
@@ -163,6 +181,21 @@ export interface LedgerDriver {
   // --- derived balances ----------------------------------------------------
   /** The four merchant-facing views. `BANK_CLEARING` is never included. */
   balanceFor(merchantId: MerchantId): BalanceView;
+  /** Training profit attributed to this merchant on one `YYYY-MM-DD`. */
+  profitForDay(merchantId: MerchantId, dayPrefix: string): number;
+  /** True when this posting id was already written — a retry, not a new posting. */
+  postingExists(postingId: string): boolean;
+  /** Profit earned and not yet moved to the selling balance. */
+  profitAvailableMinor(merchantId: MerchantId): number;
+  /** Replace one user's PIN. Returns false when no such user in this merchant. */
+  updateMerchantUserPin(input: {
+    readonly id: MerchantUserId;
+    readonly merchantId: MerchantId;
+    readonly pinHash: string;
+    readonly pinSalt: string;
+    readonly pinParams: string;
+    readonly at: Timestamp;
+  }): boolean;
   /** Whole-ledger residual. Zero when double entry holds. */
   ledgerResidualMinor(): number;
 

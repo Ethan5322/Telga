@@ -1,0 +1,20 @@
+{
+  "name": "@telga/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga Android shell. A Capacitor wrapper around the Telga server's own screens — it packages the app for the Play Store and changes nothing about how the app works.",
+  "scripts": {
+    "cap:sync": "cap sync android",
+    "cap:open": "cap open android",
+    "apk:debug": "cd android && gradlew.bat assembleDebug",
+    "apk:release": "cd android && gradlew.bat assembleRelease",
+    "aab:release": "cd android && gradlew.bat bundleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0"
+  }
+}

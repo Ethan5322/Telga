@@ -156,12 +156,16 @@ describe('the login screen', () => {
   it('reaches every field and the submit button by keyboard, in order', () => {
     const el = loginScreen({ chrome: authChrome() });
     const order = focusOrder(el).map((e) => e.attrs['data-testid'] ?? e.tag);
+    // The four fields, the submit, and then the way back to the app chooser —
+    // last, so tabbing through the form never lands on "leave" before "sign
+    // in".
     expect(order).toEqual([
       'login-user',
       'login-pin',
       'login-device',
       'login-device-secret',
       'login-submit',
+      'login-back-to-launcher',
     ]);
   });
 

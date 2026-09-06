@@ -70,7 +70,7 @@ export function classifyLookupFailure(error: unknown): ProviderLookupOutcome {
 
   const name = error instanceof Error ? error.name : '';
   const code =
-    error && typeof error === 'object' && 'code' in error && typeof (error as { code: unknown }).code === 'string'
+    error && typeof error === 'object' && 'code' in error && typeof (error).code === 'string'
       ? (error as { code: string }).code
       : '';
   const token = `${name}:${code}`.toUpperCase();

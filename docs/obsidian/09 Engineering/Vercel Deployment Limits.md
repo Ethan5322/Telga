@@ -154,7 +154,7 @@ A separate design, not a refactor. It would need, at minimum:
 
 | Need | Implication |
 |---|---|
-| A network database | Postgres, replacing the SQLite driver behind `LedgerDriver`. Already the Phase 3 option — [[SQLite Persistence Layer]] |
+| A network database | Postgres, replacing the SQLite driver behind `LedgerDriver`. Already the Phase 3 option — [[SQLite Persistence Layer]]. **Bigger than "one more file"** — see the correction below |
 | A place for the worker | A container or scheduled job with a real connection, not a request handler |
 | Session storage | Moves with the database |
 | Migration ownership | A deliberate single-writer step in the deploy pipeline |
@@ -165,6 +165,27 @@ callers — that door is open. Walking through it is a project, and none of it i
 justified before a provider agreement exists.
 
 **Recorded as A56 / R30. Open.**
+
+> [!warning] Correction, 2026-09-05 — the swap is not "changing nothing else"
+> This note previously implied, and `driver/types.ts` stated outright, that
+> moving to Postgres means writing a second implementation of the driver and
+> changing nothing else. **That is wrong**, and it understated the work by a
+> wide margin.
+>
+> `LedgerDriver` is **entirely synchronous**: it has *zero* Promise-returning
+> methods, and its unit of work is `transaction<T>(work: () => T): T` — a
+> synchronous callback. Every Node Postgres client is asynchronous. Making the
+> interface async makes every caller async: **~80 files** touch driver methods
+> and there are **21** `transaction()` call sites. `better-sqlite3` is also the
+> project's only runtime dependency, so its synchronous style is load-bearing
+> throughout.
+>
+> The interface still earns its keep — callers name *what* they store, not
+> *how*, so the change is mechanical rather than a redesign. But it is an async
+> refactor of the whole persistence surface, plus re-proving the claim lease
+> (A37/R16) against a different engine's locking, plus resolving D103's
+> one-database-per-shop model against a single shared instance. It needs its own
+> plan and its own approval. Recorded as **D108**.
 
 ## Related
 

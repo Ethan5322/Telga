@@ -24,12 +24,13 @@ import {
   request,
   seedSale,
   signInAs,
+  OWNER_USER,
 } from '../ui/helpers';
 import type { TestSession, UiHarness } from '../ui/helpers';
 import { CSRF_HEADER, SESSION_COOKIE, authenticate, handle, login } from '@telga/api';
 import type { ApiDeps, HttpResponse } from '@telga/api';
 import type { ApiEnvelope } from '@telga/pos-view-model';
-import type { DeviceId, MerchantUserId } from '@telga/domain';
+import type { MerchantUserId } from '@telga/domain';
 
 export {
   DEVICE_A,
@@ -38,6 +39,7 @@ export {
   MERCHANT_B,
   OPERATOR_A,
   OPERATOR_B,
+  OWNER_USER,
   TEST_PIN,
   TRAINING_AUTH_CONFIG,
   call,
@@ -89,7 +91,7 @@ export function signInAsBeta(api: ApiDeps): Promise<TestSession> {
   return signInAs(api, {
     userId: OPERATOR_B,
     merchantId: MERCHANT_B,
-    deviceId: DEVICE_B as DeviceId,
+    deviceId: DEVICE_B,
   });
 }
 

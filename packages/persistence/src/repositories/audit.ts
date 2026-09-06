@@ -54,3 +54,17 @@ export function readAuditEventsByCorrelation(db: Db, correlationId: string): rea
     .prepare('SELECT * FROM audit_events WHERE correlation_id = ? ORDER BY created_at, id')
     .all(correlationId) as AuditEventRow[];
 }
+
+/**
+ * How many events of one type an entity has.
+ *
+ * Backs the reprint sequence: counting the append-only trail means the count
+ * cannot drift from the events that produced it, and needs no column on the
+ * transaction to hold it.
+ */
+export function countAuditEvents(db: Db, eventType: string, entityId: string): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM audit_events WHERE event_type = ? AND entity_id = ?')
+    .get(eventType, entityId) as { n: number };
+  return row.n;
+}

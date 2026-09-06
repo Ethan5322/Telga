@@ -245,7 +245,7 @@ export interface SessionRow {
   revocation_reason: string | null;
 }
 
-export type AttemptScope = 'LOGIN' | 'SALE';
+export type AttemptScope = 'LOGIN' | 'SALE' | 'PIN_AUTH';
 
 export interface AuthAttemptRow {
   id: number;
@@ -253,6 +253,66 @@ export interface AuthAttemptRow {
   subject: string;
   outcome: 'SUCCESS' | 'FAILURE';
   created_at: string;
+}
+
+/** A saved regular. The number is stored masked, never in full. */
+export interface CustomerRow {
+  id: string;
+  merchant_id: string;
+  display_name: string;
+  phone_masked: string;
+  created_at: string;
+  updated_at: string;
+  mode: OperatingMode;
+}
+
+/** A labelled span of time an operator worked. Holds no money of its own. */
+export interface ShiftRow {
+  id: string;
+  merchant_id: string;
+  operator_id: string;
+  device_id: string;
+  opened_at: string;
+  closed_at: string | null;
+  mode: OperatingMode;
+}
+
+export type PendingOrderStatus = 'OPEN' | 'AUTHORIZED' | 'CANCELLED' | 'EXPIRED';
+
+/**
+ * A voucher order awaiting PIN authorization.
+ *
+ * Everything a client could otherwise tamper with after PRINT — network,
+ * product, amount — lives here, written once at creation and never accepted
+ * from a request again. `transaction_id` is set exactly once, when
+ * `status` becomes `AUTHORIZED`.
+ */
+export interface PendingOrderRow {
+  id: string;
+  merchant_id: string;
+  device_id: string;
+  operator_id: string;
+  session_id: string;
+  network: string;
+  product_type: 'AIRTIME' | 'TOPUP' | 'DATA';
+  /**
+   * The customer's phone number, masked at write time. Null for every order
+   * created before migration 008, and for any product that needs no
+   * recipient — the column records the honest absence rather than an
+   * invented number.
+   */
+  recipient: string | null;
+  product_id: string;
+  amount_minor: number;
+  currency: 'ETB';
+  total_minor: number;
+  /** How many vouchers this order is for. 1 unless bulk printing was used. */
+  quantity: number;
+  client_request_id: string;
+  status: PendingOrderStatus;
+  created_at: string;
+  expires_at: string;
+  transaction_id: string | null;
 }
 
 export type SupportCaseReason =
@@ -276,4 +336,86 @@ export interface SupportCaseRow {
   /** Supervisor who authorized a refund, reversal or exceptional balance action. */
   approved_by: string | null;
   approved_at: string | null;
+}
+
+// --- Telga staff -----------------------------------------------------------
+
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  display_name: string;
+  department: string;
+  role: string;
+  password_hash: string;
+  password_salt: string;
+  password_params: string;
+  mfa_secret_hash: string | null;
+  mfa_enrolled_at: string | null;
+  webauthn_credential_id: string | null;
+  webauthn_public_key: string | null;
+  status: string;
+  created_by: string | null;
+  approved_by: string | null;
+  failed_attempts: number;
+  locked_until: string | null;
+  last_login_at: string | null;
+  last_activity_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminPermissionRow {
+  admin_user_id: string;
+  permission: string;
+  granted_by: string;
+  granted_at: string;
+}
+
+export interface AdminSessionRow {
+  id: string;
+  admin_user_id: string;
+  role: string;
+  csrf_hash: string;
+  /** SQLite has no boolean: 0 or 1. */
+  mfa_satisfied: number;
+  stepped_up_at: string | null;
+  status: string;
+  created_at: string;
+  last_seen_at: string;
+  idle_expires_at: string;
+  absolute_expires_at: string;
+  revoked_at: string | null;
+  revocation_reason: string | null;
+}
+
+export interface TenantRegistryRow {
+  merchant_id: string;
+  database_name: string;
+  schema_version: string;
+  status: string;
+  last_backup_at: string | null;
+  last_restore_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MerchantApplicationRow {
+  id: string;
+  reference: string;
+  status: string;
+  legal_name: string;
+  trading_name: string | null;
+  owner_name: string;
+  phone: string;
+  email: string | null;
+  address: string;
+  locality: string;
+  merchant_id: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  decision_reason: string | null;
+  relationship_owner: string | null;
+  submitted_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

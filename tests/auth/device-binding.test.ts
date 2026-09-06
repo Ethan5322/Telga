@@ -26,7 +26,6 @@ import {
   MERCHANT_A,
   MERCHANT_B,
   OPERATOR_A,
-  OPERATOR_B,
   TEST_PIN,
   authenticate,
   callWith,

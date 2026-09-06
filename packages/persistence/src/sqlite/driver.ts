@@ -48,6 +48,9 @@ import type {
   DeviceEnrollmentRow,
   SessionRow,
   AttemptScope,
+  PendingOrderRow,
+  CustomerRow,
+  ShiftRow,
 } from '../schema/types';
 import { DriverClosedError } from '../driver/errors';
 import type { Db } from './connection';
@@ -61,6 +64,10 @@ import * as audit from '../repositories/audit';
 import * as pending from '../repositories/pending';
 import * as recovery from '../repositories/recovery';
 import * as identity from '../repositories/identity';
+import * as pendingOrders from '../repositories/pendingOrders';
+import * as settings from '../repositories/settings';
+import * as shopbook from '../repositories/shopbook';
+import type { PendingOrderInput } from '../repositories/pendingOrders';
 
 export class SqliteLedgerDriver implements LedgerDriver {
   private db: Db | undefined;
@@ -193,6 +200,46 @@ export class SqliteLedgerDriver implements LedgerDriver {
 
   // --- balances ------------------------------------------------------------
 
+  profitForDay(merchantId: MerchantId, dayPrefix: string): number {
+    return ledger.profitForDay(this.handle(), merchantId, dayPrefix);
+  }
+
+  postingExists(postingId: string): boolean {
+    return ledger.postingExists(this.handle(), postingId);
+  }
+
+  /** Profit earned and not yet moved to the selling balance. */
+  profitAvailableMinor(merchantId: MerchantId): number {
+    return ledger.profitAvailableMinor(this.handle(), merchantId);
+  }
+
+  // --- saved customers and shifts -------------------------------------------
+
+  saveCustomer(input: shopbook.CustomerInput): CustomerRow {
+    return shopbook.saveCustomer(this.handle(), input);
+  }
+
+  listCustomers(merchantId: MerchantId): readonly CustomerRow[] {
+    return shopbook.listCustomers(this.handle(), merchantId);
+  }
+
+  openShift(input: shopbook.ShiftInput): ShiftRow {
+    return shopbook.openShift(this.handle(), input);
+  }
+
+  findOpenShift(merchantId: MerchantId, operatorId: MerchantUserId): ShiftRow | undefined {
+    return shopbook.findOpenShift(this.handle(), merchantId, operatorId);
+  }
+
+  closeShift(id: string, at: Timestamp): boolean {
+    return shopbook.closeShift(this.handle(), id, at);
+  }
+
+  /** Replace one user's PIN. Returns false when no such user in this merchant. */
+  updateMerchantUserPin(input: Parameters<typeof identity.updateMerchantUserPin>[1]): boolean {
+    return identity.updateMerchantUserPin(this.handle(), input);
+  }
+
   balanceFor(merchantId: MerchantId): BalanceView {
     return ledger.balanceFor(this.handle(), merchantId);
   }
@@ -289,6 +336,29 @@ export class SqliteLedgerDriver implements LedgerDriver {
 
   readAuditEventsByCorrelation(correlationId: string): readonly AuditEventRow[] {
     return audit.readAuditEventsByCorrelation(this.handle(), correlationId);
+  }
+
+  countAuditEvents(eventType: string, entityId: string): number {
+    return audit.countAuditEvents(this.handle(), eventType, entityId);
+  }
+
+  // --- merchant settings -----------------------------------------------------
+
+  readSetting(merchantId: MerchantId, key: settings.SettingKey): string | undefined {
+    return settings.readSetting(this.handle(), merchantId, key);
+  }
+
+  readSettings(merchantId: MerchantId): readonly settings.SettingRow[] {
+    return settings.readSettings(this.handle(), merchantId);
+  }
+
+  writeSetting(
+    merchantId: MerchantId,
+    key: settings.SettingKey,
+    value: string,
+    at: Timestamp,
+  ): void {
+    settings.writeSetting(this.handle(), merchantId, key, value, at);
   }
 
   // --- pending resolution and support -------------------------------------
@@ -445,6 +515,33 @@ export class SqliteLedgerDriver implements LedgerDriver {
 
   countAttemptsSince(scope: AttemptScope, subject: string, since: Timestamp): number {
     return identity.countAttemptsSince(this.handle(), scope, subject, since);
+  }
+
+  /** How many `PIN_AUTH` failures a subject has recorded since `since`. */
+  countFailuresSince(scope: AttemptScope, subject: string, since: Timestamp): number {
+    return identity.countFailuresSince(this.handle(), scope, subject, since);
+  }
+
+  // --- voucher pending orders ------------------------------------------------
+
+  createPendingOrder(input: PendingOrderInput): PendingOrderRow {
+    return pendingOrders.createPendingOrder(this.handle(), input);
+  }
+
+  findPendingOrder(id: string): PendingOrderRow | undefined {
+    return pendingOrders.findPendingOrder(this.handle(), id);
+  }
+
+  expirePendingOrderIfDue(id: string, now: Timestamp): void {
+    pendingOrders.expireIfDue(this.handle(), id, now);
+  }
+
+  cancelPendingOrder(id: string): boolean {
+    return pendingOrders.cancelPendingOrder(this.handle(), id);
+  }
+
+  authorizePendingOrder(id: string, transactionId: TransactionId): boolean {
+    return pendingOrders.authorizePendingOrder(this.handle(), id, transactionId);
   }
 
   pruneAttempts(before: Timestamp): number {

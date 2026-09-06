@@ -14,6 +14,8 @@
 import { AMHARIC_REVIEW_WARNING, t } from '@telga/localization';
 import type { Locale } from '@telga/localization';
 import { h } from './element';
+import { menu } from './menu';
+import type { MenuModule } from './menu';
 import type { El, Node } from './element';
 
 export const TRAINING_BANNER_TEST_ID = 'training-banner';
@@ -39,6 +41,32 @@ export interface Chrome {
   readonly deviceId?: string;
   /** Bound to this session; embedded in every form the page renders. */
   readonly csrfToken?: string;
+  /**
+   * Inactivity timeout, in milliseconds, for the client-side sign-out.
+   *
+   * Set only for authenticated screens — the sign-in page has no session to
+   * time out, so it carries no watcher. The server expires the session on its
+   * own clock regardless; this only makes the expiry visible.
+   */
+  readonly idleTimeoutMs?: number;
+  /**
+   * The shop's screen-lock window, in milliseconds — `Settings → Security →
+   * "Lock the screen after (seconds)"`.
+   *
+   * **Not** {@link idleTimeoutMs}, which is the server's session expiry. Two
+   * different things were being driven by one number: locking keeps the
+   * session alive and asks for a PIN, signing out ends it. The shop's setting
+   * saved correctly and was then ignored, because the page only ever emitted
+   * the session window.
+   *
+   * Absent when the shop has not turned the lock on.
+   */
+  readonly lockAfterMs?: number;
+  /**
+   * Which module this screen belongs to. Drives the three-bar menu's entries.
+   * Absent means Telga Vending, which is what every screen but Pay's is.
+   */
+  readonly module?: MenuModule;
 }
 
 export class RefusedNonTrainingModeError extends Error {
@@ -95,6 +123,22 @@ export function page(
     'div',
     { class: 'pos', lang: chrome.locale, 'data-mode': chrome.mode },
     trainingBanner(chrome),
+    // The three-bar menu, drawn here rather than by each screen — so an entry
+    // cannot exist on the dashboard and be missing from history, and so it is
+    // reachable from every authenticated screen without exception.
+    h(
+      'div',
+      { class: 'pos__topbar' },
+      menu({
+        locale: chrome.locale,
+        operatorId: chrome.operatorId ?? chrome.merchantId,
+        csrfToken: chrome.csrfToken,
+        // Telga Pay gets its own entries. Sharing one menu meant an operator
+        // taking a card payment saw the vending shop's statements, shift and
+        // settings — and Pay appeared to have none of its own.
+        module: chrome.module,
+      }),
+    ),
     h(
       'main',
       { 'data-testid': 'screen', 'data-screen-title': title },
@@ -161,8 +205,11 @@ export function nav(
   return h(
     'nav',
     { 'aria-label': 'Main', class: 'pos__nav' },
-    link('/', t(locale, 'screen.home'), 'home'),
-    link('/sell', t(locale, 'sale.action.sell_airtime'), 'sell'),
+    // `/dashboard`, not `/`. `/` is the legacy POS home whose primary action
+    // opens the old single-screen `/sell` form — so a merchant pressing
+    // "Home" from anywhere in the voucher flow used to land on the old
+    // airtime-selling page. The Telga vending dashboard is the home now.
+    link('/dashboard', t(locale, 'nav.main'), 'home'),
     link('/transactions', t(locale, 'screen.search'), 'transactions'),
     link('/queue', t(locale, 'screen.admin_queue'), 'queue'),
   );

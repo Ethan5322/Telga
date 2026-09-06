@@ -160,7 +160,7 @@ describe('the training banner', () => {
   });
 
   it('is announced politely, not as an interruption', () => {
-    const banner = byTestId(everyScreen()[0]!.el, 'training-banner') as El;
+    const banner = byTestId(everyScreen()[0].el, 'training-banner') as El;
     expect(banner.attrs['role']).toBe('status');
     expect(banner.attrs['aria-live']).toBe('polite');
   });
@@ -313,7 +313,11 @@ describe('funds and recovery', () => {
     // Not a bare /lease/: "RELEASE_FUNDS" contains it, and that string is a
     // merchant-facing refusal rather than a worker internal.
     expect(html).not.toMatch(/worker_id|workerId|scan_id|scanId|expires_at|claim_lease|claimLease/i);
-    expect(html).not.toMatch(/claimed_at|attempt_no/i);
+    // The word boundaries here were literal backspace bytes (0x08) until
+    // 2026-08-29, so this pattern looked for "<BS>claimed_at<BS>" and could
+    // never match anything. A leak check that cannot fail is worse than none:
+    // it reads as coverage. Found by `no-control-regex`, not by a run.
+    expect(html).not.toMatch(/\bclaimed_at\b|\battempt_no\b/i);
   });
 
   it('shows the manual-review notice and the support reference for an escalated one', () => {

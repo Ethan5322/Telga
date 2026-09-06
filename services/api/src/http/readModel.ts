@@ -160,11 +160,20 @@ export function toTransactionDto(
 
 export function toBalanceDto(deps: ReadModelDeps, merchantId: MerchantId): BalanceDto {
   const view = deps.driver.balanceFor(merchantId);
+  // "Today" by the server's clock, which is the same clock that stamped the
+  // entries — never the browser's, which a device could have set wrongly.
+  const today = deps.now().slice(0, 10);
   return {
     available: toMoneyDto(view.available),
     reserved: toMoneyDto(view.reserved),
     underReview: toMoneyDto(view.underReview),
     total: toMoneyDto(view.total),
+    todayProfit: toMoneyDto(money(deps.driver.profitForDay(merchantId, today))),
+    // What is left to move into the selling balance: all-time earned minus
+    // all-time moved. Different from `todayProfit` the moment a shop earns on
+    // one day and moves on another, and it is this figure a transfer is
+    // bounded by — see `application/profitTransfer.ts`.
+    profitAvailable: toMoneyDto(money(deps.driver.profitAvailableMinor(merchantId))),
   };
 }
 

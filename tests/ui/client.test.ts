@@ -18,7 +18,7 @@ import {
   succeed,
   succeedList,
 } from '@telga/pos-view-model';
-import type { RemoteData, RemoteFailure, TransactionDto } from '@telga/pos-view-model';
+import type { RemoteFailure, TransactionDto } from '@telga/pos-view-model';
 import { TrainingApiClient, toRemoteFailure } from '@telga/merchant-pos';
 import type { FetchLike } from '@telga/merchant-pos';
 import {
@@ -139,7 +139,7 @@ describe('presentation state', () => {
   });
 
   it('becomes ERROR only when there is genuinely nothing to show', () => {
-    const first = fail({ status: 'IDLE' } as RemoteData<unknown>, failure('API_UNREACHABLE'));
+    const first = fail({ status: 'IDLE' }, failure('API_UNREACHABLE'));
     expect(first.status).toBe('ERROR');
     expect(dataOf(first)).toBeUndefined();
   });

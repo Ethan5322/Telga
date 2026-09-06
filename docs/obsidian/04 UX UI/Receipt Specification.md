@@ -4,13 +4,16 @@ type: ux
 status: draft
 owner: telga
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-08-28
 tags:
   - telga
   - ux
   - receipt
   - printing
 related:
+  - "[[Bulk Printing and Sign Out]]"
+  - "[[Data Vouchers and Slip Codes]]"
+  - "[[Top Up Slips and Settings]]"
   - "[[00 Home]]"
   - "[[Screen Inventory]]"
   - "[[Transaction State Machine]]"
@@ -90,6 +93,48 @@ The merchant sources and pays for their own compatible thermal paper — see [[M
 The application never talks to a printer directly. A `ReceiptPrinter` port has one
 screen-preview implementation for the prototype and device implementations later, so printer
 failure can be injected in tests — see [[Testing Strategy]].
+
+## Transaction history and reprint (implemented)
+
+`GET /transactions` renders a structured table — date, time, service, amount, status, reference —
+**newest first**, with the transaction id as a stable tie-break so equal timestamps cannot shuffle
+between renders (`sortNewestFirst`, `ui/screens.ts`). Each completed row carries a Reprint action.
+
+| Route | Purpose |
+|---|---|
+| `GET /transactions` | the list |
+| `GET /transactions/:id/slip` | the slip preview (pure read) |
+| `POST /transactions/:id/reprint` | records a reprint, then post/redirect/get back to the slip |
+| `GET /api/training/transactions/:id/receipt` | receipt lookup |
+| `POST /api/training/transactions/:id/reprint` | `recordReprint` wiring |
+
+### A reprint never creates a sale
+
+Enforced structurally in `services/api/src/application/reprint.ts`, not by care: that module has
+no access to `createSale`, posts no ledger entry, touches no reservation, and changes no
+transaction state. Its only durable effect is one append-only `RECEIPT_REPRINTED` audit event
+carrying a sequence number and no credential. The slip always prints the **original** timestamp,
+amount and reference — a reprint on a later day still shows the sale as it happened.
+
+The reprint sequence is counted from the audit trail (`countAuditEvents`) rather than stored on
+the transaction, so it needs no schema change and cannot drift from the events that produced it.
+Sequence ≥ 1 renders a visible `REPRINT — not a new sale` marker, so a reprint can never be
+mistaken for an original.
+
+### Authorization and safety
+
+Lookup and reprint both require `POS_VIEW_TRANSACTION` and are scoped in SQL by the session's
+merchant, so another shop's transaction is an ordinary 404. Reprint is a write, so it also
+carries CSRF. The slip renders no PIN, device key, session token, recipient hash, payload
+fingerprint or idempotency key — the `ReceiptDto` has nowhere to put them. The recipient is the
+mask the persistence layer stored; the full number was never saved.
+
+The reprint button is marked `data-once`, which the enhancement script disables on submit so a
+double click cannot fire two requests. With scripting off the form still works, and a duplicate
+is harmless either way: it appends an audit line and touches nothing else.
+
+Covered by `tests/ui/transactions-reprint.test.ts` (16 tests), including balance, transaction
+count and timestamps being byte-identical across a reprint.
 
 ## Related
 

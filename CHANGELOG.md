@@ -6,7 +6,489 @@ All notable changes to Telga. Format follows [Keep a Changelog](https://keepacha
 > No live provider is connected, no live money is enabled, and 0 of 10 launch gates in
 > `docs/obsidian/07 Governance/Launch Gates.md` have been cleared.
 
+## 2026-09-05 — deployment target decided, and a sizing claim corrected
+
+**Local development only.** Nothing has been provisioned, deployed, subscribed
+to or purchased. No domain configured.
+
+### Decided
+
+- **One Railway service with a persistent volume, keeping SQLite** (D108). The
+  requested Supabase + Vercel plan was found already documented as
+  deployment-blocking, and inspection confirmed it: the POS and console are Node
+  HTTP servers, not static bundles, so Vercel cannot host them at all.
+- **PostgreSQL/Supabase migration deferred** (D108), requiring its own plan and
+  the founder's separate approval.
+
+### Added
+
+- **CIDR ranges in `--trust-proxy`** (D109), so a platform terminator whose
+  address is drawn from an internal pool can be named. `0.0.0.0/0` and `::/0`
+  are refused **in the parser**, so the trust-all setting cannot be spelled as a
+  range; a malformed entry is refused at startup rather than silently matching
+  nothing. **No hosting platform's range is built in.**
+- **`PROXY_PEER_OBSERVED`** — an untrusted forwarding hop is reported once,
+  naming the address, so a missing `--trust-proxy` entry is a log line instead
+  of a sign-in that silently fails. Observing an address never trusts it.
+- **`scripts/deploy/railway-start.mjs`** — migrates as a single writer, then
+  runs the worker and the POS on one SQLite file, and stops both if either
+  exits. Refuses a database path outside the mounted volume, a missing variable,
+  or any mode but `TRAINING`.
+- **`railway.json`**, pinned to one replica — a second replica is a second
+  writer on the same file.
+- 28 tests for range parsing, containment, startup refusal and the diagnostic.
+- [[Localhost Setup]] and [[Railway Deployment Checklist]].
+
+### Fixed
+
+- **A sizing claim that was wrong and was being believed.** `driver/types.ts`
+  and [[Vercel Deployment Limits]] both said moving to Postgres meant writing one
+  more driver file "and changing nothing else". The interface has zero
+  Promise-returning methods and a synchronous `transaction<T>(work: () => T): T`;
+  the real cost is an async refactor across ~80 files and 21 transaction call
+  sites, plus re-proving the claim lease on a new engine. Corrected in both
+  places (A96).
+- A separator bug in the new supervisor's volume check, found by its own test:
+  it compared paths with a hard-coded `/`, so the guard misfired on Windows.
+
+### Verified, not assumed
+
+`npm test` — **88 files, 1385 tests, all passing**. Migrations 001–014 on a
+fresh database, health and readiness, restart persistence, backup and restore
+(identical checksum, `appendOnlyVerified`), a restored database serving traffic,
+and the supervisor stopping the POS when the worker dies.
+
+### Not done
+
+Nothing is deployed. The Railway edge's forwarding range is unverified (A93),
+the arrangement has never run on Railway (A94), and the ~$2.50/month estimate is
+from published rates, not a dashboard (A95).
+
+## 2026-08-30 — admin identity foundation (Phase C)
+
+The schema and domain model for the Telga Operations Console. **Nothing reads
+or writes these tables yet** — see `ASSUMPTIONS.md` A85–A88.
+
+### Added
+
+- **Migration 014** — `admin_users`, `admin_permissions`, `admin_sessions`,
+  `tenant_registry`, `merchant_applications`. Five new tables; nothing existing
+  altered, and a test asserts that `merchant_users`, `sessions`, `devices` and
+  `merchants` are byte-identical before and after. (D102)
+- **`packages/domain/src/admin.ts`** — seven administrative roles, 31
+  permissions, individually switchable grants, step-up re-authentication with a
+  five-minute window, and dual control. A suspended account has no permissions
+  whatever its role says.
+- 38 tests: 23 on the permission model, 15 on the migration.
+
+### Decided
+
+- **Admin identity is a separate table** (D102). `merchant_users.merchant_id`
+  is `NOT NULL`, so a Telga admin could not exist; making it nullable was
+  rejected because that constraint is what makes cross-shop leakage
+  structurally impossible.
+- **One database per shop** (D103). Owner decision after the CLAUDE.md §9
+  comparison. Costs recorded: N backups, 12 × N migrations, and a
+  platform-wide ledger residual that becomes a sum over tenants.
+- **Public registration creates nothing** until an admin approves (D104).
+- **Biometric is a device passkey, never a stored template** (D105).
+
+### Not built
+
+Admin login, MFA enrolment, WebAuthn, the console UI, the registration form,
+tenant connection routing, per-tenant migrations, and N-backup tooling.
+
+## 2026-08-29 — remediation batch 1, and the founder's counter reports
+
+### Fixed
+
+- **Today's profit went negative when profit was collected.** `profitForDay`
+  summed the same ledger account a transfer debits, so earning on Monday and
+  moving it on Tuesday showed Tuesday as a day of losses, and moving again made
+  it worse. `ADJUSTMENT` entries are now excluded — a transfer is a movement
+  between the shop's own buckets, not an un-earning. `REVERSAL` is still
+  counted, because a reversed sale really is un-earned. (D95)
+- **A pending sale was shown under a green tick.** The result card was
+  hardcoded to the success card and ✅ for every outcome; the words underneath
+  said the result was unknown. Icon, colour and words now all derive from the
+  transaction's certainty. (D94)
+- **A backup manifest recording missing migrations printed `[object Object]`**,
+  so it said the schema was incomplete without saying what was missing.
+- **A leak check for worker internals could never fail** — its `` word
+  boundaries were literal backspace bytes, so the pattern matched nothing.
+- **A dropped connection rendered a blank reason on screen.** An unchecked cast
+  turned a network error into a failure whose `reasonCode` was `undefined`.
+- **`Promise<unknown | 'TOO_LARGE'>` collapsed to `Promise<unknown>`**, so the
+  caller's sentinel check was never verified by the compiler.
+- The support contact was a fake Ethiopian phone number. Removed rather than
+  replaced: a string shaped like a number is one an operator will dial.
+
+### Added
+
+- **Feature flags matching the vault register**, name for name, with UI, API
+  and role enforcement. The API layer answers `404`/`FEATURE_DISABLED` before
+  authentication or any body read. `money.live` requires ten cleared gates and
+  two assigned approvers, so it cannot be enabled. A test reads the vault note
+  and fails if the code disagrees. (D92, D93)
+- **RFC 7239 `Forwarded` is parsed**, not merely detected. Two forwarding
+  headers that disagree are both disbelieved. (16 tests)
+- **`transaction_attempts` and `provider_health_events`** — migration 013, both
+  additive, with the domain model for them. Nothing writes to them yet. (D99)
+- **Four researched service tiles** — internet, school fees, insurance,
+  government fees — all `COMING_SOON`. (D100)
+- ESLint and Prettier, wired into the scripts. 152 findings → 0.
+
+### Changed
+
+- **The launcher is the Telga mark, and it opens.** One app called Telga;
+  tapping the logo reveals Telga Vending and Telga Pay. (D96)
+- **The figure is bone and the letter is teal** — separated by thickness, not
+  by colour, with the render's own modelling preserved. Icons rebuilt. (D97)
+- **Printed slips name `TELGA TRADING PLC`** from one shared constant. (D98)
+- Risk register: the duplicate `R23` is renumbered `R33`; `R30`'s title names
+  the risk and its blocking status moved into the mitigation column; `R32` now
+  describes the card *ports* rather than claiming no card code exists.
+- `Device Binding` records D74 — the device key now persists in an `httpOnly`
+  cookie, and what that costs.
+
 ## [Unreleased]
+
+### Added — the real logo, the launcher, the menu, and shop settings (2026-08-28)
+
+**Migration 012** — nine preference keys on `settings`, plus `shifts` and `customers`. Five tests
+(`tests/persistence/migration-012.test.ts`) prove every existing setting survives, the key CHECK
+still refuses a typo, a shift closes exactly once and is never deleted, a saved customer's number
+is stored masked, and neither new table accepts a live-mode row.
+
+**The mark is the founder's artwork now** (D81), served from `/assets/telga-logo.png` and shown
+as an `img`. Two earlier attempts redrew it as SVG paths and both were rejected. The
+fall → catch → stand sequence is a CSS rotation that **rests upright** — the supplied render is
+the middle of that sequence, which is why a still copy read as "still falling". It plays on the
+splash and the launcher, never on a slip, and stops for `prefers-reduced-motion` and printing.
+
+**The splash offers a door into each app** — Telga Vending and Telga Pay — carrying the choice
+through sign-in so an operator lands where they picked.
+
+**A three-bar menu on every authenticated screen** (D82): operator id, Statements, End shift,
+Customer list, Learning, Settings, Help, Log out. A `<details>` element, so it works with
+scripting off; every entry is a link or a CSRF-carrying form and the server re-checks permission
+on arrival.
+
+**A "+" beside the balance**, opening a top-up screen with Bank deposit, Telga Pay and Profit.
+
+**Settings** gained in-app toggles (sound, hide balance, low-balance alert), admin-only options
+(statements admin-only, print barcode, print lookup slip, require PIN to unlock), a configurable
+screen-lock time, and links to About, Terms, Privacy and Cookie. Each toggle carries a hidden
+`off` companion so an unchecked box still submits.
+
+**Shifts and saved customers.** A shift is a labelled span of time carrying no money; closing is
+single-winner and never deletes the row. A saved customer is a name beside a **masked** number
+(D83) — deliberately, because a list of full numbers on a counter machine would be the largest
+pool of personal data in the product.
+
+**Policy and support text ship as marked placeholders** (D84). Each policy opens by saying it has
+had no legal review and must be replaced. The support contact is a marked placeholder rather than
+an invented number somebody might dial during a real dispute.
+
+### Fixed — settings stopped loading entirely
+
+`pinLockEnabled` on the settings response contained "pin", which `assertSafeForDisplay` refuses
+by design — so **every settings read returned 500**, and with it the slip width, the shop
+advertisement and the whole Settings screen. Renamed to `screenLockEnabled`; the screen still
+*labels* it "Require PIN to unlock", which is what an owner calls it. The guard was not
+weakened — that is the third time it has caught a key of mine, and each time it was right.
+
+### Changed — a CSS colour, to keep a security test blunt
+
+`#223049` is six digits, which tripped the "no six-digit run in a rendered page" guard that
+exists to catch a leaked PIN. The colour moved one step to `#22304a` rather than the test being
+loosened.
+
+### Not built, and why
+
+**"Change password"** — there is no password in Telga. Sign-in is operator id + PIN + device key;
+no password exists in the schema, the auth code, or the login form. A button that changes nothing
+would be worse than its absence. Change PIN exists and works. If a password is genuinely wanted
+it is a new authentication factor — a schema change, a login-flow change, and a security
+decision. Recorded as `ASSUMPTIONS.md` A76.
+
+### Added — cover screen, profit transfer, owner PIN, corporate settings (2026-08-28)
+
+**Migration 010** — `pending_orders.quantity` (1–20) and `total_minor = amount_minor * quantity`,
+for bulk printing. **Migration 011** — six corporate keys on `settings`. Both rebuild their
+table, as SQLite cannot alter a CHECK. 4 tests
+(`tests/persistence/migration-010-011.test.ts`) prove every existing row survives byte-for-byte,
+that pre-existing orders default to one voucher, that the new CHECKs refuse a mismatched total
+and an out-of-range quantity, and that `integrity_check` and `foreign_key_check` stay clean.
+
+**A cover screen** at `/splash` (D77) — public, shows the mark and one Sign-in action, and every
+unauthenticated redirect now lands there. It carries no merchant, device, operator or balance:
+none of that is known before sign-in.
+
+**Moving profit into the selling balance** (D78). The dashboard Profit pill opens a screen with
+one box; the ledger posts a balanced `ADJUSTMENT` pair. Bounded by **all-time profit not yet
+moved**, checked and posted inside one database transaction. Owner-only, CSRF-protected,
+rate-limited as a sale is, audited. It is a move, not a payout — nothing leaves Telga.
+
+**Owner-changeable transaction PIN** (D79), requiring the current PIN: an open session is
+deliberately not enough. A wrong current PIN counts as a `PIN_AUTH` failure and can never
+contribute to a login lockout. The PIN reaches no log, response, audit metadata, cookie or
+redirect URL.
+
+**Corporate settings** (D80) — business name, address, phone, TIN, trade licence and a slip
+footer, printed under the mark on every slip. Carried on `SlipStyle`, so a new slip type cannot
+forget them. **Telga verifies none of them.**
+
+**The Telga mark**, redrawn (D76). The first version was rejected for showing an upright T with
+a figure beside it; the letter now tips as one rotated group, its foot lifts at the heel, the
+ground slopes the way it is falling, and the figure is in a deep brace with both arms locked
+into the stem. Verdigris on cut stone, transparent, with a flat mono variant because a thermal
+head is one bit per dot.
+
+### Fixed — a slip printed twenty-one stars where a phone number goes (2026-08-28)
+
+Voucher sales written before the recipient fix stored the *mask of a placeholder*:
+`VOUCHER-SALE-NO-RECIPIENT` masked down to `VO*********************NT`. On paper that is a row
+of stars on a product that never had a phone number — and it was being read as a **masked
+voucher PIN**, which is how one bug arrived as three separate retest failures ("PIN masked with
+stars", "phone shown when it shouldn't", "on-screen slip looks wrong").
+
+Fixed at read time rather than by a migration: the transaction table is history, and rewriting
+what those rows say happened would be worse than declining to print a value that was never real.
+Nothing is lost — there was no phone number to lose.
+
+### Fixed — the Network line on every slip was truncated
+
+`product_type.split('_')[0]` cut `NETWORK_A` down to `NETWORK`, because the network id contains
+an underscore of its own. Replaced with `parseProductId`, which anchors on the product kind, in
+the domain so the API and the POS cannot disagree. The Service line now reads `Airtime` rather
+than `NETWORK_A_AIRTIME_2500`.
+
+### Changed — navigation, and what the on-screen slip looks like
+
+Close on a slip returns to `/dashboard` rather than the transaction list, and cancelling an
+order does too. The dashboard's own "Account" tile pointed at `/`, the legacy POS home — a
+one-tap route back to the screen the vending dashboard replaced; it now opens Settings.
+
+The slip preview is drawn as paper: square corners, a perforated edge, and the mark in **black
+rather than verdigris**, because the printer produces black and a preview that differs from the
+print is not a preview.
+
+### Verified, not changed
+
+Three reported failures did not reproduce: the Telga Pay deposit slip renders with the mark, the
+data slip carries the mark, and bulk printing already recorded each voucher as its own
+transaction with its own code. All three are now pinned by tests
+(`tests/ui/splash-logo-slips.test.ts`) so a regression would fail rather than need re-reporting.
+
+### Fixed — the retest findings (2026-08-28)
+
+**Home landed on the old sell page (retest item 1).** Two links still pointed at `/`, the legacy
+POS home whose primary action opens the old single-screen `/sell` form. The shared navigation
+bar's "Home" was one; the other — the one most likely hit — was the **Account tile in the
+dashboard's own bottom nav**, a single tap from the dashboard straight back to the screen the
+dashboard replaced. Home now goes to `/dashboard`, Account goes to `/settings`, the legacy
+"Sell airtime" nav entry is gone, and the main menu's Home entry follows.
+
+**Cancel and Close stranded the operator (items 3, 4).** Cancelling an order redirected to
+`/vouchers`; closing a slip redirected to `/transactions`. Both now land on `/dashboard` —
+the sale is over, and the operator wants the counter. A Reprint button now sits on the result
+screen itself (item 10), beside Close, rather than only on the history screen an operator would
+have to navigate to first.
+
+**The recipient chain was broken end to end (items 5, 7, 11, 12).** `authorizeOrder` passed the
+literal string `VOUCHER-SALE-NO-RECIPIENT` as the recipient of **every** voucher sale, including
+top-ups and data bundles that had a real phone number attached. Masking that placeholder printed
+`VOUC*******************ENT` on the slip — a long row of stars where a phone number goes, which
+is what was read as "the PIN is masked". Three consequences, all now fixed:
+
+  - the customer's phone number never reached the slip on a top-up or data bundle, and now does;
+  - a counter voucher printed a starred line for a recipient it does not have, and now omits
+    the line entirely;
+  - the order row already holds the mask (masked at creation, full number never kept), so it is
+    passed through rather than re-masked.
+
+**`transactions.product_type` recorded nothing (item 9).** `createSale` wrote the literal
+`AIRTIME` for every sale. The slip derives its Network line from the product id in that column,
+so that line rendered as `NETWORK` — or not at all. Now stores `transaction.productId`, and the
+Service line shows a readable name ("Airtime", "Data — MONTHLY 1GB 30D") rather than a database
+key. The column has no CHECK constraint and never had one, so no schema change was needed.
+
+`parseProductId` replaces `split('_')[0]`, which truncated `NETWORK_A` to `NETWORK` because
+network ids contain underscores of their own. It anchors on the product kind instead.
+
+### Added — bulk printing (2026-08-28)
+
+**Migration 010.** `pending_orders` gains `quantity` (1–20) and `total_minor` becomes
+`amount_minor * quantity`. Both are CHECK changes, so the table is rebuilt as in 008 and 009;
+every existing row lands as `quantity = 1`, which is what it was.
+
+One PIN, N vouchers — but **each voucher is still its own transaction**, with its own idempotency
+key, reservation, ledger postings and simulated redemption code, because ten vouchers is ten
+things a customer can hold and one row cannot carry ten PINs. The batch is found again by
+re-deriving each voucher's client request id from the order, so nothing stores a list that could
+disagree with what was created. Verified: a batch of four produced four transactions, four
+distinct codes, 100 birr spent, 4 birr profit, ledger residual zero.
+
+### Added — the Telga mark on every slip (2026-08-28)
+
+Drawn as inline SVG, transparent by construction, in a mono variant for thermal paper — a
+thermal head is one bit per dot, so the colour mark would print as a smear. It is a **stylised
+redraw** of the supplied composition, not a trace of the photoreal render (D76, A70). Palette
+moves from gold to aged verdigris bronze on a cut-stone ground, with light scratches on the T.
+
+### Changed — what sign-out means (2026-08-28)
+
+Per D74. An **idle timeout** now costs the operator their PIN alone: device, device key and
+operator id are all remembered. **Closing or restarting** the app additionally forgets the
+operator — the operator cookie carries no `Max-Age`, which is the whole mechanism, with no extra
+branch deciding it. **Sign out** in Settings clears all four and needs a full re-login.
+
+⚠️ This **reverses** the rule that the device key is never stored on the client. The cost is
+real: possession of the browser profile becomes possession of the device key. Mitigations —
+`httpOnly`, `SameSite=Strict`, `Secure` when the transport is, never in `localStorage`. The
+**PIN is still never stored anywhere**, and server-side device revocation overrides every cookie.
+Recorded as `ASSUMPTIONS.md` A69, open for review before any shared device or live money.
+
+### Changed — two more receipt fields renamed for the display guard
+
+`voucherPin` → `redemptionCode`, `tokenReference` → `redemptionReference`.
+`assertSafeForDisplay` refuses any key containing `pin` or `token`, and returned 500s until
+they were renamed. These are printed references, not secrets — but that guard is more valuable
+blunt than clever, so the fields moved rather than the guard.
+
+### Added — data vouchers, slip redemption codes, navigation fixes (2026-08-27)
+
+Acting on the founder's Stage 1–2 retest findings.
+
+**Migration 009** — `DATA` added to `pending_orders.product_type`. The table is rebuilt, as
+in 008, because SQLite cannot alter a CHECK. 5 tests
+(`tests/persistence/migration-009.test.ts`) seed real orders migrated only to 008 — `TOPUP`
+and `recipient` values included — and prove every column is copied byte-for-byte, that `DATA`
+is now accepted and everything else still refused, that both indexes survive, that **no table
+is added or dropped**, and that `integrity_check` and `foreign_key_check` stay clean.
+
+**Data bundles** (D72), training-only. Nine categories, each with bundles carrying a volume, a
+validity and a price. Flow: network → category → package + phone → PIN → slip. A bundle
+requires a phone number for the same reason a top-up does — it is delivered to a handset.
+
+**Simulated redemption codes on the slip** (D73). Network, voucher PIN, token reference and
+dial string, all derived from the transaction id by `simulatedVoucherCode()`. Derived rather
+than stored, so a reprint prints the identical code, a recovery-resolved sale gets one without
+the worker knowing about slips, and `lookupReceipt` stays a read that writes nothing. A boxed
+`SIMULATED CODE — will not load airtime` notice is drawn by the slip card itself, beside the
+code, so no caller can print one without it. A top-up prints no code — it has nowhere to
+redeem, and printing one would invite somebody to try.
+
+**Navigation.** The shared bar's "Home" now goes to `/dashboard` instead of `/`, which was the
+legacy POS home whose primary action opened the old `/sell` form — the reported "Home takes me
+to the old airtime page". The legacy "Sell airtime" nav entry is removed. A **Main** button is
+now on every screen of the sale flow, including the slip an operator was previously stranded
+on; where an order is already open it is a CSRF-carrying form that cancels the order on the way
+out, with a confirmation prompt, rather than stranding it `OPEN`.
+
+**Idle timeout** stays 60 seconds, as specified. No change was needed: the device already stays
+enrolled through both idle expiry and explicit logout, the device id is prefilled on the login
+screen from `telga_device`, and the device key is never remembered. Covered by four existing
+tests in `tests/auth/idle-timeout.test.ts`.
+
+### Fixed — `transactions.product_type` recorded nothing (2026-08-27)
+
+`createSale` wrote the literal string `AIRTIME` for **every** sale, so the column carried no
+information about what was sold. Two visible consequences: the slip's Network line, which
+derives the network from the product id in that column, could never render; and no redemption
+code could be derived. Now stores `transaction.productId`. The column has no CHECK constraint
+and never had one (migration 001), so no schema change was required and no existing row is
+invalid — rows written before today simply still read `AIRTIME`.
+
+### Changed — two receipt fields renamed to satisfy the display guard
+
+`voucherPin` → `redemptionCode` and `tokenReference` → `redemptionReference`.
+`assertSafeForDisplay` refuses any key containing `pin` or `token`, and it was right to: these
+are printed references rather than secrets, but that guard is far more valuable blunt than
+clever, so the fields were renamed rather than the guard weakened. The slip still *labels* them
+"Voucher PIN" and "Token reference", which is what a merchant calls them.
+
+### Not done, and why
+
+The founder's list asked for a `FreeMe` data category and for real carrier names
+(`Ethio Telecom`, `MTN`) on the slip. `FreeMe` is a Vodacom trademark and Telga has no
+agreement with any of those operators, so naming them would contradict D66 and CLAUDE.md §10.
+The category is `All-Access`, networks stay `Network A–D (simulated)`, and a test asserts none
+of those names appears anywhere in the flow. The `*805*PIN#` **shape** was kept for the dial
+string; the digits are `*000*`, which belongs to no operator, because `*805*` is Ethio
+Telecom's real recharge string.
+
+### Added — Priority 3 Stages 2–5: top-up, profit, one slip, settings, training deposits (2026-08-27)
+
+**Migration 008** (`packages/persistence/src/migrations/008_recipient_topup_settings.ts`).
+Rebuilds `pending_orders` — SQLite cannot alter a CHECK constraint — to add a nullable
+`recipient` column and widen `product_type` to `('AIRTIME','TOPUP')`, and adds a `settings`
+table keyed on `(merchant_id, key)`. Seven tests
+(`tests/persistence/migration-008.test.ts`) seed real rows migrated only to 007 and assert
+every column survives byte-for-byte, pre-existing orders read `recipient IS NULL`, unknown
+product types are still refused, only `settings` is added, integrity is `ok`, and re-running
+is a no-op. **Not yet applied to the live training database** — see "How to roll back" below.
+
+**Training profit** (D69). A sale of face value F moves the float by −F and credits a
+configurable percentage of F to `TELGA_REVENUE` as a third leg of the same balanced posting.
+The customer pays exactly F; the profit is never a surcharge. Each entry records the rate in
+force as `rule_version: training-profit-<bps>bps`, and a day's profit is **summed from
+entries** rather than recomputed — so changing the rate cannot restate an earlier sale. The
+default 4% is **training configuration only**, not a commercial rate; `commission.ts` still
+throws rather than returning one.
+
+**Direct top-up.** A second product type beside airtime, carrying a customer phone number
+that is masked at the boundary before it reaches the database. The field exists only on the
+top-up screen — absent, not hidden — and the server refuses a `TOPUP` without one regardless.
+
+**One slip for everything** (D71). Sale, top-up, reprint and Telga Pay deposit all render
+through a single `slipCard`; the `TRAINING — NO REAL VALUE` line is drawn by that function
+rather than passed to it, so no caller can print a receipt without it. Previously the voucher
+result screen showed an order summary while history showed a slip — a sale and a reprint of
+that sale produced two different-looking pieces of paper.
+
+**Settings** (`settings` table, owner-only `POS_MANAGE_SETTINGS`). Slip width (58/80 mm), one
+shop advertising line, and the training profit rate. An operator may read them, because a slip
+has to print whoever is at the counter; only an owner may change them.
+
+**Telga Pay training deposits** (D70). Reverses the earlier "Telga Pay is UI-only everywhere"
+position for one path, in TRAINING mode only: an owner-only, CSRF-protected, rate-limited
+endpoint posts a balanced `fundMerchant` credit to the *simulated* float, so a deposit
+practised at the card screen becomes value a sale can reserve against. Bounded 10–50,000 birr,
+idempotent through the posting id, audited as `TRAINING_DEPOSIT_CREDITED`. Not payment
+acceptance: no card is read, no PAN exists, no processor is contacted. Purchase and Cashback
+remain UI-only and still write nothing.
+
+**The dashboard Profit pill now carries a real figure** read from the ledger, replacing "Not
+yet available". Its guard test was inverted rather than deleted — what it pins is unchanged:
+the pill never shows a number the ledger cannot account for.
+
+### Fixed — custom voucher amounts were priced at zero on the running server (2026-08-27)
+
+`optionsFrom` in `apps/merchant-pos/src/cli.ts` built the API-facing voucher catalog without
+forwarding `isCustom`. The server therefore treated every custom entry as a fixed
+denomination and took its placeholder `amountMinor: 0` as the price — an order for nothing.
+Every test passed throughout, because `tests/ui/helpers.ts` sets the flag on its own fixture;
+only the real CLI wiring dropped it. Fixed by forwarding the flag, and now covered by a UI
+test that asserts a custom order's confirmation screen shows the amount ordered rather than
+the catalog placeholder.
+
+### How to roll back Stages 2–5
+
+Migrations here are forward-fix-only by design — there is no `down`. To return to the
+pre-Stage-2 state:
+
+1. **Before applying 008:** nothing to undo. Delete the new files and revert the working tree.
+2. **After applying 008 to a database:** restore that database from a backup taken before the
+   migration (`npm run restore`), which is the supported path and the reason
+   `npm run backup` exists. Migration 008 is additive — it adds a nullable column, widens a
+   CHECK, and adds one table — so a database that has been migrated but never written to by
+   Stage 3–5 code is functionally identical to one that has not.
+3. **Feature-level rollback without touching the schema:** set `PROFIT_PERCENT_BPS` to `0`
+   (no profit is credited, and the third posting leg is omitted entirely), leave `SLIP_ADVERT`
+   empty, and remove the top-up entries from `TRAINING_VOUCHER_CATALOG` — the server validates
+   orders against that catalog, so a product absent from it cannot be ordered.
 
 ### Added — health endpoints and backup/restore tooling, A61/A62 resolved (2026-08-24)
 
@@ -634,3 +1116,94 @@ Three consecutive clean runs afterwards: 600/600, exit 0, no unhandled errors �
 The following remain deliberately unbuilt and unenabled: live provider integration, live money,
 wallets, payment acceptance, cash-in/cash-out, lending, remittance, electricity tokens, general
 bill payment, offline vending, independent settlement, and any real commission or price.
+
+### Android app — a real, installable package (2026-08-31)
+
+Telga now builds a genuine Android application, so it can be distributed
+through Google Play rather than only added to a phone's home screen from a
+browser. **The web app is unchanged**: `npm run training:serve` behaves exactly
+as before and the PWA route still works. See [[Android Release and Play Store]]
+and Decision Log D106.
+
+- **`apps/mobile/`** — a Capacitor shell hosting a WebView pointed at a Telga
+  server. It reimplements no screens, deliberately: a second implementation of
+  the vending flow would be a second origin for a duplicate sale, and §13 makes
+  duplicate prevention a ledger invariant rather than a preference.
+- **`shell.config.json` is the single source** for which servers the app may
+  reach. Capacitor reads it for `allowNavigation`; `npm run mobile:configure`
+  generates the connect screen's copy from the same file. If those two lists
+  disagreed in the permissive direction, Capacitor would hand the address to the
+  system browser and a merchant would type a PIN into a tab with no Telga
+  chrome — indistinguishable from a phishing page.
+- **A bundled connect screen** asks for the server address once and keeps it.
+  Bilingual, and carrying the training-mode banner. Set `defaultServer` and the
+  screen disappears, which is the shape a production release takes.
+- **Hardened**, verified in the packaged manifest rather than only in source:
+  `allowBackup=false` plus Android 12 data-extraction rules, so a live session
+  cannot be copied to Google Drive or transferred to another phone;
+  `usesCleartextTraffic=false`; and `INTERNET` as the only permission.
+- **Release signing** reads `keystore.properties`, which `.gitignore` refuses
+  along with `*.jks`. `assembleRelease` and `bundleRelease` **fail with a named
+  reason** when no key is configured, rather than emitting the unsigned APK that
+  Play rejects and a phone will not install.
+- **The app icon is Telga's own mark.** Capacitor scaffolds its logo into every
+  mipmap and splash drawable, so the first build wore another project's brand.
+  `npm run mobile:icons` rescales the founder's artwork from
+  `apps/merchant-pos/assets/` — the same files the web app serves — so the phone
+  icon and the browser icon are one picture. Nothing is redrawn, per `logo.ts`.
+  The maskable variant becomes the adaptive foreground because it was drawn for
+  Android's safe-zone rule; the full-bleed file would lose the T's crossbar to a
+  round launcher's mask.
+- **Toolchain note:** Android Studio's bundled JDK 25 cannot run Gradle 8.14.3
+  (`Unsupported class file major version 69`). The build uses a separate Temurin
+  JDK 21, unpacked from a zip, changing nothing about the system Java.
+
+**Not yet shippable, and the reason is not the build.** There is no hosted Telga
+server and no registered domain, so a Play Store download would install an app
+with nothing to connect to. Recorded as `A89`; the domain blocker is the first
+item on the release checklist.
+
+
+### Release APK, signing, and why an install can still fail (2026-08-31)
+
+The Android app is now built as a **signed release** rather than a debug build,
+and there is a runbook for the case where a phone refuses it anyway. See
+[[APK Install Troubleshooting]] and Decision Log D107.
+
+- **`npm run mobile:package`** produces the APK a merchant is given: Gradle's
+  release build (signed v2 + v3 with Telga's own key, not debuggable, R8
+  shrunk — 1.7 MB against the debug build's 5.0 MB) plus a **v1 signature**
+  added afterwards. AGP drops v1 above minSdk 23 and `apksigner` refuses it
+  below `--min-sdk-version 21`; by the specification both are right, and it is
+  added regardless because some OEM package managers have been fussier than
+  stock Android and the whole cost is a slightly larger file.
+- **`npm run mobile:diagnose`** asks Android why an install failed. "App not
+  installed" is the installer's entire vocabulary — a signature conflict, a
+  Play Protect block, a full disk and a truncated download look identical — and
+  this prints the actual `INSTALL_FAILED_*` code with what it means.
+- **The build was cleared of blame first, not last.** Signature, ABI, SDK
+  range, required features and zip integrity were each checked, and the release
+  APK installs and launches on Android 14: `Success`, MainActivity resumed, no
+  fatal logs. What remains is on the device or in the transfer. Recorded as A92
+  — **until an install is confirmed on real hardware, no claim that Telga runs
+  on Android is supportable.**
+- **`SECURITY.md` now exists.** `CLAUDE.md` §27 has always named it and it was
+  never written: there was no route by which somebody could report a
+  vulnerability. It states scope, what is deliberately not built (live money,
+  the WebAuthn passkey), and what is enforced today.
+- **Four undocumented deviations from §27 are now recorded** as `A91`:
+  `packages/ledger`, `packages/design-system` and `infra/` do not exist, and
+  `apps/android/` is `apps/mobile/`. The first three are defensible; that none
+  had been written down was the actual finding, since an undocumented deviation
+  is indistinguishable from an oversight.
+- **Lint is clean again.** This session's Android work had introduced 18 errors:
+  seventeen were ESLint trying to type-check generated Capacitor output, now
+  ignored; one was a real `no-implied-eval` in the new connect-screen test,
+  which now uses a `node:vm` context — a genuine sandbox rather than the
+  Function constructor.
+
+**Known, pre-existing, and not fixed here:** `npm run format:check` fails on
+**630 files** — effectively the whole repository, including files untouched by
+this work. Running Prettier across it would produce a diff too large to review
+alongside anything else, so it is left for a commit of its own.
+

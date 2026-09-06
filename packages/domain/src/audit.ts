@@ -58,6 +58,15 @@ export const AUDIT_ACTIONS = [
   'DEVICE_ENROLLED',
   'DEVICE_REVOKED',
   'DEVICE_REJECTED',
+  // Training-mode shop administration. Neither touches a transaction, which
+  // is why both carry a merchant rather than a transaction id: a settings
+  // change and a simulated float top-up are facts about the *shop*.
+  'MERCHANT_SETTINGS_CHANGED',
+  'TRAINING_DEPOSIT_CREDITED',
+  /** An owner moved earned profit into the selling balance. */
+  'PROFIT_TRANSFERRED_TO_BALANCE',
+  /** An owner changed a transaction PIN. Never records the PIN itself. */
+  'OPERATOR_PIN_CHANGED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

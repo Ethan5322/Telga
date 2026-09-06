@@ -56,6 +56,8 @@ export interface TransactionViewModel {
   readonly fundsStatus: FundsStatus;
   readonly fundsLabel: string;
   readonly amountFormatted: string;
+  /** The service sold, e.g. `AIRTIME` or `NETWORK_A_AIRTIME_2500`. Shown in history and on the slip. */
+  readonly productType: string;
   readonly recipientMasked: string;
   readonly providerReference: string | null;
   readonly correlationId: string;
@@ -139,6 +141,7 @@ export function toTransactionViewModel(
     fundsStatus,
     fundsLabel: FUNDS_LABEL[fundsStatus],
     amountFormatted: dto.amount.formatted,
+    productType: dto.productType,
     recipientMasked: dto.recipientMasked,
     providerReference: dto.providerReference,
     correlationId: dto.correlationId,

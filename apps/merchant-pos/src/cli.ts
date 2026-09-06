@@ -25,6 +25,7 @@ import {
   TRAINING_SESSION_POLICY,
   enrolDevice,
   simulatedCatalog,
+  simulatedVoucherCatalog,
   upsertOperator,
 } from '@telga/api';
 import type { ApiDeps, AuthConfig } from '@telga/api';
@@ -36,6 +37,7 @@ import {
 } from '@telga/persistence';
 import {
   TRAINING_LOCKOUT_POLICY,
+  VOUCHER_PIN_LOCKOUT_POLICY,
   fromBirr,
   postingId,
   deviceId as toDeviceId,
@@ -53,7 +55,7 @@ import type { Locale } from '@telga/localization';
 import { createPosServer } from './server';
 import type { PosServerOptions } from './server';
 import { LOCAL_HTTP_DEFAULTS, TransportConfigError, isLoopbackHost, validateTransport } from './transport/config';
-import type { TlsTermination, TrainingTransport, TransportConfig } from './transport/config';
+import type { TransportConfig } from './transport/config';
 import { describeTls, loadTlsMaterial } from './transport/tls';
 
 export interface CliArgs {
@@ -103,6 +105,159 @@ export const TRAINING_CATALOG = Object.freeze([
 ]);
 
 /**
+ * The training voucher catalog.
+ *
+ * Separate from `TRAINING_CATALOG` on purpose: `/sell` and this array's
+ * consumers must never share one structure, so a change here cannot alter
+ * what `/sell` renders or what the API layer validates a sale against. Every
+ * network below is a clearly-labelled placeholder — see
+ * `04 UX UI/Voucher Purchase Flow.md`. There is no real South African, or any
+ * other, network integration. Amounts are the same approved Birr training
+ * denominations `TRAINING_CATALOG` already uses; there is no second currency.
+ */
+export const TRAINING_VOUCHER_NETWORKS = Object.freeze([
+  { id: 'NETWORK_A', label: 'Network A (simulated)' },
+  { id: 'NETWORK_B', label: 'Network B (simulated)' },
+  { id: 'NETWORK_C', label: 'Network C (simulated)' },
+  { id: 'NETWORK_D', label: 'Network D (simulated)' },
+] as const);
+
+const TRAINING_VOUCHER_AMOUNTS_MINOR = Object.freeze([1000, 2500, 5000, 10_000] as const);
+
+/**
+ * Data bundle categories, as clearly-simulated training values.
+ *
+ * The founder's list named "FreeMe", which is a **Vodacom trademark**, and
+ * asked for real carrier names on the slip. Neither appears here: D66 and
+ * CLAUDE.md §10 forbid naming a provider Telga has no agreement with, and a
+ * trademark on a training slip would be a claim of association that does not
+ * exist. `ALL_ACCESS` carries the same meaning without borrowing a brand.
+ *
+ * Volumes, validities and prices are training values. They are **not**
+ * researched market prices and must not be quoted as any — see `ASSUMPTIONS.md`.
+ */
+export const TRAINING_DATA_CATEGORIES = Object.freeze([
+  { id: 'MONTHLY', label: 'Monthly' },
+  { id: 'WEEKLY', label: 'Weekly' },
+  { id: 'DAILY', label: 'Daily' },
+  { id: 'HOURLY', label: 'Hourly' },
+  { id: 'WEEKEND', label: 'Weekend' },
+  { id: 'ALL_ACCESS', label: 'All-Access' },
+  { id: 'LTE', label: 'LTE' },
+  { id: 'SOCIAL', label: 'Social' },
+  { id: 'VOICE', label: 'Voice' },
+] as const);
+
+export type TrainingDataCategory = (typeof TRAINING_DATA_CATEGORIES)[number]['id'];
+
+interface TrainingDataBundle {
+  readonly category: TrainingDataCategory;
+  /** Short, id-safe suffix. Together with the category it is unique. */
+  readonly code: string;
+  readonly volumeLabel: string;
+  readonly validityDays: number;
+  readonly validityLabel: string;
+  readonly amountMinor: number;
+}
+
+const bundle = (
+  category: TrainingDataCategory,
+  volumeLabel: string,
+  validityDays: number,
+  amountMinor: number,
+): TrainingDataBundle => ({
+  category,
+  code: `${volumeLabel.replace(/[^0-9A-Za-z]/g, '')}_${String(validityDays)}D`,
+  volumeLabel,
+  validityDays,
+  validityLabel:
+    validityDays === 1 ? '1 day' : `${String(validityDays)} days`,
+  amountMinor,
+});
+
+export const TRAINING_DATA_BUNDLES: readonly TrainingDataBundle[] = Object.freeze([
+  bundle('MONTHLY', '1GB', 30, 12_500),
+  bundle('MONTHLY', '3GB', 30, 30_000),
+  bundle('MONTHLY', '10GB', 30, 75_000),
+  bundle('WEEKLY', '500MB', 7, 5000),
+  bundle('WEEKLY', '2GB', 7, 15_000),
+  bundle('DAILY', '100MB', 1, 1500),
+  bundle('DAILY', '500MB', 1, 4000),
+  bundle('HOURLY', '250MB', 1, 2000),
+  bundle('WEEKEND', '2GB', 3, 9000),
+  bundle('ALL_ACCESS', '5GB', 30, 45_000),
+  bundle('LTE', '20GB', 30, 120_000),
+  bundle('SOCIAL', '1GB', 7, 6000),
+  bundle('VOICE', '100 minutes', 30, 10_000),
+]);
+
+export const TRAINING_VOUCHER_CATALOG = Object.freeze(
+  TRAINING_VOUCHER_NETWORKS.flatMap((network) => [
+    ...TRAINING_VOUCHER_AMOUNTS_MINOR.map((amountMinor) => ({
+      productId: `${network.id}_AIRTIME_${amountMinor}`,
+      network: network.id,
+      productType: 'AIRTIME' as const,
+      label: `${network.label} — Airtime ${amountMinor / 100} (simulated)`,
+      amountMinor,
+      available: true,
+      isCustom: false,
+    })),
+    // One custom entry per network. It stays a real catalog product — the
+    // catalog remains the thing the server validates against — but its
+    // amount is supplied per order and bounded by
+    // `TRAINING_CUSTOM_AMOUNT_LIMITS`. `amountMinor: 0` is a placeholder that
+    // no order may use: an order carrying a custom product must supply its
+    // own amount, and the server refuses it otherwise.
+    {
+      productId: `${network.id}_AIRTIME_CUSTOM`,
+      network: network.id,
+      productType: 'AIRTIME' as const,
+      label: `${network.label} — Airtime, custom amount (simulated)`,
+      amountMinor: 0,
+      available: true,
+      isCustom: true,
+    },
+    // Direct top-up: the same denominations and the same custom entry, but
+    // sent to a phone number the operator types rather than handed across the
+    // counter as a voucher. It is a separate product id per network so the
+    // catalog — which is what the server validates an order against — can
+    // tell the two apart without inspecting a flag.
+    ...TRAINING_VOUCHER_AMOUNTS_MINOR.map((amountMinor) => ({
+      productId: `${network.id}_TOPUP_${amountMinor}`,
+      network: network.id,
+      productType: 'TOPUP' as const,
+      label: `${network.label} — Top-up ${amountMinor / 100} (simulated)`,
+      amountMinor,
+      available: true,
+      isCustom: false,
+    })),
+    {
+      productId: `${network.id}_TOPUP_CUSTOM`,
+      network: network.id,
+      productType: 'TOPUP' as const,
+      label: `${network.label} — Top-up, custom amount (simulated)`,
+      amountMinor: 0,
+      available: true,
+      isCustom: true,
+    },
+    // Data bundles, one product per category and package.
+    ...TRAINING_DATA_BUNDLES.map((bundle) => ({
+      productId: `${network.id}_DATA_${bundle.category}_${bundle.code}`,
+      network: network.id,
+      productType: 'DATA' as const,
+      label: `${network.label} — ${bundle.volumeLabel} ${bundle.validityLabel} (simulated)`,
+      amountMinor: bundle.amountMinor,
+      available: true,
+      isCustom: false,
+      dataCategory: bundle.category,
+      volumeLabel: bundle.volumeLabel,
+      validityDays: bundle.validityDays,
+      validityLabel: bundle.validityLabel,
+    })),
+  ]),
+);
+
+/**
  * Build the transport configuration from flags.
  *
  * Every unsafe combination is refused here or by `validateTransport`, and both
@@ -122,13 +277,13 @@ export function transportFrom(
       '--transport must be TRAINING_HTTP_LOCAL or TRAINING_HTTPS',
     );
   }
-  const trainingTransport = mode as TrainingTransport;
+  const trainingTransport = mode;
 
   const terminationValue = (values.get('tls-termination') ?? 'IN_PROCESS').toUpperCase();
   if (terminationValue !== 'IN_PROCESS' && terminationValue !== 'TRUSTED_PROXY') {
     throw new CliArgumentError('--tls-termination must be IN_PROCESS or TRUSTED_PROXY');
   }
-  const tlsTermination = terminationValue as TlsTermination;
+  const tlsTermination = terminationValue;
 
   const list = (name: string): readonly string[] => {
     const raw = values.get(name);
@@ -186,7 +341,7 @@ export function transportFrom(
 export function parseArgs(argv: readonly string[]): CliArgs {
   const values = new Map<string, string>();
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i] as string;
+    const arg = argv[i];
     if (!arg.startsWith('--')) throw new CliArgumentError(`Unexpected argument: ${arg}`);
     const next = argv[i + 1];
     if (next === undefined || next.startsWith('--')) {
@@ -260,6 +415,9 @@ export function authConfigFrom(args: CliArgs): AuthConfig {
   return {
     session: TRAINING_SESSION_POLICY,
     lockout: TRAINING_LOCKOUT_POLICY,
+    // Separate from `lockout` on purpose: a wrong voucher transaction PIN
+    // must never lock a merchant out of signing in. See voucherOrders.ts.
+    pinLockout: VOUCHER_PIN_LOCKOUT_POLICY,
     // The API layer's own view of the cookie policy. The POS server refines it
     // per request from the client's actual scheme, because behind a terminator
     // this process speaks HTTP while the client used HTTPS.
@@ -278,11 +436,30 @@ export function optionsFrom(args: CliArgs, driver: SqliteLedgerDriver): PosServe
     driver,
     provider,
     providerId: toProviderId('provider_simulated'),
+    // `createSale` validates every sale's productId against this catalog —
+    // including a sale created through voucher PIN authorization — so the
+    // voucher products are merged in here too, not only into `voucherCatalog`
+    // (which governs order *creation*, a separate, earlier check).
     catalog: simulatedCatalog(
-      TRAINING_CATALOG.map((entry) => ({
+      [...TRAINING_CATALOG, ...TRAINING_VOUCHER_CATALOG].map((entry) => ({
         id: toProductId(entry.productId),
         label: entry.label,
         available: entry.available,
+      })),
+    ),
+    voucherCatalog: simulatedVoucherCatalog(
+      TRAINING_VOUCHER_CATALOG.map((entry) => ({
+        productId: entry.productId,
+        network: entry.network,
+        productType: entry.productType,
+        amountMinor: entry.amountMinor,
+        available: entry.available,
+        // Forwarded, not dropped. Without it the server treats a custom entry
+        // as a fixed denomination and takes its placeholder `amountMinor: 0`
+        // as the price — an order for nothing. `tests/ui/helpers.ts` sets this
+        // flag on its own fixture, which is why every test passed while the
+        // running server did not.
+        isCustom: entry.isCustom,
       })),
     ),
     mode: args.mode as ApiDeps['mode'],
@@ -307,6 +484,9 @@ export function optionsFrom(args: CliArgs, driver: SqliteLedgerDriver): PosServe
     api,
     environment: args.environment,
     catalog: TRAINING_CATALOG,
+    voucherCatalog: TRAINING_VOUCHER_CATALOG,
+    voucherNetworks: TRAINING_VOUCHER_NETWORKS,
+    dataCategories: TRAINING_DATA_CATEGORIES,
     simulatedBehaviours: [...MOCK_BEHAVIOURS],
     defaultLocale: args.locale,
     transport: args.transport,

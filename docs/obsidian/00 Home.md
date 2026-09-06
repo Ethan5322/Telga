@@ -67,6 +67,14 @@ publication by `.gitignore`.
 - [[Amharic Strings]] — draft Amharic, **pending native review**
 - [[Receipt Specification]]
 - [[Merchant POS Screens]] — **Mermaid: the counter journey** · the five built screens
+- [[Voucher Purchase Flow]] — **Mermaid: the training voucher sequence** · Stage 2, real backend, PIN authorization
+- [[Telga Launcher and Dashboard]] — **Mermaid: one app, two module tiles** · service classification and the no-native-app framing
+- [[Telga Pay Card Simulator]] — **Mermaid: the UI-only card-simulator sequence** · no persistence, no real processor
+- [[Top Up Slips and Settings]] — **Mermaid: airtime or top-up** · profit before the PIN, one slip for everything, owner-only settings, training deposits
+- [[Data Vouchers and Slip Codes]] — **Mermaid: airtime or data** · the training-only data flow, simulated redemption codes, and the Main button
+- [[Splash Profit and Corporate Settings]] — **Mermaid: app entry** · the cover screen, moving profit to the selling balance, the owner PIN, and the shop's identity on every slip
+- [[Launcher Menu and Shop Settings]] — **Mermaid: the way in** · the real logo and its animation, the three-bar menu, the balance "+", shifts, customers, and every settings section
+- [[Bulk Printing and Sign Out]] — **Mermaid: one PIN, N vouchers** · the broken recipient chain, batch printing, and what each kind of sign-out costs
 - [[State To UI Mapping]] — **Mermaid: state to screen** · what a merchant may see and do — what prints, and what must never print
 
 ## 05 Operations
@@ -83,8 +91,11 @@ publication by `.gitignore`.
 - [[Worker Operations Runbook]] — **Mermaid: multi-worker claim lease** · restart, inspect, recover
 - [[Deployment Runbook]] — sequence, rollback, and what still blocks a deploy
 - [[Persistent Host Runbook]] — prerequisite audit for a real training host
+- [[Persistent Host Deployment Plan]] — local/office machine selected for controlled training (2026-08-25); hardening and real-infrastructure evidence still open
 - [[Backup Restore Implementation]] — the backup/restore tool that exists, and what still doesn't
 - [[Service Startup and Shutdown]] — **Mermaid: startup sequence** · the exact command order
+- [[Localhost Setup]] — the whole local loop, with what was actually verified on 2026-09-05
+- [[Railway Deployment Checklist]] — **Mermaid: single-service shape** · prepared, not deployed; nothing provisioned
 - [[Backup and Restore Runbook]] — design only; launch gate 10 acceptance criteria
 - [[Source Specification Clipped In PDF]] — incident: the source PDF was clipped; names reconstructed
 
@@ -128,6 +139,10 @@ material, excluded on the same basis as the partnership folder.
 - [[Worker Configuration]] — three policies, and why production never falls back
 - [[Build Pipeline]] — how the runtime is compiled, and why CommonJS
 - [[Training HTTPS Deployment]] — real TLS for the controlled training machine
+- [[Phone and POS Install]] — getting Telga onto a phone and a smart-POS, over the browser
+- [[Android Release and Play Store]] — the real Android app: how it is built and signed, and what still blocks a Play Store listing
+- [[APK Install Troubleshooting]] — when a phone says "App not installed": how to make Android say what it actually means
+- [[Admin Operations Console]] — the Telga staff console: proposed architecture and the four decisions behind it (**proposed, not built**)
 - [[Vercel Deployment Limits]] — why a Vercel build is not a running Telga
 - [[Training Deployment Architecture]] — **Mermaid: the persistent-host architecture**
 - [[Deployment Target Evaluation]] — five hosting categories compared, none purchased

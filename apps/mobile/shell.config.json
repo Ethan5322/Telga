@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "Where the Telga Android shell is allowed to connect.",
+    "",
+    "This is the single source of truth for two things that must never drift",
+    "apart: Capacitor's `allowNavigation` (what the WebView may open in-app)",
+    "and the connect screen's validation (what a merchant may type in). If the",
+    "screen accepted an address the WebView would not open, Telga would launch",
+    "in the system browser instead of the app, and the merchant would be typing",
+    "a PIN into a tab with no Telga chrome around it.",
+    "",
+    "`npm run mobile:configure` regenerates www/config.js from this file, and",
+    "capacitor.config.ts reads the same list. Edit here and nowhere else.",
+    "",
+    "NOT YET REGISTERED: neither telga.et nor mulesoo.et has been purchased.",
+    "They are the intended names, recorded in ASSUMPTIONS as A59. Until one",
+    "exists and serves real HTTPS, this app builds and installs but cannot",
+    "connect to anything, and the PWA route in [[Phone and POS Install]] is the",
+    "way onto a phone. Replace these before building for the Play Store."
+  ],
+
+  "allowedHosts": ["telga.et", "*.telga.et", "mulesoo.et", "*.mulesoo.et"],
+
+  "defaultServer": null,
+
+  "supportContact": "MuleSoo Digital Services"
+}

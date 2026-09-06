@@ -44,11 +44,14 @@ function tempFile(name: string): string {
 }
 
 describe('the migration list', () => {
-  it('includes 006 exactly once, last', () => {
+  it('includes 006 exactly once, in order', () => {
     const versions = MIGRATIONS.map((m) => m.version);
     expect(versions.filter((v) => v === '006')).toHaveLength(1);
-    expect(versions[versions.length - 1]).toBe('006');
-    // Zero-padded, so lexical order is execution order.
+    expect(versions).toContain('006');
+    // Zero-padded, so lexical order is execution order. This is what actually
+    // matters here — 006 does not have to be *last* (007 added it, then
+    // 008 will add the next one), only correctly placed among whatever
+    // exists.
     expect([...versions].sort()).toEqual(versions);
   });
 
@@ -131,8 +134,12 @@ describe('applying it', () => {
     const file = tempFile('partial');
     const driver = new SqliteLedgerDriver({ file });
     try {
-      // A half-upgraded deployment: everything except 006.
-      const earlier = MIGRATIONS.filter((m) => m.version !== '006');
+      // A half-upgraded deployment: everything up to, but not including, 006.
+      // Not simply "every version except 006" — 007 depends on tables 006
+      // creates, so a deployment missing 006 cannot coherently have 007
+      // either; a real half-upgraded database stops at the last migration
+      // it successfully applied.
+      const earlier = MIGRATIONS.filter((m) => m.version < '006');
       runMigrations(driver.unsafeConnection, AT, earlier);
 
       // The assertion is derived from MIGRATIONS rather than a hardcoded list,

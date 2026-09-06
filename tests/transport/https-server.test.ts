@@ -85,7 +85,7 @@ function fetchOnce(
         res.on('end', () => {
           resolve({
             status: res.statusCode ?? 0,
-            headers: res.headers as Record<string, string | string[] | undefined>,
+            headers: res.headers,
             body: Buffer.concat(chunks).toString('utf8'),
             setCookies: res.headers['set-cookie'] ?? [],
           });
@@ -244,7 +244,13 @@ describe('serving over real TLS', () => {
     const { port } = await startHttps('https-unauth');
     const home = await fetchOnce(port, '/');
     expect(home.status).toBe(303);
+    // The sign-in form. D77 sent this to the cover screen instead, on the
+    // argument that opening Telga should show what Telga is before asking who
+    // you are. D101 reversed that: **login is the first screen**, the cover is
+    // gone, and the launcher is behind authentication — so a session-less
+    // request goes to the form, carrying where it was headed.
     expect(String(home.headers['location'])).toContain('/login');
+    expect(String(home.headers['location'])).toContain('SESSION_MISSING');
   });
 });
 
@@ -460,7 +466,8 @@ describe('ending a session over TLS', () => {
     });
     expect(out.status).toBe(303);
 
-    // The old cookie is now worthless.
+    // The old cookie is now worthless, and a request carrying it is sent to
+    // sign in again — not to the launcher, which would itself refuse (D101).
     const after = await fetchOnce(port, '/', { headers: { cookie } });
     expect(after.status).toBe(303);
     expect(String(after.headers['location'])).toContain('/login');

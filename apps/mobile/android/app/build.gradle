@@ -1,0 +1,147 @@
+apply plugin: 'com.android.application'
+
+/*
+ * Release signing.
+ *
+ * Google Play ties the app's identity to the signing key. Lose it and no
+ * update can ever be published for the listing again; leak it and somebody
+ * else can sign a package that installs over Telga. So the key and its
+ * passwords live in `keystore.properties`, which .gitignore refuses, and this
+ * file only reads them.
+ *
+ * A missing keystore.properties is not an error. A debug build, CI running
+ * tests, and anybody who has just cloned the repository all need the project
+ * to configure without it — only `assembleRelease` and `bundleRelease`
+ * actually need a key, and those fail loudly below if it is absent rather than
+ * silently falling back to the debug key. An APK signed with the debug key
+ * looks fine locally and is rejected by Play, which is a slow way to find out.
+ *
+ * Create the key with (never inside this repository):
+ *   keytool -genkeypair -v -keystore telga-release.jks -keyalg RSA  *     -keysize 4096 -validity 10000 -alias telga
+ * then copy keystore.properties.example and fill it in.
+ */
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasSigningConfig = keystorePropertiesFile.exists()
+if (hasSigningConfig) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+android {
+    namespace = "et.mulesoo.telga"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "et.mulesoo.telga"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (hasSigningConfig) {
+            release {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+
+                // Sign with every scheme, not just the newest one.
+                //
+                // AGP turns v1 (JAR) signing off once minSdk reaches 24,
+                // because v2 covers every Android that new. That is true of
+                // *stock* Android and not reliably true of the ROMs Telga's
+                // merchants actually carry: several OEM package managers —
+                // MIUI, EMUI, ColorOS among them — refuse a sideloaded APK
+                // that carries no v1 signature, and the refusal surfaces as a
+                // bare "App not installed" with no reason attached.
+                //
+                // v1 costs a slower install and a slightly larger file. That
+                // is a small price against a merchant who cannot install
+                // Telga at all and has no way to find out why.
+                //
+                // v3 adds key rotation, so the signing key can be replaced
+                // later without stranding installed copies. v4 supports
+                // incremental install; harmless where unsupported.
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+                enableV4Signing true
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Shrinking is on for release only. The shell is a WebView host
+            // with almost no Java of its own, so this is a small win, but an
+            // unshrunk release build ships Capacitor's full dependency graph
+            // to every phone on a metered connection.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasSigningConfig) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            // Kept distinct so a debug build can sit beside a store build on
+            // the same phone during a pilot, rather than one replacing the
+            // other and taking its saved server address with it.
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+    }
+}
+
+/*
+ * Refuse to produce an unsigned release rather than emit one nobody can ship.
+ *
+ * Without this, `assembleRelease` with no keystore succeeds and writes
+ * `app-release-unsigned.apk`, which Play rejects and a phone refuses to
+ * install. Failing here says why, once, at the point the decision was made.
+ */
+tasks.configureEach { task ->
+    if ((task.name == 'assembleRelease' || task.name == 'bundleRelease') && !hasSigningConfig) {
+        task.doFirst {
+            throw new GradleException(
+                "No signing key. Create apps/mobile/android/keystore.properties from " +
+                "keystore.properties.example and point it at your release keystore. " +
+                "See docs/obsidian/05 Operations/Android Release and Play Store.md")
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

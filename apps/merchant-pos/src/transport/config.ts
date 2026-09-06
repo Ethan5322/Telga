@@ -24,6 +24,10 @@
  * running the deployment. See `09 Engineering/Local Certificate Handling.md`.
  */
 
+// `proxy.ts` imports only the *type* of `TransportConfig` from this file, so
+// this is not a runtime cycle: the type import is erased when it compiles.
+import { parseTrustedEntry } from './proxy';
+
 /** How the training deployment is reached. */
 export type TrainingTransport = 'HTTP_LOCAL' | 'HTTPS';
 
@@ -127,6 +131,25 @@ export function validateTransport(config: TransportConfig): void {
     );
   }
 
+  // Every trusted-proxy entry is parsed here, whatever the transport, so that a
+  // typo is a refusal at startup rather than a range that silently matches
+  // nothing — which would look exactly like a working deployment until the
+  // first sign-in failed. `parseTrustedEntry` also refuses a zero-length
+  // prefix, so `0.0.0.0/0` and `::/0` cannot smuggle in the trust-all setting
+  // that `--trust-proxy` deliberately does not offer.
+  if (config.trustProxy !== false) {
+    for (const entry of config.trustProxy) {
+      if (parseTrustedEntry(entry) === undefined) {
+        throw new TransportConfigError(
+          'PROXY_TRUST_ENTRY_INVALID',
+          `--trust-proxy "${entry}" is not an IP address or CIDR range with a prefix of 1 or more. ` +
+            'A zero-length prefix would trust every client, which is refused: name the ' +
+            'proxy range explicitly, after observing it (see PROXY_PEER_OBSERVED on startup).',
+        );
+      }
+    }
+  }
+
   if (config.trainingTransport === 'HTTP_LOCAL') {
     // The whole safety argument for plain HTTP is that nobody else can reach
     // it. A LAN binding removes that argument entirely, so it is refused
@@ -205,7 +228,7 @@ export function validateTransport(config: TransportConfig): void {
         'TLS is terminated by the proxy; this process must not be given a certificate or key',
       );
     }
-    if (!isLoopbackHost(config.bindHost) && (config.trustProxy as readonly string[]).length === 0) {
+    if (!isLoopbackHost(config.bindHost) && (config.trustProxy).length === 0) {
       throw new TransportConfigError(
         'PROXY_BIND_UNSAFE',
         'A proxied deployment bound beyond loopback needs an explicit trusted-proxy list',

@@ -24,7 +24,13 @@ import {
   isMerchantRole,
 } from '@telga/domain';
 import type { ActorRole, Permission } from '@telga/domain';
-import { SUPERVISOR_ROLES, authorize, consistentMerchantHint, sameMerchant } from '@telga/api';
+import {
+  ROUTES as API_ROUTES,
+  SUPERVISOR_ROLES,
+  authorize,
+  consistentMerchantHint,
+  sameMerchant,
+} from '@telga/api';
 import {
   DEVICE_B,
   MERCHANT_A,
@@ -85,7 +91,7 @@ describe('the permission table', () => {
     // grants, so a mistaken grant to a merchant role still cannot authorise a
     // reversal or a fund release.
     const context = {
-      role: 'MERCHANT_OWNER' as ActorRole,
+      role: 'MERCHANT_OWNER',
       merchantId: MERCHANT_A,
     } as Parameters<typeof authorize>[0];
 
@@ -153,6 +159,43 @@ describe('every training route needs a session', () => {
     },
     { method: 'POST', path: '/api/training/auth/logout', body: {} },
     { method: 'POST', path: '/api/training/auth/devices', body: { deviceId: 'device_alpha_1' } },
+    // Receipts, reprints and voucher orders. Added when the derived check
+    // below was written and immediately reported all six as unverified: they
+    // were protected by the route table all along, but nothing asserted it.
+    { method: 'GET', path: '/api/training/transactions/txn_anything/receipt' },
+    { method: 'POST', path: '/api/training/transactions/txn_anything/reprint', body: {} },
+    {
+      method: 'POST',
+      path: '/api/training/orders',
+      body: {
+        network: 'NETWORK_A',
+        productType: 'AIRTIME',
+        productId: 'NETWORK_A_AIRTIME_2500',
+        clientRequestId: 'r1',
+      },
+    },
+    { method: 'GET', path: '/api/training/orders/order_anything' },
+    { method: 'POST', path: '/api/training/orders/order_anything/cancel', body: {} },
+    {
+      method: 'POST',
+      path: '/api/training/orders/order_anything/authorize',
+      body: { pin: '000000' },
+    },
+    { method: 'GET', path: '/api/training/settings' },
+    { method: 'POST', path: '/api/training/settings', body: { slipSize: '58' } },
+    {
+      method: 'POST',
+      path: '/api/training/pay/deposits',
+      body: { amountMinor: 20_000, method: 'TAP', clientRequestId: 'r1' },
+    },
+    // Moving profit into the selling balance, and changing a PIN. Both change
+    // something an unauthenticated caller must never be able to reach.
+    { method: 'POST', path: '/api/training/profit/transfers', body: { amountBirr: 1 } },
+    {
+      method: 'POST',
+      path: '/api/training/operators/pin',
+      body: { currentPin: '000000', newPin: '482913' },
+    },
   ];
 
   it('refuses all of them with 401 when unauthenticated', async () => {
@@ -164,6 +207,27 @@ describe('every training route needs a session', () => {
       expect(response.status, `${route.method} ${route.path}`).toBe(401);
       expect(reasonOf(envelope), route.path).toBe('SESSION_MISSING');
     }
+  });
+
+  /**
+   * The list above is hand-written, which is exactly how a new route gets
+   * added without ever being checked. This derives the real one from the
+   * route table and fails if any protected route is missing from it — so the
+   * omission is caught here rather than discovered in production.
+   */
+  it('covers every protected route the router actually declares', () => {
+    const declared = API_ROUTES.filter((route) => route.public !== true).map(
+      (route) => `${route.method} ${route.pattern}`,
+    );
+    const listed = new Set(
+      ROUTES.map((route) => `${route.method} ${route.path.replace(/(txn_|device_|order_)[^/]+/, ':id')}`),
+    );
+    const uncovered = declared.filter((route) => {
+      // Compare on the pattern with its parameter placeholder normalised.
+      const normalised = route.replace(/:[a-zA-Z]+/g, ':id');
+      return ![...listed].some((entry) => entry.replace(/:[a-zA-Z]+/g, ':id') === normalised);
+    });
+    expect(uncovered, 'these protected routes are never checked for a session').toEqual([]);
   });
 
   it('creates no transaction when an unauthenticated sale is refused', async () => {

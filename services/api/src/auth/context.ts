@@ -35,17 +35,41 @@ export interface SessionPolicy {
  * behaves over a shift and are NOT YET CONFIRMED — see
  * `07 Governance/Decision Log.md`.
  */
+/**
+ * The header a client sets on a request that must not count as activity.
+ *
+ * Only the enhancement script's transaction poll sets it. See
+ * `AuthenticateOptions.extendIdle`.
+ */
+export const BACKGROUND_REQUEST_HEADER = 'x-telga-background';
+
 export const TRAINING_SESSION_POLICY: SessionPolicy = Object.freeze({
-  idleTimeoutMs: 15 * 60_000,
+  // One minute, for training. Deliberately aggressive so an unattended
+  // counter machine locks quickly. **This is short enough that a slow
+  // multi-step sale can expire mid-order** — the operator is returned to
+  // sign-in and no order is completed, which is safe but disruptive. A real
+  // counter value is NOT YET CONFIRMED and belongs with a security review.
+  idleTimeoutMs: 60_000,
   absoluteLifetimeMs: 12 * 60 * 60_000,
   maxSalesPerWindow: 30,
-  saleRateWindowMs: 60_000,
+  // Deliberately **below** `idleTimeoutMs`. When the two were equal, waiting
+  // out a sale rate-limit always outlasted the inactivity window, so a
+  // rate-limited operator was guaranteed to be signed out by the wait. Thirty
+  // seconds lets the limit clear with the session still alive.
+  saleRateWindowMs: 30_000,
   maxRequestBytes: 16 * 1024,
 });
 
 export interface AuthConfig {
   readonly session: SessionPolicy;
   readonly lockout: LockoutPolicy;
+  /**
+   * Voucher PIN-authorization lockout. **Separate from `lockout`**: a wrong
+   * voucher transaction PIN must never lock a merchant out of signing in.
+   * Defaults to `VOUCHER_PIN_LOCKOUT_POLICY` so an existing caller that
+   * builds `AuthConfig` without naming this field still gets a safe value.
+   */
+  readonly pinLockout?: LockoutPolicy;
   /**
    * Whether the cookie is marked `Secure`.
    *
