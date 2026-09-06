@@ -90,9 +90,26 @@ The merchant sources and pays for their own compatible thermal paper — see [[M
 
 ## Print abstraction
 
-The application never talks to a printer directly. A `ReceiptPrinter` port has one
-screen-preview implementation for the prototype and device implementations later, so printer
-failure can be injected in tests — see [[Testing Strategy]].
+> [!warning] The `ReceiptPrinter` port is proposed architecture. It does not exist in code.
+> There is **no** `ReceiptPrinter` interface in any TypeScript file in this repository.
+> The name appears in this note and in [[Architecture]]'s diagram, and nowhere else.
+>
+> **What exists today is screen preview only.** A receipt is an HTML screen with
+> `@media print` rules in `apps/merchant-pos/src/ui/document.ts`. There is not even a
+> `window.print()` call.
+>
+> **What does not exist**, verified by searching the whole repository: no ESC/POS encoder
+> or library; no Bluetooth printer support and no `BLUETOOTH_CONNECT` permission; no USB
+> support and no `UsbManager`; no network/TCP printer client; no Android Print Framework
+> use and no `PrintManager`; no vendor POS SDK (Telpo, Sunmi, PAX, Wizarpos); and no
+> printer selection, paper width, encoding, density, copies, reconnect or saved-printer
+> settings. `apps/mobile/android/app/src/main/AndroidManifest.xml` requests no printing
+> permission of any kind.
+>
+> **No claim may be made that Telga prints on a POS machine.** Recorded as `A101`;
+> the build project is tracked as B8 and needs the smart-POS make and model first.
+
+The application is intended never to talk to a printer directly. A `ReceiptPrinter` port would have one
 
 ## Transaction history and reprint (implemented)
 

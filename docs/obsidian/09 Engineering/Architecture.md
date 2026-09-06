@@ -30,7 +30,7 @@ decision_status: confirmed
 flowchart TD
     subgraph CLIENT["Client — merchant POS / Android"]
         UI["Bilingual POS UI<br/>21 screens · 14 states"]
-        PRINT["ReceiptPrinter port"]
+        PRINT["ReceiptPrinter port<br/>PROPOSED - not implemented"]
     end
 
     subgraph API["services/api"]
@@ -98,6 +98,13 @@ flowchart TD
     class DOMAIN,SM,MONEY,RULES,FLAGS pure
     class NOLIVE safe
 ```
+
+
+> [!warning] `ReceiptPrinter` in the diagram above is proposed, not built
+> No such interface exists in any TypeScript file. Receipts are a screen preview with
+> `@media print` CSS; there is no ESC/POS, Bluetooth, USB, network, Android
+> Print Framework or vendor SDK implementation, and the Android manifest requests no
+> printing permission. See [[Receipt Specification]] and `A101`.
 
 ## Module boundaries
 

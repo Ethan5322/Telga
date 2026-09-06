@@ -24,7 +24,7 @@ decision_status: confirmed
 # Roadmap
 
 Six phases. **No phase begins before its predecessor's exit condition is met.** Telga is currently
-in **Phase 1**.
+in **Phase 2**.
 
 ```mermaid
 flowchart TD
@@ -47,7 +47,7 @@ flowchart TD
 
     classDef current fill:#f6c445,stroke:#7a5b00,color:#1a1a1a,stroke-width:2px
     classDef blocked fill:#e8e8e8,stroke:#8a8a8a,color:#3a3a3a,stroke-dasharray:4 3
-    class P1 current
+    class P2 current
     class P4,P5 blocked
 ```
 
@@ -63,12 +63,23 @@ the provider engagement record (commercial material, kept outside this repositor
 
 ### Phase 1 — Obsidian knowledge base
 Create the vault and decision memory **before** complex implementation. This vault is that work.
-**Status: IN PROGRESS.**
+**Status: SUBSTANTIALLY COMPLETE** — 115 notes, maintained alongside the code.
 
 ### Phase 2 — Non-money prototype
 Mock provider, simulated ledger, English and Amharic screens, receipts, state transitions,
 support, and reports. No live provider, no live money.
 See [[Architecture]] and [[Testing Strategy]].
+**Status: IN PROGRESS** (Decision Log D113).
+
+Built: the mock provider, the append-only ledger, the transaction state machine, the
+English and Amharic screens, receipts, support cases and reports.
+
+**Not** built, and why this phase is not complete: no remote deployment yet
+([[Railway Deployment Checklist]]), no Android phone or POS testing on real hardware
+(`A92`), **no printer integration of any kind** (`A101`), no merchant registration or
+automatic tenant provisioning (`A85`, `A86`), incomplete admin operational views, and
+the Phase 3 controlled technical trial has not started. **All ten launch gates remain
+open.**
 
 ### Phase 3 — Two-week controlled technical trial
 Test success, failure, timeout, pending, under-review, reversal, reprint, printer failure, outage,
