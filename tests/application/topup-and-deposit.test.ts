@@ -10,10 +10,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   MERCHANT_A,
+  MERCHANT_B,
   OWNER_USER,
   TEST_PIN,
   callWith,
   makeUiHarness,
+  reasonOf,
   signInAs,
 } from '../auth/helpers';
 import { TRAINING_DEPOSIT_LIMITS } from '@telga/api';
@@ -382,5 +384,91 @@ describe('the Telga Pay training deposit', () => {
       expect(serialised).not.toContain(forbidden);
     }
     h.cleanup();
+  });
+});
+
+describe('a deposit cannot be aimed at another merchant', () => {
+  it('refuses a merchant id in the body that is not the session merchant', async () => {
+    // The attack: an owner of one shop posting a deposit that names a
+    // different shop, to move training value somewhere they cannot reach.
+    //
+    // There are two defences and this proves both. `postDeposit` reads only
+    // `amountMinor`, `method` and `clientRequestId` from the body and takes
+    // the merchant from `context` — so a body field could not steer it even
+    // if it arrived. **And** `guard.ts` compares any client-supplied merchant
+    // id against the session's first, so the request is refused outright with
+    // `MERCHANT_SCOPE_MISMATCH` rather than quietly succeeding against the
+    // caller's own shop. The refusal is the better answer: silently crediting
+    // a different merchant than the one named would hide the attempt.
+    //
+    // Balances are asserted on both sides regardless, because a refusal that
+    // still posted would be the failure worth catching.
+    const h = makeUiHarness('deposit-cross-merchant', { seedSecondMerchant: true });
+    const session = await asOwner(h.api);
+
+    const beforeA = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
+    const beforeB = h.deps.driver.balanceFor(MERCHANT_B).available.minor;
+
+    const { response, envelope } = await callWith<DepositDto>(
+      h.api,
+      'POST',
+      '/api/training/pay/deposits',
+      {
+        cookie: session.cookieHeader,
+        body: {
+          csrfToken: session.csrfToken,
+          amountMinor: TRAINING_DEPOSIT_LIMITS.minMinor,
+          method: 'TAP',
+          clientRequestId: nextRequestId(),
+          // The tampered field.
+          merchantId: MERCHANT_B,
+        },
+      },
+    );
+
+    expect(response.status, 'a mismatched merchant id must be refused').toBe(403);
+    expect(reasonOf(envelope)).toBe('MERCHANT_SCOPE_MISMATCH');
+
+    const afterA = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
+    const afterB = h.deps.driver.balanceFor(MERCHANT_B).available.minor;
+
+    expect(afterA, "the caller's own balance is untouched").toBe(beforeA);
+    expect(afterB, "the named merchant's balance is untouched").toBe(beforeB);
+  });
+
+  it('credits the session merchant when no merchant id is supplied at all', async () => {
+    // The control for the case above: the same request without the tampered
+    // field succeeds, so the 403 is the scope check firing and not the deposit
+    // path being broken.
+    const h = makeUiHarness('deposit-own-merchant', { seedSecondMerchant: true });
+    const session = await asOwner(h.api);
+
+    const beforeA = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
+    const beforeB = h.deps.driver.balanceFor(MERCHANT_B).available.minor;
+
+    const { response } = await callWith<DepositDto>(
+      h.api,
+      'POST',
+      '/api/training/pay/deposits',
+      {
+        cookie: session.cookieHeader,
+        body: {
+          csrfToken: session.csrfToken,
+          amountMinor: TRAINING_DEPOSIT_LIMITS.minMinor,
+          method: 'TAP',
+          clientRequestId: nextRequestId(),
+        },
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(
+      h.deps.driver.balanceFor(MERCHANT_A).available.minor - beforeA,
+      'the session merchant is credited',
+    ).toBe(TRAINING_DEPOSIT_LIMITS.minMinor);
+    expect(
+      h.deps.driver.balanceFor(MERCHANT_B).available.minor,
+      'the other merchant is never touched',
+    ).toBe(beforeB);
   });
 });
