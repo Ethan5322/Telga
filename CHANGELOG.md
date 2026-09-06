@@ -64,6 +64,42 @@ Nothing is deployed. The Railway edge's forwarding range is unverified (A93),
 the arrangement has never run on Railway (A94), and the ~$2.50/month estimate is
 from published rates, not a dashboard (A95).
 
+## 2026-09-06 — payment and voucher surface lockdown (B7)
+
+Founder decision **D112**: the training scope is airtime vending simulation and
+platform operations only.
+
+### Changed
+
+- **`card.simulated` and `product.data` are off.** Telga Pay and the data
+  voucher flow are refused in UI, navigation, API and roles. Neither is deleted
+  — the screens, ports and migration 009 stay in the tree, unreachable.
+- **`card.simulated` now gates the whole `/pay` tree.** It previously gated
+  `/pay/card` alone, which would have left nine Telga Pay routes answering
+  normally with the flag off: buttons gone, every page reachable by address.
+- **`deposits.training` now gates `/api/training/pay/deposits`.** It previously
+  gated `/deposit`, a path no route in the system uses — so it gated nothing.
+- Navigation entries for Telga Pay and data vouchers are conditional on their
+  flags: the launcher tile, the dashboard payments tab, two top-up options and
+  the voucher data category.
+
+### Kept
+
+- **`deposits.training` stays on**, audited against nine conditions: refuses any
+  mode but `TRAINING` before reading an amount, bounded 10–50,000 birr, balanced
+  append-only posting against `BANK_CLEARING`, audited, and importing no HTTP
+  client or provider.
+
+### Tests
+
+- `tests/ui/card-screens.test.ts` rewritten from rendering the card screens to
+  proving they are refused — all twelve Pay paths, for a signed-in operator, an
+  unauthenticated caller, and a POST whose body is never read, with a ledger
+  count asserting nothing was written. Card *flow* logic remains covered by
+  `tests/application/card-payment.test.ts`.
+- `tests/domain/feature-flags.test.ts` updated to the new register and asserts
+  the two flags remain separate switches from `payments.acceptance`.
+
 ## 2026-08-30 — admin identity foundation (Phase C)
 
 The schema and domain model for the Telga Operations Console. **Nothing reads

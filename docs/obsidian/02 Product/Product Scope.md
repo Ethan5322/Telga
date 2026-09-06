@@ -66,6 +66,28 @@ Telga is an authorized-provider merchant platform. Any capability that would mak
 custodian of customer money, a payment institution, a lender, or an independent settler is out of
 scope until [[Launch Gates]] clears and an authorized-partner structure exists.
 
+## Switched off, and still in the tree
+
+Founder decision [[Decision Log]] **D112** narrowed the training scope to
+**airtime vending simulation and platform operations**. Two flows that were
+previously on are now off:
+
+| Flow | Flag | State |
+|---|---|---|
+| Telga Pay / card simulation | `card.simulated` | **off** — the whole `/pay` tree is refused |
+| Data vouchers | `product.data` | **off** — `/vouchers/data` and `/data` refused |
+
+Neither is deleted. The screens, the two card ports and migration 009 remain in
+the repository, unreachable: no route serves them, no navigation links to them,
+and no role carries a permission for them. Re-enabling either needs a new
+decision, not a configuration change.
+
+**Airtime vouchers are unaffected.** `/vouchers` and `/vouchers/airtime` stay,
+because selling airtime as a printed voucher is airtime vending.
+
+No payment gateway, wallet, card payment, cash-in/out, funding, settlement or
+real-money function is approved. See [[Feature Flags]].
+
 ## Related
 
 - [[Roadmap]]

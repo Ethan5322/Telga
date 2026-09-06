@@ -499,10 +499,21 @@ describe('order state safety', () => {
   });
 });
 
-// --- 18: Telga Pay untouched -------------------------------------------------
+// --- 18: the Telga Pay screens, which are now unreachable --------------------
 
-describe('Telga Pay is unaffected', () => {
-  it('still renders, still UI-only, still creates no transaction', async () => {
+/**
+ * These render the Pay screens **directly**, through `renderScreen`, which is
+ * below the feature gate: `routeBlockedBy` runs in `route()` at server.ts:2106,
+ * before the dispatch that reaches `renderScreen` at 3094.
+ *
+ * So this does **not** say Telga Pay is reachable — founder decision D112
+ * switched `card.simulated` off and every `/pay` address answers 404, which is
+ * proved against a live server in `tests/ui/card-screens.test.ts`. It says the
+ * screens still exist and still create nothing, which is what makes leaving
+ * them in the tree safe rather than a liability.
+ */
+describe('the Telga Pay screens, rendered below the feature gate', () => {
+  it('still render, still create no transaction — but are not served', async () => {
     harness = makeUiHarness('pay-untouched');
     const session = await signInAs(harness.api);
     const before = txCount(harness);
@@ -512,8 +523,9 @@ describe('Telga Pay is unaffected', () => {
       // The mode banner is on every screen, via `page()`.
       expect(screen?.html, path).toContain('Training mode');
     }
-    // The processor disclaimer lives on the Telga Pay entry screen. Recorded
-    // as it actually is: this task must not change Telga Pay.
+    // The processor disclaimer lives on the Telga Pay entry screen. It stays
+    // correct even now the screen is unreachable: if the flag is ever turned
+    // back on, the disclaimer must still be the first thing on it.
     const entry = await screenFor(harness, '/pay', q(), session);
     expect(entry?.html).toContain('no real processor connected');
     const result = await screenFor(

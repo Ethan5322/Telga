@@ -14,6 +14,7 @@ import type { Chrome } from './chrome';
 import { h } from './element';
 import type { El } from './element';
 import { telgaLogo } from './logo';
+import { isEnabled } from '@telga/domain';
 
 /** Back to wherever the operator came from, plus the dashboard. */
 function footer(locale: Locale, backHref: string): El {
@@ -361,8 +362,16 @@ export function topUpScreen(props: TopUpScreenProps): El {
     h(
       'div',
       { class: 'topup__options', 'data-testid': 'topup-options' },
-      option('/pay/deposit', '🏦', 'balance.top_up.bank', 'topup-bank'),
-      option('/pay', '💳', 'balance.top_up.pay', 'topup-pay'),
+      // Both bank-deposit and Telga Pay top-up live under `/pay`, which is
+      // refused while `card.simulated` is off. `/topup` itself stays reachable
+      // — moving earned profit into the selling float has nothing to do with
+      // Telga Pay — so the two Pay options are dropped rather than the screen.
+      ...(isEnabled('card.simulated')
+        ? [
+            option('/pay/deposit', '🏦', 'balance.top_up.bank', 'topup-bank'),
+            option('/pay', '💳', 'balance.top_up.pay', 'topup-pay'),
+          ]
+        : []),
       option('/profit/transfer', '📈', 'balance.top_up.profit', 'topup-profit'),
     ),
     !props.canDeposit &&

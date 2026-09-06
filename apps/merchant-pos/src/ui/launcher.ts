@@ -43,6 +43,7 @@ import type { Chrome } from './chrome';
 import { h } from './element';
 import type { El } from './element';
 import { telgaLogo } from './logo';
+import { isEnabled } from '@telga/domain';
 
 export interface LauncherProps {
   readonly chrome: Chrome;
@@ -118,13 +119,21 @@ export function launcherAppsScreen(props: LauncherProps): El {
         t(locale, 'launcher.tile.telga.label'),
         t(locale, 'launcher.tile.telga.subtitle'),
       ),
-      tile(
-        '/pay',
-        'launcher-tile-telgapay',
-        '💳',
-        t(locale, 'launcher.tile.telgapay.label'),
-        t(locale, 'launcher.tile.telgapay.subtitle'),
-      ),
+      // Telga Pay appears only while `card.simulated` is on. With the flag off
+      // the whole `/pay` tree answers 404, so a tile here would be a button
+      // that leads nowhere — and CLAUDE.md §7 asks for a disabled feature to be
+      // inaccessible in the UI, not merely refused after the tap.
+      ...(isEnabled('card.simulated')
+        ? [
+            tile(
+              '/pay',
+              'launcher-tile-telgapay',
+              '💳',
+              t(locale, 'launcher.tile.telgapay.label'),
+              t(locale, 'launcher.tile.telgapay.subtitle'),
+            ),
+          ]
+        : []),
     ),
     h(
       'p',

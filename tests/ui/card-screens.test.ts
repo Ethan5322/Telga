@@ -1,10 +1,26 @@
 /**
- * The card screens, end to end through a live server.
+ * Telga Pay is switched off, and this proves it is *refused* rather than hidden.
  *
- * `card-payment.test.ts` proves the flow decides correctly. This proves the
- * screens render what it decided — in particular that a decline says what a
- * merchant should say out loud, and that a silent bank gets its own screen
- * rather than being dressed up as a decline.
+ * This file used to render the card screens end to end. Founder decision
+ * **D112** switched `card.simulated` off, so those screens no longer exist to a
+ * client: every path under `/pay` answers `404` with `FEATURE_DISABLED`. The
+ * flow logic that used to be exercised here is still covered by
+ * `tests/application/card-payment.test.ts`, which tests the ports directly and
+ * does not go through a route — so switching the surface off costs no coverage
+ * of the decisions, only of the markup that presented them.
+ *
+ * ## Why this file is worth more than the one it replaces
+ *
+ * Turning the flag off is the easy half. The half that goes wrong is the route
+ * table: before D112 the table listed `/pay/card` alone, so `/pay`,
+ * `/pay/purchase`, `/pay/cashback`, `/pay/deposit`, `/pay/deposit/slip`,
+ * `/pay/settings`, `/pay/statements`, `/pay/transactions` and `/pay/result`
+ * would all have kept answering normally with the flag off — the buttons gone
+ * from the screen, every page still reachable by typing its address.
+ *
+ * So this asserts the refusal for **every** path in the tree, for an
+ * unauthenticated caller, a signed-in operator and an admin alike, on `GET` and
+ * on `POST`, and checks that a `POST` is refused *without its body being read*.
  */
 
 import { request as httpRequest } from 'node:http';
@@ -12,8 +28,9 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MOCK_BEHAVIOURS } from '@telga/provider-mock-airtime';
 import { createPosServer } from '@telga/merchant-pos';
+import { isEnabled, routeBlockedBy } from '@telga/domain';
 import { makeUiHarness, signInAs } from '../auth/helpers';
-import type { TestSession, UiHarness } from '../auth/helpers';
+import type { UiHarness } from '../auth/helpers';
 
 let harness: UiHarness | undefined;
 let server: Server | undefined;
@@ -24,6 +41,22 @@ afterEach(() => {
   harness?.cleanup();
   harness = undefined;
 });
+
+/** Every route the Telga Pay tree ever served. */
+const PAY_PATHS = [
+  '/pay',
+  '/pay/card',
+  '/pay/card/present?amount=12500',
+  '/pay/card/authorize',
+  '/pay/purchase',
+  '/pay/cashback',
+  '/pay/result',
+  '/pay/deposit',
+  '/pay/deposit/slip',
+  '/pay/settings',
+  '/pay/statements',
+  '/pay/transactions',
+] as const;
 
 function send(
   port: number,
@@ -72,167 +105,91 @@ async function start(h: UiHarness): Promise<number> {
   });
 }
 
-/** Present a card and authorise it, returning the rendered result page. */
-async function pay(
-  port: number,
-  session: TestSession,
-  lastFour: string,
-  extra: Record<string, string> = {},
-): Promise<string> {
-  const form = new URLSearchParams({
-    csrfToken: session.csrfToken,
-    amountMinor: '12500',
-    entryMode: 'INSERT',
-    lastFour,
-    clientRequestId: `req_${lastFour}`,
-    ...extra,
-  }).toString();
-  const reply = await send(port, '/pay/card/authorize', {
-    method: 'POST',
-    cookie: session.cookieHeader,
-    body: form,
-  });
-  return reply.body;
-}
-
-describe('presenting a card', () => {
-  it('offers tap, insert and swipe, and shows the amount', async () => {
-    harness = makeUiHarness('card-present');
-    const port = await start(harness);
-    const session = await signInAs(harness.api);
-
-    const page = await send(port, '/pay/card/present?amount=12500', {
-      cookie: session.cookieHeader,
-    });
-    expect(page.status).toBe(200);
-    expect(page.body).toContain('data-testid="card-gesture-TAP"');
-    expect(page.body).toContain('data-testid="card-gesture-INSERT"');
-    expect(page.body).toContain('data-testid="card-gesture-SWIPE"');
-    expect(page.body).toContain('data-testid="card-amount"');
-    // The training-card chooser is fenced off and labelled, because a real
-    // reader supplies the card and this block disappears with it.
-    expect(page.body).toContain('data-testid="card-simulator"');
+describe('the flag itself', () => {
+  it('is off, and the whole tree resolves to it', () => {
+    expect(isEnabled('card.simulated')).toBe(false);
+    for (const path of PAY_PATHS) {
+      const bare = path.split('?')[0] ?? path;
+      expect(routeBlockedBy(bare), `${bare} must resolve to card.simulated`).toBe('card.simulated');
+    }
   });
 });
 
-describe('what the operator is told', () => {
-  it('approves, and shows an authorisation reference', async () => {
-    harness = makeUiHarness('card-approve');
+describe('a signed-in operator cannot reach Telga Pay', () => {
+  it('is refused on every path in the tree, by direct address', async () => {
+    harness = makeUiHarness('pay-locked-operator');
     const port = await start(harness);
     const session = await signInAs(harness.api);
 
-    const body = await pay(port, session, '4242');
-    expect(body).toContain('data-testid="card-result"');
-    expect(body).toContain('card__result--approved');
-    expect(body).toContain('data-testid="card-auth-code"');
-  });
-
-  it('says "not enough money on the card" rather than a code', async () => {
-    harness = makeUiHarness('card-declined');
-    const port = await start(harness);
-    const session = await signInAs(harness.api);
-
-    const body = await pay(port, session, '0002');
-    expect(body).toContain('card__result--declined');
-    expect(body).toContain('Not enough money on the card');
-    // The machine token must never be what a merchant reads aloud.
-    expect(body).not.toContain('INSUFFICIENT_FUNDS');
-  });
-
-  it('tells the operator when another try is worth it', async () => {
-    harness = makeUiHarness('card-retry');
-    const port = await start(harness);
-    const session = await signInAs(harness.api);
-
-    const wrongPin = await pay(port, session, '0127');
-    expect(wrongPin).toContain('data-testid="card-retryable"');
-
-    const blocked = await pay(port, session, '9995');
-    expect(blocked).not.toContain('data-testid="card-retryable"');
-  });
-
-  it('gives a silent bank its own screen, and says to stop', async () => {
-    harness = makeUiHarness('card-silent');
-    const port = await start(harness);
-    const session = await signInAs(harness.api);
-
-    const body = await pay(port, session, '0341');
-    expect(body).toContain('data-testid="card-no-response"');
-
-    // Checked on the element, not on the whole page: the stylesheet is
-    // inlined into every response, so every result class name appears in the
-    // CSS whatever the outcome was.
-    const resultClass = /<div class="([^"]*card__result[^"]*)"/.exec(body)?.[1] ?? '';
-    expect(resultClass).toContain('card__result--no_response');
-    // Neither an approval nor a decline: the money may have moved.
-    expect(resultClass).not.toContain('card__result--approved');
-    expect(resultClass).not.toContain('card__result--declined');
-  });
-
-  it('shows only a masked card number, and never a CVV', async () => {
-    harness = makeUiHarness('card-masked');
-    const port = await start(harness);
-    const session = await signInAs(harness.api);
-
-    const body = await pay(port, session, '4242');
-    expect(body).toContain('•••• •••• •••• 4242');
-
-    // No field for one exists anywhere in Telga — PCI DSS forbids retaining a
-    // verification code after authorisation, in any form.
-    //
-    // Scanned as *words*, in the body only. This assertion used to be a raw
-    // `toContain('cvc')` over the whole document, which fails roughly one run
-    // in eight hundred for a reason that has nothing to do with card data: the
-    // `<head>` carries a random per-response CSP nonce, and a base64 nonce
-    // eventually contains any three letters you care to look for. The same
-    // trap already caught `mtn` inside a nonce in
-    // `data-navigation-slipcodes.test.ts`, and it caught `cvc` here.
-    //
-    // Word boundaries are what make this precise rather than merely quieter.
-    // `name="cvv"`, `CVV:` and `Enter CVC` all still match, because a quote,
-    // colon or space is a non-word character. A nonce fragment like
-    // `…j4umtnjcvcx…` does not, because it never is one. The control being
-    // asserted is unchanged; only the false positives are gone.
-    const bodyAt = body.indexOf('<body');
-    const rendered = (bodyAt === -1 ? body : body.slice(bodyAt)).toLowerCase();
-    expect(rendered).not.toMatch(/\bcvv\b/);
-    expect(rendered).not.toMatch(/\bcvc\b/);
-    expect(rendered).not.toMatch(/\bsecurity code\b/);
-
-    // And the structural version of the same claim, which no amount of random
-    // text can trip: the page offers no input for one. `CardRead` has no field
-    // a verification code could be written to, so this is checking that the
-    // screen has not grown one ahead of the type.
-    expect(rendered).not.toMatch(/<input[^>]*\b(cvv|cvc|securitycode)\b/);
-  });
-
-  it('refuses an authorisation with no CSRF token', async () => {
-    harness = makeUiHarness('card-csrf');
-    const port = await start(harness);
-    const session = await signInAs(harness.api);
-
-    const reply = await send(port, '/pay/card/authorize', {
-      method: 'POST',
-      cookie: session.cookieHeader,
-      body: new URLSearchParams({ amountMinor: '12500', lastFour: '4242' }).toString(),
-    });
-    expect(reply.status).toBe(303);
-    expect(reply.location).toBe('/pay');
+    for (const path of PAY_PATHS) {
+      const reply = await send(port, path, { cookie: session.cookieHeader });
+      expect(reply.status, `${path} must be refused`).toBe(404);
+      // Not a card screen, not a redirect to one, not a rendered shell.
+      expect(reply.body, `${path} must not render a card screen`).not.toContain('data-testid="card-result"');
+      expect(reply.body, `${path} must not render the pay entry`).not.toContain('data-testid="pay-cancel"');
+    }
   });
 });
 
-describe('cash back', () => {
-  it('shows the cash handed over alongside the amount', async () => {
-    harness = makeUiHarness('card-cashback');
+describe('an unauthenticated caller cannot reach it either', () => {
+  it('is refused identically with no session at all', async () => {
+    harness = makeUiHarness('pay-locked-anon');
+    const port = await start(harness);
+
+    for (const path of PAY_PATHS) {
+      const reply = await send(port, path);
+      // 404 rather than a sign-in redirect: the refusal happens BEFORE
+      // authentication, so a disabled feature does not even disclose that
+      // signing in would be the next step.
+      expect(reply.status, `${path} must be refused unauthenticated`).toBe(404);
+    }
+  });
+});
+
+describe('a POST is refused without its body being read', () => {
+  it('creates no card authorisation, no deposit and no posting', async () => {
+    harness = makeUiHarness('pay-locked-post');
     const port = await start(harness);
     const session = await signInAs(harness.api);
 
-    const body = await pay(port, session, '4242', {
-      kind: 'CASHBACK',
-      amountMinor: '20000',
-      cashOutMinor: '5000',
+    const before = harness.api.driver.readEntries().length;
+
+    const authorize = new URLSearchParams({
+      csrfToken: session.csrfToken,
+      amountMinor: '12500',
+      entryMode: 'INSERT',
+      lastFour: '4242',
+      clientRequestId: 'req_locked',
+    }).toString();
+
+    for (const path of ['/pay/card/authorize', '/pay/deposit']) {
+      const reply = await send(port, path, {
+        method: 'POST',
+        cookie: session.cookieHeader,
+        body: authorize,
+      });
+      expect(reply.status, `POST ${path} must be refused`).toBe(404);
+    }
+
+    // The ledger is append-only, so "nothing was written" is checkable by
+    // counting: a refused POST that had reached the application would have
+    // left a posting behind.
+    expect(harness.api.driver.readEntries().length).toBe(before);
+  });
+});
+
+describe('the refusal does not leak what it is refusing', () => {
+  it('says no such screen, and never names a card, PAN or amount', async () => {
+    harness = makeUiHarness('pay-locked-leak');
+    const port = await start(harness);
+    const session = await signInAs(harness.api);
+
+    const reply = await send(port, '/pay/card/present?amount=12500', {
+      cookie: session.cookieHeader,
     });
-    expect(body).toContain('card__result--approved');
-    expect(body).toContain('data-testid="card-cashout-value"');
+    expect(reply.status).toBe(404);
+    expect(reply.body).not.toContain('4242');
+    expect(reply.body).not.toContain('••••');
+    expect(reply.body).not.toContain('12500');
   });
 });

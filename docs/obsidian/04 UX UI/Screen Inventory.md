@@ -100,6 +100,27 @@ Five of the twenty-one are implemented, in training mode only — see [[Merchant
 Not built: login and PIN, provider selection, receipt printing and reprint, balance detail,
 funding, verification queue, offline, support, reports and the operations console.
 
+## Screens that exist but are not reachable
+
+Founder decision [[Decision Log]] **D112** switched off `card.simulated` and
+`product.data`. The screens below are still in the source tree and still
+render if called directly in a unit test, but **no route serves them** — every
+path answers `404` with `FEATURE_DISABLED`, and nothing in the navigation links
+to them.
+
+| Screen | Path | Gated by |
+|---|---|---|
+| Telga Pay entry | `/pay` | `card.simulated` |
+| Card present / authorize / result | `/pay/card`, `/pay/card/present`, `/pay/card/authorize`, `/pay/result` | `card.simulated` |
+| Purchase, cash back | `/pay/purchase`, `/pay/cashback` | `card.simulated` |
+| Training deposit and its slip | `/pay/deposit`, `/pay/deposit/slip` | `card.simulated` |
+| Pay settings, statements, transactions | `/pay/settings`, `/pay/statements`, `/pay/transactions` | `card.simulated` |
+| Data voucher categories | `/vouchers/data` | `product.data` |
+
+**The deposit screen is the one to watch.** `deposits.training` is still on and
+its endpoint still works, but its only screen lived under `/pay` — so in-app
+top-up is currently unavailable. Recorded as `A100`.
+
 ## Mock data rules
 
 Pilot and prototype screens use **realistic but clearly simulated** Ethiopian birr values and mock

@@ -105,11 +105,13 @@ export const FEATURE_FLAGS: Readonly<Record<FeatureFlag, boolean>> = Object.free
   'money.live': false,
   'training.mode': true,
 
-  // Approved training-only by Decision Log D72. The register note recorded this
-  // as off pending separate approval; D72 is that approval, scoped to training,
-  // and the note has been updated to say so. Not approval for production, live
-  // money, a real provider, or general availability.
-  'product.data': true,
+  // **Off by founder decision D112**, reversing D72. D72 approved data vouchers
+  // as a training-only flow; the founder has since narrowed the training scope
+  // to airtime vending and platform operations, and switched this off. The flow
+  // and its migration remain in the tree — removing them would be a larger and
+  // riskier change than switching them off — but no route serves them and no
+  // role can reach them. Re-enabling needs a new decision, not a config edit.
+  'product.data': false,
 
   'product.electricity': false,
   wallet: false,
@@ -122,7 +124,19 @@ export const FEATURE_FLAGS: Readonly<Record<FeatureFlag, boolean>> = Object.free
   'settlement.independent': false,
   'funding.submission': false,
 
-  'card.simulated': true,
+  // **Off by founder decision D112**, reversing D87. D87 built card payment as
+  // two ports so a real reader could be dropped in later; that reasoning stands
+  // and the ports stay. What the founder switched off is the *surface*: Telga
+  // Pay is not part of the approved training scope, so the whole `/pay` tree is
+  // refused rather than merely unlinked.
+  'card.simulated': false,
+
+  // Stays on, and stays deliberately narrow. `application/deposits.ts` refuses
+  // any mode but TRAINING before it reads an amount, credits a balanced
+  // append-only posting against `BANK_CLEARING` bounded to 10–50,000 birr,
+  // audits it as `TRAINING_DEPOSIT_CREDITED`, and contacts nothing: the module
+  // imports no HTTP client and no provider. Its **screen** lived under `/pay`
+  // and is therefore unreachable while `card.simulated` is off — see D112.
   'deposits.training': true,
 });
 
@@ -205,11 +219,35 @@ const FEATURE_ROUTES: readonly (readonly [string, FeatureFlag])[] = Object.freez
   ['/remittance', 'remittance'],
   ['/settlement', 'settlement.independent'],
   ['/funding', 'funding.submission'],
-  ['/pay/card', 'card.simulated'],
-  ['/deposit', 'deposits.training'],
+  // The **whole** Telga Pay tree, not just the card screen.
+  //
+  // This entry replaces `['/pay/card', …]`, which was a real hole: it gated
+  // `/pay/card` and `/pay/card/present` and left `/pay`, `/pay/purchase`,
+  // `/pay/cashback`, `/pay/deposit`, `/pay/deposit/slip`, `/pay/settings`,
+  // `/pay/statements`, `/pay/transactions` and `/pay/result` — nine routes —
+  // answering normally with the flag off. Switching the flag off would have
+  // removed the buttons and left every page reachable by typing its address,
+  // which is precisely the "not merely hidden" rule it was meant to satisfy.
+  ['/pay', 'card.simulated'],
+
+  // Data vouchers. `/vouchers` and `/vouchers/airtime` stay under
+  // `airtime.vending`: selling airtime as a printed voucher is airtime vending,
+  // which is in scope. Only the data flow is refused.
+  ['/vouchers/data', 'product.data'],
+
   ['/api/sales', 'airtime.vending'],
   ['/api/funding', 'funding.submission'],
   ['/api/wallet', 'wallet'],
+
+  // The deposit **API**, gated by its own flag rather than by Telga Pay's.
+  //
+  // The previous entry was `['/deposit', 'deposits.training']`, which matched
+  // no route in the system: the screen is `/pay/deposit` and the endpoint is
+  // `/api/training/pay/deposits`, so the flag gated nothing at all. Naming the
+  // endpoint keeps the API refusable on its own terms — otherwise turning the
+  // deposit off would depend on Telga Pay being off, which is a different
+  // decision that could later be reversed.
+  ['/api/training/pay/deposits', 'deposits.training'],
 ] as const);
 
 /**

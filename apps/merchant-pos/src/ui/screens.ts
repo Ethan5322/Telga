@@ -18,7 +18,7 @@
 
 import { t } from '@telga/localization';
 import type { Locale } from '@telga/localization';
-import { format, money } from '@telga/domain';
+import { format, isEnabled, money } from '@telga/domain';
 import type { BalanceDto, RemoteData, TransactionViewModel } from '@telga/pos-view-model';
 import { actionBar } from './actions';
 import { nav, page } from './chrome';
@@ -1079,17 +1079,23 @@ export function vouchersScreen(props: VouchersScreenProps): El {
           t(locale, 'voucher.product.airtime'),
         ),
       ),
-      // Data is a live training flow now, not a disabled placeholder —
-      // approved training-only, see Decision Log D72.
-      h(
-        'li',
-        {},
-        h(
-          'a',
-          { href: '/vouchers/data', 'data-testid': 'category-data' },
-          t(locale, 'voucher.product.data'),
-        ),
-      ),
+      // Data was a live training flow under D72; founder decision D112 switched
+      // it off, so `/vouchers/data` is refused and the category is not listed.
+      // Airtime vouchers are unaffected — selling airtime as a printed voucher
+      // is airtime vending, which remains in scope.
+      ...(isEnabled('product.data')
+        ? [
+            h(
+              'li',
+              {},
+              h(
+                'a',
+                { href: '/vouchers/data', 'data-testid': 'category-data' },
+                t(locale, 'voucher.product.data'),
+              ),
+            ),
+          ]
+        : []),
     ),
     h(
       'p',

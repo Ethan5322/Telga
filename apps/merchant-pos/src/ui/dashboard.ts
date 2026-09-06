@@ -38,6 +38,7 @@ import type { Chrome } from './chrome';
 import { h } from './element';
 import type { El } from './element';
 import { renderRemote } from './states';
+import { isEnabled } from '@telga/domain';
 
 export type ServiceStatus = 'IMPLEMENTED' | 'COMING_SOON';
 
@@ -162,7 +163,11 @@ function bottomNav(locale: Locale): El {
     'nav',
     { class: 'dashboard__bottom-nav', 'aria-label': 'Telga dashboard sections' },
     navItem('/dashboard', 'dashboard-nav-prepaid', '🛒', t(locale, 'dashboard.nav.prepaid'), true),
-    navItem('/pay', 'dashboard-nav-payments', '💳', t(locale, 'dashboard.nav.payments'), false),
+    // Payments only while `card.simulated` is on — the `/pay` tree is refused
+    // outright when it is off, so this would be a dead tab on the bottom bar.
+    ...(isEnabled('card.simulated')
+      ? [navItem('/pay', 'dashboard-nav-payments', '💳', t(locale, 'dashboard.nav.payments'), false)]
+      : []),
     // `/settings`, not `/`. `/` is the legacy POS home whose primary action
     // opens the old single-screen sale form, so this tile — sitting on the
     // dashboard itself — was a one-tap route straight back to the screen the

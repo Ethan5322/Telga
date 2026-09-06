@@ -143,6 +143,36 @@ Errors name the state and what the merchant should do, because the string reache
 counter: `FEATURE_DISABLED` · `INSUFFICIENT_AVAILABLE_BALANCE` · `IDEMPOTENCY_PAYLOAD_MISMATCH` ·
 `PROVIDER_UNAVAILABLE` · `PERMISSION_DENIED` · `SESSION_EXPIRED` · `DUPLICATE_IN_PROGRESS`.
 
+## Routes refused by a feature flag
+
+`routeBlockedBy(path)` answers **before** authentication, before any body is
+read, and before any ledger write. A refused route returns `404` with
+`FEATURE_DISABLED` — `404` rather than `403` so that a disabled capability does
+not disclose that it exists and would work if you signed in.
+
+| Prefix | Flag | State |
+|---|---|---|
+| `/pay` (whole tree) | `card.simulated` | **refused** — D112 |
+| `/vouchers/data`, `/data` | `product.data` | **refused** — D112 |
+| `/wallet`, `/api/wallet` | `wallet` | refused |
+| `/cash` | `cash.in_out` | refused |
+| `/lending` | `lending` | refused |
+| `/remittance` | `remittance` | refused |
+| `/settlement` | `settlement.independent` | refused |
+| `/funding`, `/api/funding` | `funding.submission` | refused |
+| `/electricity` | `product.electricity` | refused |
+| `/bills` | `bills.general` | refused |
+| `/sell`, `/api/sales` | `airtime.vending` | served |
+| `/api/training/pay/deposits` | `deposits.training` | served |
+
+Longest prefix wins, and matching is on a segment boundary — `/wallets-explained`
+is a help page, not the wallet feature.
+
+**A prefix that matches no real route is not detected.** `card.simulated` gated
+`/pay/card` alone while nine sibling routes went unguarded, and
+`deposits.training` gated `/deposit`, which no route uses. Both are fixed;
+nothing prevents the next one. Recorded as `A99`.
+
 ## Related
 
 - [[Architecture]]

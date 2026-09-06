@@ -47,6 +47,23 @@ No incident note is an orphan.
 | 14 | Worker operations — health, backoff, restart, manual recovery | **WRITTEN** — [[Worker Operations Runbook]] |
 | 15 | Deployment — sequence, rolling, rollback | **WRITTEN** — [[Deployment Runbook]] |
 
+## "Why has Telga Pay disappeared?"
+
+Not a fault. Founder decision [[Decision Log]] **D112** switched off
+`card.simulated` and `product.data`, so the Telga Pay tile, the dashboard
+payments tab, the two Pay top-up options and the data voucher category are no
+longer drawn, and every `/pay` and `/vouchers/data` address answers **404**.
+
+| An operator reports | Answer |
+|---|---|
+| The Telga Pay tile is gone from the launcher | Correct. It is not part of the approved training scope |
+| Typing `/pay` gives "no such screen" | Correct, and deliberate — refused, not hidden |
+| Data bundles are missing from vouchers | Correct. **Airtime** vouchers are unaffected |
+| I cannot top up the training float in the app | **Known gap, `A100`.** The deposit screen lived under `/pay`. Use `--training-float` at provision time, or the endpoint directly |
+
+Nothing here indicates a defect, and none of it should be "fixed" by turning a
+flag back on: that needs a founder decision, not a configuration change.
+
 Each runbook must state: trigger, who owns it, immediate action, merchant communication,
 escalation path, resolution criteria, and what gets recorded.
 

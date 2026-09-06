@@ -48,7 +48,7 @@ Enforcement is four-layer:
 | `money.live` | **off** | All ten launch gates, plus dual approval |
 | `training.mode` | **on** | Turned off only when `money.live` is on |
 | `product.electricity` | off | Separate provider authorization |
-| `product.data` | **on** (training only) | Live traffic needs separate provider approval — [[Decision Log]] D72 |
+| `product.data` | **off** | **Switched off by founder decision [[Decision Log]] D112**, reversing D72. Data vouchers are outside the approved training scope, which is airtime vending and platform operations. `/vouchers/data` and `/data` are refused; `/vouchers` and `/vouchers/airtime` stay, because selling airtime as a printed voucher is airtime vending |
 | `wallet` | off | Legal review — Telga is not a wallet |
 | `payments.acceptance` | off | Payment-institution authorization |
 | `cash.in_out` | off | Legal review |
@@ -66,19 +66,41 @@ than left ungated:
 
 | Flag | Default | Gate to enable | Why it is not the regulated flag next to it |
 |---|---|---|---|
-| `card.simulated` | **on** (simulated) | — | Gates the card **simulator**. Nothing behind it reaches a card network, processor or bank; `payments.acceptance` remains off and is what a real acquirer would need. [[Decision Log]] D87 |
-| `deposits.training` | **on** (simulated) | — | Credits a **training** ledger against no bank reference. `funding.submission` — a real deposit — remains off. [[Decision Log]] D70 |
+| `card.simulated` | **off** | — | **Switched off by founder decision [[Decision Log]] D112**, reversing D87's surface (its two-port design stands). Gates the **whole `/pay` tree**, not just the card screen — the earlier entry gated `/pay/card` alone and left nine Telga Pay routes answering normally. Nothing behind it ever reached a card network, processor or bank; `payments.acceptance` remains off and is what a real acquirer would need |
+| `deposits.training` | **on** (simulated) | — | Credits a **training** ledger against no bank reference. `funding.submission` — a real deposit — remains off. [[Decision Log]] D70. Retained under D112 after audit: `application/deposits.ts` refuses any mode but `TRAINING` before reading an amount, is bounded to 10–50,000 birr, posts a balanced append-only entry against `BANK_CLEARING`, audits `TRAINING_DEPOSIT_CREDITED`, and imports no HTTP client or provider. It now gates `/api/training/pay/deposits` — its real endpoint — instead of `/deposit`, which matched no route. **Its screen lives under `/pay` and is unreachable while `card.simulated` is off** |
 
 Keeping each pair as two switches is the point: turning the simulator on must never turn a
 licence requirement on with it.
 
-### On `product.data`
+### On `product.data` — and why it is off again
 
 This register originally recorded `product.data` as off pending separate approval.
-[[Decision Log]] **D72** is that approval, and it is scoped to **training only** — simulated
-funds, simulated provider, no real bundle delivered. It is **not** approval for production, live
-money, a real provider, or general availability; live data traffic still needs its own provider
-authorization, exactly as airtime does.
+[[Decision Log]] **D72** was that approval, scoped to training only.
+
+**[[Decision Log]] D112 has switched it off again.** The founder narrowed the approved
+training scope to airtime vending and platform operations, so data vouchers are out. D72 is
+not withdrawn as *reasoning* — nothing about that flow ever reached a provider — but it no
+longer describes what is switched on. The flow, its screens and migration 009 remain in the
+tree; removing them would be a larger and riskier change than switching them off, and no
+route serves them while the flag is false.
+
+### On `card.simulated` — and the hole that switching it off exposed
+
+**D87** built card payment as two ports so a certified reader and a real acquirer could be
+dropped in later. That design stands. **D112** switched off the *surface*: Telga Pay is not
+part of the approved training scope.
+
+Switching it off revealed that the flag had never gated what it appeared to. The route table
+listed `/pay/card` only, so `/pay`, `/pay/purchase`, `/pay/cashback`, `/pay/deposit`,
+`/pay/deposit/slip`, `/pay/settings`, `/pay/statements`, `/pay/transactions` and
+`/pay/result` — **nine routes** — would have kept answering normally with the flag off. The
+entry is now `/pay`, which covers the tree. This is exactly the failure the "not merely
+hidden" rule exists to prevent, and it was found by turning the flag off rather than by
+reading the table.
+
+`deposits.training` had the same class of fault: it gated `/deposit`, a path **no route in
+the system uses**. The screen is `/pay/deposit` and the endpoint is
+`/api/training/pay/deposits`, so the flag gated nothing whatever. It now names the endpoint.
 
 ## What is enforced, and what is not
 

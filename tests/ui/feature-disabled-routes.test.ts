@@ -163,14 +163,16 @@ describe('a switched-off capability answers 404', () => {
 
 describe('an enabled capability is untouched', () => {
   it('still serves the paths that are switched on', async () => {
-    // The gate must not become a way to break working screens. `airtime.vending`,
-    // `product.data`, `card.simulated` and `deposits.training` are on, so their
-    // routes go through to the normal handler — whatever that handler answers.
+    // The gate must not become a way to break working screens. `airtime.vending`
+    // is on, so its routes go through to the normal handler — whatever that
+    // handler answers. `product.data` and `card.simulated` were switched off by
+    // D112 and are covered by the refusal cases above; airtime vouchers stay on,
+    // because selling airtime as a printed voucher is airtime vending.
     harness = makeUiHarness('feature-on');
     const port = await start(harness);
     const session = await signInAs(harness.api);
 
-    for (const path of ['/dashboard', '/pay/card/present?amount=1000']) {
+    for (const path of ['/dashboard', '/vouchers', '/vouchers/airtime']) {
       const reply = await send(port, path, { cookie: session.cookieHeader });
       expect(reply.status, `${path} must still be served`).toBe(200);
     }

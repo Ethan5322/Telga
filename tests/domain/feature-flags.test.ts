@@ -126,11 +126,12 @@ describe('what is switched off', () => {
 
 describe('what is switched on', () => {
   it('allows only simulations with no counterparty', () => {
-    // Data bundles are on by Decision Log D72, training-only. Card payments
-    // are the simulator, not `payments.acceptance`. Deposits credit a training
-    // ledger, not a bank.
-    expect(isEnabled('product.data')).toBe(true);
-    expect(isEnabled('card.simulated')).toBe(true);
+    // Data bundles and the card simulator were switched OFF by founder
+    // decision D112, which narrowed the training scope to airtime vending and
+    // platform operations. Deposits stay on: they credit a training ledger,
+    // not a bank, and were audited against that claim before being retained.
+    expect(isEnabled('product.data')).toBe(false);
+    expect(isEnabled('card.simulated')).toBe(false);
     expect(isEnabled('deposits.training')).toBe(true);
     expect(isEnabled('airtime.vending')).toBe(true);
     expect(isEnabled('training.mode')).toBe(true);
@@ -147,8 +148,13 @@ describe('what is switched on', () => {
     // switches. If `card.simulated` were ever the same flag as
     // `payments.acceptance`, turning the simulator on would turn a licence
     // requirement on with it.
-    expect(isEnabled('card.simulated')).toBe(true);
+    // Both are off today (D112 switched the simulator off), but they must
+    // remain SEPARATE switches: re-enabling the simulator must never be the
+    // same edit as enabling a licence requirement.
+    expect(isEnabled('card.simulated')).toBe(false);
     expect(isEnabled('payments.acceptance')).toBe(false);
+    expect(MOVES_REAL_MONEY).not.toContain('card.simulated');
+    expect(MOVES_REAL_MONEY).toContain('payments.acceptance');
   });
 });
 
@@ -159,8 +165,12 @@ describe('layer 2 — the API refuses, it does not merely hide', () => {
   });
 
   it('prefers the longest matching prefix', () => {
-    // `/pay/card` is the simulator and is on; a bare `/pay` is not gated here.
+    // `/pay` now gates the whole Telga Pay tree, so a deeper card path
+    // resolves to the same flag rather than escaping it.
+    expect(featureForPath('/pay')).toBe('card.simulated');
     expect(featureForPath('/pay/card/present')).toBe('card.simulated');
+    // The deposit API keeps its own flag, one segment deeper than `/api`.
+    expect(featureForPath('/api/training/pay/deposits')).toBe('deposits.training');
   });
 
   it('matches on a segment boundary, not a string prefix', () => {
@@ -174,9 +184,30 @@ describe('layer 2 — the API refuses, it does not merely hide', () => {
     expect(routeBlockedBy('/lending/apply')).toBe('lending');
     expect(routeBlockedBy('/remittance/send')).toBe('remittance');
     expect(routeBlockedBy('/electricity/buy')).toBe('product.electricity');
-    // On, so it is served.
-    expect(routeBlockedBy('/data/buy')).toBeUndefined();
-    expect(routeBlockedBy('/pay/card/present')).toBeUndefined();
+    // Off by D112, so both are refused — and the refusal covers the WHOLE
+    // Telga Pay tree, not just the card screen. Nine of these paths answered
+    // normally before the route table was corrected.
+    expect(routeBlockedBy('/data/buy')).toBe('product.data');
+    expect(routeBlockedBy('/vouchers/data')).toBe('product.data');
+    for (const path of [
+      '/pay',
+      '/pay/card',
+      '/pay/card/present',
+      '/pay/card/authorize',
+      '/pay/purchase',
+      '/pay/cashback',
+      '/pay/deposit',
+      '/pay/deposit/slip',
+      '/pay/settings',
+      '/pay/statements',
+      '/pay/transactions',
+      '/pay/result',
+    ]) {
+      expect(routeBlockedBy(path), `${path} must be refused`).toBe('card.simulated');
+    }
+    // Airtime vouchers are airtime vending, and stay served.
+    expect(routeBlockedBy('/vouchers')).toBeUndefined();
+    expect(routeBlockedBy('/vouchers/airtime')).toBeUndefined();
     // Not gated at all.
     expect(routeBlockedBy('/dashboard')).toBeUndefined();
   });
@@ -262,7 +293,9 @@ describe('money.live requires two keys', () => {
 describe('requireFeature', () => {
   it('throws rather than returning false, so a caller cannot forget to check', () => {
     expect(() => requireFeature('payments.acceptance')).toThrow(FeatureDisabledError);
-    expect(() => requireFeature('product.data')).not.toThrow();
+    expect(() => requireFeature('product.data')).toThrow(FeatureDisabledError);
+    expect(() => requireFeature('card.simulated')).toThrow(FeatureDisabledError);
+    expect(() => requireFeature('airtime.vending')).not.toThrow();
   });
 
   it('names the flag in the refusal, so a log line says which', () => {

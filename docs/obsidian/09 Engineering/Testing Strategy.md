@@ -537,6 +537,27 @@ residual zero, transaction left where the next sweep finds it, and the failure
 visible in the report with a safe reason code.
 
 
+## Proving a feature is off
+
+Switching a flag off is the easy half; the half that fails is the route table.
+A disabled capability therefore needs tests that a *rendering* test cannot give:
+
+| What to prove | Where |
+|---|---|
+| Every path in the tree resolves to the flag | `tests/domain/feature-flags.test.ts` |
+| Refused for a signed-in operator, by direct address | `tests/ui/card-screens.test.ts` |
+| Refused identically with **no session** — before authentication | `tests/ui/card-screens.test.ts` |
+| A `POST` is refused **without its body being read**, and writes no ledger row | `tests/ui/card-screens.test.ts`, `tests/ui/feature-disabled-routes.test.ts` |
+| The refusal leaks nothing — no PAN, no amount, no screen name | `tests/ui/card-screens.test.ts` |
+| No role carries a permission for the capability | `findRoleCapabilityLeaks()` |
+| Enabled siblings still serve | `tests/ui/feature-disabled-routes.test.ts` |
+
+**A screen test is not a lockdown test.** `card-screens.test.ts` used to render
+the card flow; it now proves the flow is unreachable. The decisions the flow
+makes are still covered, by `tests/application/card-payment.test.ts`, which
+exercises the ports directly and never goes through a route — which is why
+switching the surface off cost no coverage of behaviour.
+
 ## Related
 
 - [[Transaction State Machine]]

@@ -89,14 +89,26 @@ async function screenFor(
 }
 
 describe('the data bundle flow', () => {
-  it('offers Data beside Airtime, no longer as an unavailable placeholder', async () => {
+  it('no longer offers Data, which founder decision D112 switched off', async () => {
+    // `product.data` is false. The category is not listed and the route is
+    // refused — both, not just the first: a category removed from the list
+    // while `/vouchers/data` still answered would be exactly the "hidden but
+    // still served" failure CLAUDE.md §7 forbids.
     harness = makeUiHarness('data-category-tile');
     const screen = await screenFor(harness, '/vouchers');
     const html = screen?.html ?? '';
-    expect(html).toContain('data-testid="category-data"');
-    expect(html).toContain('href="/vouchers/data"');
-    expect(html).not.toContain('aria-disabled="true"');
+    expect(html).not.toContain('data-testid="category-data"');
+    expect(html).not.toContain('href="/vouchers/data"');
   });
+
+  // The HTTP refusal of `/vouchers/data` is proved in
+  // `tests/ui/feature-disabled-routes.test.ts`, against a live server. It
+  // cannot be proved here: `screenFor` calls `renderScreen` directly, and the
+  // feature gate lives in `route()` — `routeBlockedBy` runs at server.ts:2106,
+  // before the dispatch that reaches `renderScreen` at 3094. So this file
+  // covers what the renderer draws, and that file covers what the server
+  // serves. Asserting a 404 here would test the wrong layer and pass only by
+  // accident if the renderer ever grew a gate of its own.
 
   it('walks network, then category, then package', async () => {
     harness = makeUiHarness('data-walk');

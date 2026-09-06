@@ -178,7 +178,7 @@ describe('the launcher is one Telga button', () => {
 });
 
 describe('the modules are on their own page', () => {
-  it('shows both, with the old emoji and no Telga mark', async () => {
+  it('shows Telga Vending, and not the switched-off Telga Pay', async () => {
     harness = makeUiHarness('entry-apps');
     const port = await start(harness);
     const session = await signInAs(harness.api);
@@ -186,10 +186,12 @@ describe('the modules are on their own page', () => {
     const apps = await get(port, '/launcher/apps', session.cookieHeader);
     expect(apps.status).toBe(200);
     expect(apps.body).toContain('data-testid="launcher-tile-telga"');
-    expect(apps.body).toContain('data-testid="launcher-tile-telgapay"');
-    // The emoji this page used before the mark was put on both tiles.
     expect(apps.body).toContain('📱');
-    expect(apps.body).toContain('💳');
+    // Telga Pay is off by founder decision D112, so its tile is not drawn at
+    // all. A tile here would be a button leading to a 404 — CLAUDE.md §7 asks
+    // for a disabled feature to be inaccessible, not refused after the tap.
+    expect(apps.body).not.toContain('data-testid="launcher-tile-telgapay"');
+    expect(apps.body).not.toContain('💳');
     // Inside Telga everything is Telga, so the mark cannot be what tells the
     // two modules apart — and it is not drawn here at all.
     expect(apps.body).not.toContain('/assets/app-vending.png');
@@ -215,12 +217,16 @@ describe('the modules are on their own page', () => {
 
     const apps = await get(port, '/launcher/apps', session.cookieHeader);
     expect(hrefOf(apps.body, 'launcher-tile-telga')).toBe('/dashboard');
-    expect(hrefOf(apps.body, 'launcher-tile-telgapay')).toBe('/pay');
 
-    for (const path of ['/dashboard', '/pay']) {
-      const reply = await get(port, path, session.cookieHeader);
-      expect(reply.status, path).toBe(200);
-    }
+    const reply = await get(port, '/dashboard', session.cookieHeader);
+    expect(reply.status, '/dashboard').toBe(200);
+
+    // The module that was switched off has no tile and no reachable screen —
+    // both halves matter, and only asserting the first is how a "hidden but
+    // still served" feature survives a test suite.
+    expect(hrefOf(apps.body, 'launcher-tile-telgapay')).toBe('');
+    const pay = await get(port, '/pay', session.cookieHeader);
+    expect(pay.status, '/pay must be refused').toBe(404);
   });
 
   it('offers a way back to the launcher', async () => {
