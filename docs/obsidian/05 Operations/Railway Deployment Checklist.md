@@ -58,15 +58,54 @@ Build Failed: npm ci did not complete successfully
 > Nixpacks image has no Python, so that compile failed and took `npm ci` with
 > it. **Node 22 with no Python fails identically.**
 
-**The fix — [[Decision Log]] D114.** `railway.json` installs with:
+### The second failure — the fix was aimed at the wrong phase
 
-```
-npm ci --ignore-scripts && npm run build:clean
+Setting `railway.json`'s `buildCommand` did **not** work. The next build printed
+its phase list, and that was the answer:
+
+```text
+setup    │ nodejs_24, npm-9_x
+install  │ npm ci                                          ← failed here
+build    │ npm ci --ignore-scripts && npm run build:clean  ← never reached
+start    │ node scripts/deploy/railway-start.mjs
 ```
 
-This skips a compile that was never needed. `better-sqlite3@13.0.3` ships
-packaged **N-API prebuilt binaries**, and its runtime binding resolution loads
-the included one without any build step.
+> [!danger] `buildCommand` replaces only the **build** phase
+> Nixpacks generates its **own `install` phase**, and it runs first. The plain
+> `npm ci` that fails was never the command D114 changed. It also selected
+> `nodejs_24` despite `NIXPACKS_NODE_VERSION=22` being set, and `npm-9_x`
+> against a lockfile written by npm 11.
+
+**The fix — [[Decision Log]] D115.** A `nixpacks.toml` overrides the phase that
+actually fails:
+
+```toml
+[phases.install]
+cmds = ['npm ci --ignore-scripts']
+
+[phases.build]
+cmds = [
+  'npm run build:clean',
+  'node scripts/deploy/verify-binding.mjs',
+]
+```
+
+`railway.json` keeps `builder: NIXPACKS` and **drops `buildCommand`**, so the
+phases have one source of truth instead of two files that can disagree.
+
+`scripts/deploy/verify-binding.mjs` is the check that should have existed from
+the start. It opens a database, creates a STRICT table, runs a transaction and
+asserts `integrity_check` **on the build host** — so a missing or unloadable
+`linux-x64` binding fails the build with a named error rather than surfacing at
+the first sale. It is deliberately honest about its limits: the database is
+in-memory, so `journal_mode` reports `memory`, and WAL on the volume is proven
+only by `[telga] migrations applied.` at runtime.
+
+A `Dockerfile` was written first and **withdrawn at the founder's direction** in
+favour of staying on Nixpacks. It would also have worked; this is the smaller
+change against the same defect.
+
+`.nvmrc` is retained for local tooling only and has no role on Railway.
 
 ### The local proof, run before this was approved
 
@@ -92,24 +131,27 @@ In a scratch directory outside the repository, `package.json` and
 > **Do not describe this fix as complete until a Railway build succeeds.**
 > Recorded as `A103`.
 
-### Node version — correcting an earlier statement in this note
+### Node version — deliberately not pinned
 
-Nixpacks resolves Node in this order:
+**Node stays whatever Nixpacks selects, currently 24, and that is a decision
+rather than an oversight.**
 
-```
-NIXPACKS_NODE_VERSION  >  package.json engines.node  >  .nvmrc / .node-version
-```
+`NIXPACKS_NODE_VERSION=22` **was set and was still ignored** — the build printed
+`setup │ nodejs_24, npm-9_x`. Why could not be determined from outside Railway.
+Nixpacks' documented precedence is `NIXPACKS_NODE_VERSION` above
+`package.json` `engines.node` (which declares `">=20"`) above `.nvmrc`, and it
+did not hold here.
 
-This repository declares **`engines.node: ">=20"`**, which **outranks
-`.nvmrc`** and is what resolved to Node 24.
+So the fix does not depend on it:
 
+- **Node 24 never caused a failure.** The missing Python did, both times.
+- The prebuild is **ABI-independent** and was proven loading on **Node 25**.
+- Guessing at a nixpkgs attribute name to force 22 would risk a third failed
+  build for no benefit.
 - `.nvmrc` = `22` is kept for **local tooling only** (`nvm`, `fnm`).
-- It does **not** pin Node on Railway while `engines` says `>=20`.
-- To pin Node 22 there, set **`NIXPACKS_NODE_VERSION=22`** in the Railway
-  dashboard.
-- Node 22 is **reproducibility, not the fix**. Node 24 works: the prebuild is
-  ABI-independent, and the local proof passed on Node 25.
-- **Node 24 did not cause the failure.** The missing Python did.
+- `NIXPACKS_NODE_VERSION` in Railway is **inert** — harmless to leave set.
+
+Pinning can be revisited once a build is green, and only then.
 
 **The cost.** `--ignore-scripts` also skips `esbuild`'s postinstall, the only
 other install script in the tree. esbuild is a devDependency of vitest, and the

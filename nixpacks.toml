@@ -1,0 +1,58 @@
+# Telga — TRAINING MODE — NO REAL VALUE.
+#
+# ## Why this file exists
+#
+# Two Railway builds failed to a command this repository never wrote. Nixpacks
+# generates its own phases, and the build log showed them:
+#
+#   setup    │ nodejs_24, npm-9_x
+#   install  │ npm ci                                          ← failed here
+#   build    │ npm ci --ignore-scripts && npm run build:clean   ← never reached
+#   start    │ node scripts/deploy/railway-start.mjs
+#
+# `railway.json`'s `buildCommand` replaces only the **build** phase. The plain
+# `npm ci` that fails is the **install** phase, which Nixpacks writes itself and
+# runs first — so the earlier fix could not have worked, whatever flag it used.
+#
+# This file overrides the install phase, which is the documented way to change
+# it: https://nixpacks.com/docs/configuration/file
+#
+# ## Why `--ignore-scripts`
+#
+# `better-sqlite3` carries a `binding.gyp` and **no `install` script**, which is
+# exactly the combination that makes npm run an implicit `node-gyp rebuild` —
+# whether or not a prebuilt binary is already present. The Nixpacks image has no
+# Python, so that compile fails and takes `npm ci` with it.
+#
+# The compile was never needed. `better-sqlite3@13.0.3` ships **N-API
+# prebuilds**, one per platform with no ABI suffix, including
+# `prebuilds/linux-x64.node`; `lib/binding.js` resolves `getPrebuildPath()`
+# **before** `build/Release`. Adding Python to compile a binary that already
+# ships would be slower and larger for nothing.
+#
+# **The cost, stated rather than discovered later:** this also skips `esbuild`'s
+# postinstall, the only other install script in the tree. esbuild is a
+# devDependency of vitest, so the deployment image cannot run the test suite.
+# Tests run locally and in CI against a full install. Recorded as `A104`.
+#
+# ## On the Node version
+#
+# Nixpacks selects `nodejs_24` here, and `NIXPACKS_NODE_VERSION=22` was set and
+# ignored — why could not be determined from outside Railway. **This file does
+# not try to pin Node**, deliberately: the prebuild is ABI-independent and was
+# proven loading on Node 25, so Node 24 is not a defect, and guessing at a
+# nixpkgs attribute name would risk a third failed build for no benefit.
+# Pinning can be revisited once a build is green. See `Decision Log` D115.
+
+[phases.install]
+cmds = ['npm ci --ignore-scripts']
+
+[phases.build]
+cmds = [
+  'npm run build:clean',
+  # Fails the build if the SQLite binding does not actually load on this
+  # platform, rather than letting it surface at the first sale. Every previous
+  # attempt proved the binding on Windows and hoped it held on Linux; this is
+  # the first check that runs where it matters.
+  'node scripts/deploy/verify-binding.mjs',
+]
