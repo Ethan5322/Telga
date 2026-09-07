@@ -35,6 +35,108 @@ decision_status: proposed
 here connects no live provider, enables no live money, and clears none of the
 ten gates in [[Launch Gates]].
 
+## The first build failure, and why its log misled
+
+The first real Railway build failed in `npm ci`, before Telga ran at all:
+
+```text
+npm error command sh -c node-gyp rebuild
+npm error gyp info using node@24.10.0 | linux | x64
+npm error gyp ERR! find Python
+Build Failed: npm ci did not complete successfully
+```
+
+> [!warning] Node 24 was not the cause, and pinning Node would not have fixed it
+> `better-sqlite3@13.0.3` ships **N-API prebuilds** — one binary per platform,
+> no ABI suffix — including `prebuilds/linux-x64.node`, exactly Railway's
+> platform. `lib/binding.js` resolves `getPrebuildPath()` **before**
+> `build/Release`, so that binary loads on Node 24 as readily as on Node 22.
+>
+> The failure came from elsewhere: the package carries a `binding.gyp` and
+> **no `install` script**, which is precisely the combination that makes npm
+> run an implicit `node-gyp rebuild` — whether or not prebuilds exist. The
+> Nixpacks image has no Python, so that compile failed and took `npm ci` with
+> it. **Node 22 with no Python fails identically.**
+
+**The fix — [[Decision Log]] D114.** `railway.json` installs with:
+
+```
+npm ci --ignore-scripts && npm run build:clean
+```
+
+This skips a compile that was never needed. `better-sqlite3@13.0.3` ships
+packaged **N-API prebuilt binaries**, and its runtime binding resolution loads
+the included one without any build step.
+
+### The local proof, run before this was approved
+
+In a scratch directory outside the repository, `package.json` and
+`package-lock.json` only:
+
+| Step | Result |
+|---|---|
+| `npm ci --ignore-scripts` | exit **0**, 159 packages, **no `node-gyp` output** |
+| `build/Release` present? | **No — nothing compiled** |
+| `require('better-sqlite3')` | loaded |
+| Real database opened, `journal_mode` | **wal** |
+| STRICT table + transaction | 3 rows, double-entry sum **0** |
+| `integrity_check` | **ok** |
+| WAL and SHM files created | **yes / yes** |
+| Close and cleanup | clean, exit **0** |
+
+> [!warning] This is not yet proof that Railway works
+> The proof ran on **Windows (win32-x64) under Node 25.9.0**, so it loaded
+> `win32-x64.node`. **Railway is Linux.** `linux-x64.node` is present in the
+> package, but **has not been proven on Railway/Nixpacks**.
+>
+> **Do not describe this fix as complete until a Railway build succeeds.**
+> Recorded as `A103`.
+
+### Node version — correcting an earlier statement in this note
+
+Nixpacks resolves Node in this order:
+
+```
+NIXPACKS_NODE_VERSION  >  package.json engines.node  >  .nvmrc / .node-version
+```
+
+This repository declares **`engines.node: ">=20"`**, which **outranks
+`.nvmrc`** and is what resolved to Node 24.
+
+- `.nvmrc` = `22` is kept for **local tooling only** (`nvm`, `fnm`).
+- It does **not** pin Node on Railway while `engines` says `>=20`.
+- To pin Node 22 there, set **`NIXPACKS_NODE_VERSION=22`** in the Railway
+  dashboard.
+- Node 22 is **reproducibility, not the fix**. Node 24 works: the prebuild is
+  ABI-independent, and the local proof passed on Node 25.
+- **Node 24 did not cause the failure.** The missing Python did.
+
+**The cost.** `--ignore-scripts` also skips `esbuild`'s postinstall, the only
+other install script in the tree. esbuild is a devDependency of vitest, and the
+Railway build runs `tsc` and then the app — so the deploy path is unaffected,
+but **the deployment image cannot run the test suite**. Recorded as `A104`.
+
+### What a healthy build and start look like
+
+| Stage | Line to look for |
+|---|---|
+| Install | `npm ci` completes with **no** `node-gyp` output |
+| Build | `build complete: 159 .js, 159 .d.ts, 0 .ts` |
+| Mode | `[telga] TRAINING MODE — NO REAL VALUE` |
+| Binding | `[telga] migrations applied.` — the first line that requires a working SQLite binding (`A103`) |
+| Health | `/api/health/ready` returns 200 with five checks |
+
+If `node-gyp` appears in the install output again, the flag did not take
+effect — check that Railway is building the commit that contains it.
+
+### What this deployment still is not
+
+Unchanged by any of the above, and true until evidence says otherwise:
+**TRAINING MODE — NO REAL VALUE.** No real provider, no real airtime, no
+payments, no Chapa, no wallet, no real merchant funds, no Vercel, no Supabase,
+**no printing**, no self-service registration, no custom domain — `telga.pro`
+is purchased and deliberately unattached. **All ten launch gates remain open.**
+
 ## The shape
 
 One Railway **service**, one **volume**, one **replica**, running three things
