@@ -41,13 +41,58 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 
 const EXIT = { ok: 0, configuration: 4, childFailed: 5 };
 
-/** Read a required environment variable, or fail loudly naming it. */
+/**
+ * Read a required environment variable, or fail loudly naming it.
+ *
+ * ## Why the refusal reports what it *did* receive
+ *
+ * The first version printed only "X is not set", which is true and nearly
+ * useless: an operator who has just checked the dashboard and seen the variable
+ * sitting there has no way to tell which of these it is —
+ *
+ *   - the variable is on a different **environment**;
+ *   - the variable is on the **project** as a shared variable and was never
+ *     linked into this service;
+ *   - the change was staged in the editor and never **applied**;
+ *   - the name differs from the one the code reads.
+ *
+ * Each has a different fix and they are indistinguishable from outside, so the
+ * question can only be settled by another deploy — and then another. This
+ * prints the **names** the container actually received, which answers it in
+ * one.
+ *
+ * `Observability` requires the startup banner to state the posture and nothing
+ * secret. **Names only, never values.** A variable name is not a secret — it is
+ * already written in the deployment checklist — but its value may be, and
+ * `TELGA_RECIPIENT_SALT` in particular must never reach a log.
+ */
 function required(name) {
   const value = process.env[name];
   if (value === undefined || value.trim().length === 0) {
     console.error(
       `[telga] ${name} is not set. This deployment refuses to guess it — see ` +
         'docs/obsidian/05 Operations/Railway Deployment Checklist.md',
+    );
+
+    const telga = Object.keys(process.env)
+      .filter((key) => key.startsWith('TELGA_'))
+      .sort();
+    // Railway injects its own variables into every container. If these are
+    // present and the TELGA_ ones are not, the platform is working and the
+    // variables are simply not attached to *this* service or environment —
+    // which is a dashboard problem, not a deployment one.
+    const railway = Object.keys(process.env).filter((key) => key.startsWith('RAILWAY_')).length;
+
+    console.error(
+      `[telga] TELGA_* variables this container received (${String(telga.length)}): ` +
+        `${telga.length > 0 ? telga.join(', ') : '(none)'}`,
+    );
+    console.error(
+      `[telga] RAILWAY_* variables present: ${String(railway)}. ` +
+        (railway > 0 && telga.length === 0
+          ? 'Railway is injecting variables, so the TELGA_ ones are attached to a different ' +
+            'service or environment, or were staged and never applied.'
+          : 'Names only are listed above; no value is ever printed.'),
     );
     process.exit(EXIT.configuration);
   }

@@ -259,6 +259,59 @@ covers the estimate with no overage.
    printed **once** and is not recoverable.
 8. **Verify** with the checks at the end of this note.
 
+## "The variable is set, and the container says it is not"
+
+The third deployment reached **`Starting Container`** — the build was fixed —
+and then refused to start:
+
+```text
+[telga] TELGA_DB_PATH is not set. This deployment refuses to guess it
+```
+
+with the variable plainly present and correctly spelled in the dashboard. The
+refusal was right; **the message was not good enough**. It named what was
+missing and said nothing about what the container had actually received, so
+four different causes looked identical from outside:
+
+| Cause | Fix |
+|---|---|
+| Variables on a different **environment** | Switch environment, re-enter |
+| Variables on the **project** as shared variables, never linked into the service | Add them on `telga-backend`, or reference the shared ones |
+| Changes **staged in the editor and never applied** | Click Apply / Save |
+| The **name** differs from the one the code reads | Correct the name |
+
+Each has a different remedy, none is visible from the log, and settling it by
+trial costs one deployment per guess.
+
+**So the refusal now reports what it received.** `railway-start.mjs` prints the
+**names** of every `TELGA_*` variable in the container, and a count of
+`RAILWAY_*` variables:
+
+```text
+[telga] TELGA_* variables this container received (0): (none)
+[telga] RAILWAY_* variables present: 12. Railway is injecting variables, so the
+        TELGA_ ones are attached to a different service or environment, or were
+        staged and never applied.
+```
+
+Read it like this:
+
+| What you see | What it means |
+|---|---|
+| `TELGA_* (0)` and `RAILWAY_*` **> 0** | Railway's injection works. The variables are **not on this service or environment** |
+| `TELGA_*` lists some names but not the one that failed | A **naming** problem on that variable alone |
+| Both **0** | Nothing was applied at all |
+
+> [!important] Names only, never values
+> `Observability` requires the banner to state the posture and nothing secret. A
+> variable **name** is not a secret — it is written in this note already — but a
+> value may be. `TELGA_RECIPIENT_SALT` appears in that list **by name only**,
+> and a test confirms its value is never printed.
+
+**Also worth checking before blaming the variables:** that the deployment you
+are reading is the one built from the commit you pushed. A service that is
+restart-looping keeps an older deployment visible, and its logs look current.
+
 ## Environment variables
 
 | Variable | Example | Why |
