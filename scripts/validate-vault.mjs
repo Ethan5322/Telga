@@ -100,7 +100,38 @@ const problems = {
   orphans: [],
   noOutbound: [],
   crossedBoundary: [],
+  mojibake: [],
 };
+
+/**
+ * Double-encoded UTF-8 — text that was read as a single-byte codepage and
+ * written back as UTF-8.
+ *
+ * ## Why this is checked
+ *
+ * It happened, to four notes, and nothing caught it. A tool read these files
+ * with a reader that assumed the system codepage, so `—` (`E2 80 94`) was
+ * decoded as three Latin-1 characters and re-encoded as nine bytes. The text
+ * still *renders*, which is what makes it dangerous: `TRAINING MODE — NO REAL
+ * VALUE` became `TRAINING MODE â€" NO REAL VALUE` and was committed and pushed
+ * three times before anyone read it closely. Each subsequent edit corrupted the
+ * corruption, so one file reached 5,111 damaged sequences.
+ *
+ * The banner is the reason this is a validator rule rather than a style
+ * preference. `TRAINING MODE — NO REAL VALUE` is the sentence that tells a
+ * reader nothing here is real money, it is reproduced in `SECURITY.md`, the
+ * receipt strings and the operator screens, and a mangled copy of it in the
+ * governance record is a small corruption of the one claim the project most
+ * needs to be exact.
+ *
+ * ## Why these three sequences
+ *
+ * `â€`, `Ã` and `Â` are the first bytes of the common mangles: `â€"` for an em
+ * dash, `Ã©` for an accented letter, `Â ` for a non-breaking space. None occurs
+ * in correct English or Amharic prose, so a match is evidence rather than a
+ * guess. Amharic is unaffected — Ethiopic code points do not begin with these.
+ */
+const MOJIBAKE = /â€|Ã.|Â[ -¿]/;
 const localOnly = new Set(
   files.filter(isLocalOnly).map((f) => f.split(sep).pop().replace(/\.md$/, '')),
 );
@@ -113,6 +144,13 @@ for (const file of files) {
   const rel = relative(ROOT, file);
   const stem = file.split(sep).pop().replace(/\.md$/, '');
   mermaid += (raw.match(/^```mermaid/gm) ?? []).length;
+
+  if (MOJIBAKE.test(raw)) {
+    // Report the line, so the fix is a lookup rather than a hunt.
+    const line = raw.split('\n').findIndex((l) => MOJIBAKE.test(l)) + 1;
+    const count = (raw.match(new RegExp(MOJIBAKE.source, 'g')) ?? []).length;
+    problems.mojibake.push(`${rel}:${String(line)}: ${String(count)} double-encoded sequence(s)`);
+  }
 
   if (isRootDoc(file)) {
     // Checked for the boundary and for broken links, not for vault structure.
@@ -192,6 +230,7 @@ console.log(`Not linked from 00 Home: ${String(notInHome.length)}`);
 console.log(`Local-only notes:  ${String(localOnly.size)}`);
 console.log(`Published notes:   ${String(titles.size - localOnly.size)}`);
 console.log(`Published -> local-only links: ${String(problems.crossedBoundary.length)}`);
+console.log(`Double-encoded (mojibake) files: ${String(problems.mojibake.length)}`);
 
 for (const [label, list] of Object.entries({ ...problems, notInHome })) {
   if (Array.isArray(list) && list.length > 0) {
@@ -205,7 +244,8 @@ const failed =
   problems.orphans.length +
   problems.frontmatter.length +
   notInHome.length +
-  problems.crossedBoundary.length;
+  problems.crossedBoundary.length +
+  problems.mojibake.length;
 
 if (failed > 0) {
   console.error(`\nFAIL: ${String(failed)} vault problem(s).`);

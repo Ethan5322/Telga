@@ -24,12 +24,21 @@ decision_status: proposed
 
 # Railway Deployment Checklist
 
-> [!warning] Nothing here has been deployed
-> No Railway account has been created, no subscription started, no payment
-> details entered, no resource provisioned and no domain configured. This note
-> is the **prepared** procedure, written and tested locally so that the day it
-> is run there are no surprises. Running it requires the owner's explicit
-> approval — see [[Decision Log]] D108.
+> [!success] Deployed and running — 2026-09-07
+> The Railway training deployment is **live**. The build is green, the
+> `linux-x64` SQLite prebuild is verified on the build host, all fourteen
+> migrations are applied to `/data/telga.sqlite` on the mounted volume, the
+> recovery worker is sweeping, the POS is listening, and
+> `TRAINING MODE — NO REAL VALUE` prints from both processes. See
+> [[Decision Log]] D116; `A94` and `A103` are resolved.
+>
+> **Still open, each on its own row:** sign-in over the proxy (`A93` — trust is
+> still `127.0.0.1/32` and the edge address has not been observed), volume
+> persistence across a redeploy, and a backup taken **off** Railway and restored
+> elsewhere (`R31`, launch gate 10).
+>
+> **No custom domain, no APK, no merchant provisioned.** `telga.pro` is
+> purchased and deliberately unattached.
 
 **Operating state: TRAINING MODE — NO REAL VALUE.** The deployment described
 here connects no live provider, enables no live money, and clears none of the
@@ -131,27 +140,34 @@ In a scratch directory outside the repository, `package.json` and
 > **Do not describe this fix as complete until a Railway build succeeds.**
 > Recorded as `A103`.
 
-### Node version — deliberately not pinned
+### Node version — `NIXPACKS_NODE_VERSION` works, and here is the correction
 
-**Node stays whatever Nixpacks selects, currently 24, and that is a decision
-rather than an oversight.**
+Earlier revisions of this note said the variable "was set and was still
+ignored", and that Nixpacks' documented precedence "did not hold here".
+**Both statements were wrong**, and the first green build disproved them:
 
-`NIXPACKS_NODE_VERSION=22` **was set and was still ignored** — the build printed
-`setup │ nodejs_24, npm-9_x`. Why could not be determined from outside Railway.
-Nixpacks' documented precedence is `NIXPACKS_NODE_VERSION` above
-`package.json` `engines.node` (which declares `">=20"`) above `.nvmrc`, and it
-did not hold here.
+```text
+setup │ nodejs_22, npm-9_x
+```
 
-So the fix does not depend on it:
+The variable had **never been applied**. Nixpacks therefore never saw it and
+fell back to `package.json` `engines.node` (`">=20"`), which resolves to the
+newest available — Node 24. The moment the variables were applied, `nodejs_22`
+appeared. The precedence works exactly as documented:
 
-- **Node 24 never caused a failure.** The missing Python did, both times.
-- The prebuild is **ABI-independent** and was proven loading on **Node 25**.
-- Guessing at a nixpkgs attribute name to force 22 would risk a third failed
-  build for no benefit.
-- `.nvmrc` = `22` is kept for **local tooling only** (`nvm`, `fnm`).
-- `NIXPACKS_NODE_VERSION` in Railway is **inert** — harmless to leave set.
+```
+NIXPACKS_NODE_VERSION  >  package.json engines.node  >  .nvmrc / .node-version
+```
 
-Pinning can be revisited once a build is green, and only then.
+**That same unapplied change also caused the `TELGA_DB_PATH is not set`
+crash** — one root cause, two symptoms that were investigated separately for
+three builds. See [[Decision Log]] D116.
+
+- **Node 24 never caused a failure.** The missing Python did.
+- The prebuild is **ABI-independent** and loaded on Node 22, 24 and 25.
+- `.nvmrc` = `22` is kept for **local tooling only** (`nvm`, `fnm`) and has no
+  effect on Railway while `engines` outranks it.
+- `NIXPACKS_NODE_VERSION=22` is set in Railway and **is doing the work**.
 
 **The cost.** `--ignore-scripts` also skips `esbuild`'s postinstall, the only
 other install script in the tree. esbuild is a devDependency of vitest, and the
