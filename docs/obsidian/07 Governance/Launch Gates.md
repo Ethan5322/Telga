@@ -41,7 +41,7 @@ decision_status: pending
 | 7 | Security and permissions tested | ☐ NOT CLEARED | Security test results | [[Testing Strategy]] |
 | 8 | Support escalation assigned | ☐ NOT CLEARED | Named owner and escalation path | [[Founders and Roles]] |
 | 9 | Limits and pilot budget approved | ☐ NOT CLEARED | Approved budget and transaction limits | the pilot budget (commercial material, kept outside this repository) |
-| 10 | Backups and recovery tested | ☐ NOT CLEARED | Restore test evidence | [[Runbooks]] |
+| 10 | Backups and recovery tested | ☐ NOT CLEARED | **Restore evidence now exists** (2026-09-07): backup taken on Railway, moved off-platform, restored on different hardware, SHA-256 matched, `integrityCheck: "ok"`, `appendOnlyVerified: true`, and `txn_e0aa272973194cdd` found in the restored file — see `R31`. **Not cleared, for two reasons:** there is still **no backup schedule** (the drill was manual, and Railway deletes volume data 30 days after credits lapse), and no named owner has reviewed it — this register does not clear a gate by assertion, and `P1` leaves owners unassigned. | [[Runbooks]] · [[Risk Register]] R31 |
 
 ## The rule while gates are open
 

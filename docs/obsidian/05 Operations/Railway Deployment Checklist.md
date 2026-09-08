@@ -379,6 +379,41 @@ built-in range for any hosting platform**.
 > is wider than the carrier-grade NAT block `100.64.0.0/10`, so it would include
 > publicly routable space. Do not configure it on that basis.
 
+### Observed on this deployment — 2026-09-07
+
+One browsing session produced four addresses, from a rotating pool:
+
+```text
+PROXY_PEER_OBSERVED peer=100.64.0.2
+PROXY_PEER_OBSERVED peer=100.64.0.3
+PROXY_PEER_OBSERVED peer=100.64.0.4
+PROXY_PEER_OBSERVED peer=100.64.0.5
+```
+
+All lie in **`100.64.0.0/10`**, the RFC 6598 carrier-grade NAT block — reserved
+shared address space, **not publicly routable**. That is the value configured:
+
+```
+TELGA_TRUST_PROXY=100.64.0.0/10
+```
+
+> [!danger] The community's `/8` would have trusted the public internet
+> Checked against Telga's own parser: `100.0.0.0/8` covers `100.0.0.1` and
+> `100.63.255.254`, which are **publicly allocated**. Trusting it would let any
+> host on the internet spoof `X-Forwarded-Proto` and talk Telga into calling an
+> insecure connection secure — `R26` exactly.
+>
+> `100.64.0.0/10` accepts `100.64.0.2` and `100.127.255.254`, and **rejects**
+> `100.0.0.1`, `100.63.255.254` and `100.128.0.1`. Sixty-four million public
+> addresses narrower, and it still covers every address observed.
+>
+> **The caution in `A93` was the thing that paid off here.** Configuring the
+> forum's figure would have looked like it worked — sign-in would have started
+> succeeding — while quietly widening the trust boundary to the internet.
+
+A rotating pool is also why an exact address is wrong: `100.64.0.2` alone would
+break the moment Railway answered from `.3`.
+
 **Observe it instead.** Deploy first with a deliberately narrow
 `TELGA_TRUST_PROXY` (for example `127.0.0.1/32`), open the site once, and read
 the logs:

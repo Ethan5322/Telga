@@ -47,10 +47,22 @@ function loadConnect(): ConnectApi {
 }
 
 const connect = loadConnect();
-/** The shipped list, as `shell.config.json` defines it. */
-const HOSTS = ['telga.et', '*.telga.et', 'mulesoo.et', '*.mulesoo.et'];
+
+/**
+ * A **synthetic** list, not the shipped one.
+ *
+ * It carries wildcards and two separate domains because that is what exercises
+ * the matcher: subdomain acceptance, and the lookalike refusals that a naive
+ * `endsWith` or `indexOf` would get wrong. The real `shell.config.json` names a
+ * single exact host, which cannot test any of that.
+ *
+ * The shipped list is pinned separately, at the bottom of this file, so the two
+ * concerns stay apart: **this** block proves the matcher is correct, **that**
+ * one proves the configuration we actually ship is the one we meant.
+ */
+const SAMPLE_HOSTS = ['telga.et', '*.telga.et', 'mulesoo.et', '*.mulesoo.et'];
 const parse = (raw: unknown): { origin?: string; error?: string } =>
-  connect.parseServer(raw, HOSTS);
+  connect.parseServer(raw, SAMPLE_HOSTS);
 
 describe('an address on the allow-list is accepted', () => {
   it('accepts the bare domain and a subdomain', () => {
@@ -172,15 +184,47 @@ describe('the page and the config agree', () => {
     expect(page).not.toContain('function hostAllowed');
   });
 
-  it('the allow-list used here is the one shell.config.json defines', () => {
-    // Capacitor reads the same file for allowNavigation. If this drifts, the
-    // screen and the WebView disagree about what is reachable.
+  it('the shipped allow-list behaves, and names only hosts we control', () => {
+    // Capacitor reads the same file for allowNavigation. If the screen and the
+    // WebView disagree about what is reachable, Telga opens in the system
+    // browser instead of the app — and the merchant types a PIN into a tab
+    // with no Telga chrome around it.
     const config = JSON.parse(
       readFileSync(
         join(__dirname, '..', '..', 'apps', 'mobile', 'shell.config.json'),
         'utf8',
       ),
-    ) as { allowedHosts: string[] };
-    expect(config.allowedHosts).toEqual(HOSTS);
+    ) as { allowedHosts: string[]; defaultServer: string | null };
+
+    const shipped = (raw: string): { origin?: string } =>
+      connect.parseServer(raw, config.allowedHosts);
+
+    // The training deployment is reachable...
+    expect(shipped('https://telga-backend-production.up.railway.app').origin).toBe(
+      'https://telga-backend-production.up.railway.app',
+    );
+    // ...and a lookalike of it is not.
+    expect(shipped('https://evil-telga-backend-production.up.railway.app').origin).toBeUndefined();
+    expect(shipped('https://telga-backend-production.up.railway.app.evil.com').origin).toBeUndefined();
+
+    // **No unregistered domain may sit in this list.** `telga.et` and
+    // `mulesoo.et` were never bought; a name nobody owns is a name somebody
+    // else can buy, and this list is what decides where a PIN may be typed.
+    // `telga.pro` was bought but is not attached to anything, so it is absent
+    // too — it goes in when it is attached, as its own decision. A102, D113.
+    for (const host of config.allowedHosts) {
+      expect(host, `${host} must not be an unregistered domain`).not.toMatch(
+        /telga\.et$|mulesoo\.et$/,
+      );
+    }
+    expect(shipped('https://telga.et').origin).toBeUndefined();
+    expect(shipped('https://mulesoo.et').origin).toBeUndefined();
+
+    // A default server spares the operator typing an address at a counter. It
+    // must be https: the shell refuses cleartext and the manifest sets
+    // usesCleartextTraffic="false".
+    expect(config.defaultServer).not.toBeNull();
+    expect(config.defaultServer).toMatch(/^https:\/\//);
+    expect(shipped(config.defaultServer as string).origin).toBe(config.defaultServer);
   });
 });

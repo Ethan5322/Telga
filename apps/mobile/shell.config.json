@@ -12,16 +12,22 @@
     "`npm run mobile:configure` regenerates www/config.js from this file, and",
     "capacitor.config.ts reads the same list. Edit here and nowhere else.",
     "",
-    "NOT YET REGISTERED: neither telga.et nor mulesoo.et has been purchased.",
-    "They are the intended names, recorded in ASSUMPTIONS as A59. Until one",
-    "exists and serves real HTTPS, this app builds and installs but cannot",
-    "connect to anything, and the PWA route in [[Phone and POS Install]] is the",
-    "way onto a phone. Replace these before building for the Play Store."
+    "TRAINING ONLY. This names the Railway training deployment, which runs in",
+    "TRAINING MODE - NO REAL VALUE against a mock provider with simulated funds.",
+    "It is not a production address and must not be given to a merchant.",
+    "",
+    "WHY telga.et AND mulesoo.et WERE REMOVED, rather than kept alongside:",
+    "neither was ever registered. An unregistered domain sitting in an allow",
+    "list is a name somebody else can buy, and this list is precisely what",
+    "decides where a merchant may type a PIN. The domain that was purchased is",
+    "telga.pro, and it is deliberately absent too: it is not attached to",
+    "anything yet, and it goes in here only when it is, as its own decision.",
+    "See ASSUMPTIONS A102 and Decision Log D113."
   ],
 
-  "allowedHosts": ["telga.et", "*.telga.et", "mulesoo.et", "*.mulesoo.et"],
+  "allowedHosts": ["telga-backend-production.up.railway.app"],
 
-  "defaultServer": null,
+  "defaultServer": "https://telga-backend-production.up.railway.app",
 
   "supportContact": "MuleSoo Digital Services"
 }
