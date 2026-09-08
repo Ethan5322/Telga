@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Ordered migration list.
  *
  * Migrations are **immutable once applied**: the migrator stores a checksum of
@@ -26,6 +26,9 @@ import { m011CorporateSettings } from './011_corporate_settings';
 import { m012ShiftsCustomersPreferences } from './012_shifts_customers_preferences';
 import { m013AttemptsAndProviderHealth } from './013_attempts_and_provider_health';
 import { m014AdminIdentityAndTenants } from './014_admin_identity_and_tenants';
+import { m015ApplicationDocumentsAndPinChange } from './015_application_documents_and_pin_change';
+import { m016FundingSubmissions } from './016_funding_submissions';
+import { m017AdminEmailOtp } from './017_admin_email_otp';
 
 export interface Migration {
   /** Sort key. Zero-padded so lexical order is execution order. */
@@ -50,6 +53,9 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
   m012ShiftsCustomersPreferences,
   m013AttemptsAndProviderHealth,
   m014AdminIdentityAndTenants,
+  m015ApplicationDocumentsAndPinChange,
+  m016FundingSubmissions,
+  m017AdminEmailOtp,
 ]);
 
 export {
@@ -67,4 +73,8 @@ export {
   m012ShiftsCustomersPreferences,
   m013AttemptsAndProviderHealth,
   m014AdminIdentityAndTenants,
+  m015ApplicationDocumentsAndPinChange,
+  m016FundingSubmissions,
+  m017AdminEmailOtp,
 };
+

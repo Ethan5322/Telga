@@ -208,6 +208,15 @@ export interface MerchantUserRow {
   locked_until: string | null;
   last_login_at: string | null;
   mode: OperatingMode;
+  /**
+   * 1 when the PIN was issued by an administrator and must be replaced.
+   *
+   * Integer rather than boolean because SQLite has no boolean type and the
+   * column is `INTEGER NOT NULL DEFAULT 0 CHECK (must_change_pin IN (0, 1))` —
+   * see migration 015. Every operator that existed before that migration reads
+   * as 0, which is the behaviour they had.
+   */
+  must_change_pin: number;
   created_at: string;
   updated_at: string;
 }

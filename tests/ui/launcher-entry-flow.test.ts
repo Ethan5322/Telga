@@ -178,7 +178,7 @@ describe('the launcher is one Telga button', () => {
 });
 
 describe('the modules are on their own page', () => {
-  it('shows Telga Vending, and not the switched-off Telga Pay', async () => {
+  it('shows both modules, now that Telga Pay is back', async () => {
     harness = makeUiHarness('entry-apps');
     const port = await start(harness);
     const session = await signInAs(harness.api);
@@ -187,11 +187,13 @@ describe('the modules are on their own page', () => {
     expect(apps.status).toBe(200);
     expect(apps.body).toContain('data-testid="launcher-tile-telga"');
     expect(apps.body).toContain('📱');
-    // Telga Pay is off by founder decision D112, so its tile is not drawn at
-    // all. A tile here would be a button leading to a 404 — CLAUDE.md §7 asks
-    // for a disabled feature to be inaccessible, not refused after the tap.
-    expect(apps.body).not.toContain('data-testid="launcher-tile-telgapay"');
-    expect(apps.body).not.toContain('💳');
+    // Telga Pay came back on by founder decision **D124**, so its tile is drawn
+    // again. The rule this pair has always enforced is unchanged: a tile
+    // appears only when the screen behind it answers. A tile leading to a 404
+    // would be the "inaccessible, not refused after the tap" failure CLAUDE.md
+    // §7 forbids — and so would a working screen with no way in.
+    expect(apps.body).toContain('data-testid="launcher-tile-telgapay"');
+    expect(apps.body).toContain('💳');
     // Inside Telga everything is Telga, so the mark cannot be what tells the
     // two modules apart — and it is not drawn here at all.
     expect(apps.body).not.toContain('/assets/app-vending.png');
@@ -221,12 +223,13 @@ describe('the modules are on their own page', () => {
     const reply = await get(port, '/dashboard', session.cookieHeader);
     expect(reply.status, '/dashboard').toBe(200);
 
-    // The module that was switched off has no tile and no reachable screen —
-    // both halves matter, and only asserting the first is how a "hidden but
-    // still served" feature survives a test suite.
-    expect(hrefOf(apps.body, 'launcher-tile-telgapay')).toBe('');
+    // Both halves for the second module too: a tile that leads somewhere, and
+    // a screen that answers. Asserting only the tile is how a button to a 404
+    // survives a suite; asserting only the screen is how a working feature ends
+    // up with no way in.
+    expect(hrefOf(apps.body, 'launcher-tile-telgapay')).toBe('/pay');
     const pay = await get(port, '/pay', session.cookieHeader);
-    expect(pay.status, '/pay must be refused').toBe(404);
+    expect(pay.status, '/pay must be served').toBe(200);
   });
 
   it('offers a way back to the launcher', async () => {

@@ -26,6 +26,10 @@ import { createServer as createHttpsServer } from 'node:https';
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { hashAdminSecret } from '@telga/api';
+// Reused, not reimplemented. `parseTrustedEntry` is the parser that refuses a
+// zero-length prefix, which is what keeps D45's "there is no trust-all setting"
+// true for the console as well as the POS.
+import { parseTrustedEntry } from '@telga/merchant-pos';
 import { assertMigrationsApplied, saveAdminUser } from '@telga/persistence';
 import { createConsoleServer } from './server';
 
@@ -84,6 +88,7 @@ export async function run(
   }
 
   const host = values.get('host') ?? '127.0.0.1';
+  const allowedHostsRaw = values.get('allowed-hosts');
   const certPath = values.get('tls-cert');
   const keyPath = values.get('tls-key');
   const wantsTls = certPath !== undefined || keyPath !== undefined;
@@ -92,13 +97,66 @@ export async function run(
     writeError('Both --tls-cert and --tls-key are required to serve HTTPS. [TLS_PAIR_REQUIRED]');
     return EXIT.configurationInvalid;
   }
-  if (!wantsTls && !isLoopback(host)) {
+
+  /**
+   * The third way to serve beyond this machine: TLS terminated by a trusted
+   * proxy.
+   *
+   * On a platform like Railway the edge terminates TLS and speaks **HTTP** to
+   * the container, so there is no certificate to hand this process and the
+   * loopback rule would otherwise make the console undeployable. The POS solved
+   * exactly this and its answer is reused rather than reinvented — see
+   * [[Decision Log]] **D109**.
+   *
+   * **The rule is not relaxed, it is satisfied differently.** Binding beyond
+   * loopback still requires proof that something in front is doing TLS, and
+   * `parseTrustedEntry` is what checks the claim: it refuses a zero-length
+   * prefix (`0.0.0.0/0`, `::/0`), so "trust everything" cannot be expressed
+   * here any more than it can in the POS. A malformed range is refused at
+   * start-up rather than silently matching nothing, because a range that
+   * matches nothing looks identical to a working deployment until the first
+   * sign-in fails.
+   */
+  const trustProxyRaw = values.get('trust-proxy');
+  const trustProxy =
+    trustProxyRaw === undefined || trustProxyRaw === 'true'
+      ? []
+      : trustProxyRaw
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
+
+  for (const entry of trustProxy) {
+    if (parseTrustedEntry(entry) === undefined) {
+      writeError(
+        `Refusing: "${entry}" is not a usable --trust-proxy range. A zero-length prefix ` +
+          'trusts every address and is refused; so is a range that parses to nothing. ' +
+          '[CONSOLE_TRUST_PROXY_INVALID]',
+      );
+      return EXIT.configurationInvalid;
+    }
+  }
+
+  const behindProxy = trustProxy.length > 0;
+
+  if (!wantsTls && !behindProxy && !isLoopback(host)) {
     // The same refusal the POS makes, for a console that can do considerably
     // more damage.
     writeError(
       `Refusing: the console may bind only to loopback over plain HTTP; refusing "${host}". ` +
-        'Supply --tls-cert and --tls-key to serve anything beyond this machine. ' +
-        '[CONSOLE_MUST_BE_LOOPBACK]',
+        'Supply --tls-cert and --tls-key, or --trust-proxy <cidr> when TLS is terminated ' +
+        'by a proxy in front. [CONSOLE_MUST_BE_LOOPBACK]',
+    );
+    return EXIT.configurationInvalid;
+  }
+
+  if (behindProxy && allowedHostsRaw === undefined) {
+    // A console reachable from a network must know which names are its own.
+    // The `Host` header is client-controlled, and answering for any of them is
+    // how a console ends up serving somebody else's domain.
+    writeError(
+      'Refusing: --allowed-hosts is required with --trust-proxy. The console will not ' +
+        'answer for a host it was not told about. [CONSOLE_ALLOWED_HOSTS_REQUIRED]',
     );
     return EXIT.configurationInvalid;
   }
@@ -159,7 +217,7 @@ export async function run(
     return EXIT.ok;
   }
 
-  const allowedHosts = (values.get('allowed-hosts') ?? 'localhost,127.0.0.1')
+  const allowedHosts = (allowedHostsRaw ?? 'localhost,127.0.0.1')
     .split(',')
     .map((h) => h.trim())
     .filter((h) => h.length > 0);
@@ -168,9 +226,13 @@ export async function run(
     db: connection as never,
     now,
     newId,
-    schemaVersion: values.get('schema-version') ?? '014',
+    schemaVersion: values.get('schema-version') ?? '016',
     allowedHosts,
-    secureCookies: wantsTls,
+    // Secure when this process serves TLS, **and** when a trusted proxy does it
+    // in front. Getting the second case wrong is the failure that looks like
+    // nothing: the cookie is sent without `Secure`, everything appears to work,
+    // and the session travels in clear text on the last hop.
+    secureCookies: wantsTls || behindProxy,
   });
 
   const server = wantsTls

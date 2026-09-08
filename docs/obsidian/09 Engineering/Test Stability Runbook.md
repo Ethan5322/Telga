@@ -283,6 +283,45 @@ runs of the real file. One reporter timeout was observed *before* the change.
 **A51 stays OPEN.** The reporter limit is a property of this machine under load;
 it can recur. What changed is that it can no longer be mistaken for a defect.
 
+#### 2026-09-08 — the same protection extended to the whole suite
+
+The classification above covered the **stress** passes only. `npm test` was still
+a bare `vitest run`, so the full suite could exit `1` with every assertion
+passing, and nothing said which of the two had happened. It duly did: a
+twenty-minute run reported `1 failed | 1497 passed` **and** a
+`Timeout calling "onTaskUpdate"`, and the two had to be told apart by hand.
+
+`npm test` is now `node scripts/run-suite.mjs`, which applies the same rule:
+
+| Exit | Meaning |
+|---|---|
+| `0` | Everything passed |
+| `1` | A test failed — an assertion, or vitest's own `Tests N failed` |
+| `3` | The harness failed — reporter RPC timeout or dead worker, **and** no assertion failed |
+
+**An assertion wins over an infrastructure signature.** A run that both failed a
+test and starved its reporter is a *test failure*: the reporter's trouble is a
+symptom of the same loaded machine and changes nothing about the assertion that
+did not hold. An output matching neither pattern is reported as a test failure,
+because an unexplained non-zero exit must never be waved through as "just the
+machine". `tests/build/suite-classifier.test.ts` pins all three, using the real
+2026-09-08 output as its sample.
+
+Two side-effects worth having, both discovered rather than designed:
+
+- **The run is no longer silent.** Piping `vitest run` to a file produced *zero
+  bytes* until it finished, so a run in progress was indistinguishable from a
+  hung one. Output is streamed through as it arrives.
+- **The dot reporter is used when stdout is not a terminal** — CI, a background
+  run, a redirect. That is exactly the unattended, loaded case A51 is about, and
+  it is when nobody is reading the per-file list anyway. On a terminal the normal
+  reporter is kept.
+
+`npm run test:raw` is the unwrapped `vitest run`, kept for anyone who needs it.
+
+**Neither exit code is retried or hidden, and CI fails on both.** Nothing here
+changes what any test asserts.
+
 ## The stability gate
 
 Before work that depends on the suite:

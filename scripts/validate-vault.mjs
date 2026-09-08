@@ -87,6 +87,47 @@ function walk(dir) {
 const stripFences = (text) => text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
 const LINK = /\[\[([^\]|#]+)/g;
 
+/**
+ * Source and configuration that is checked for **mojibake only**.
+ *
+ * The gate was written for the vault, because that is where the corruption was
+ * found. It missed `package.json`, whose description had carried a
+ * double-encoded em dash through every commit since the project began, and it
+ * would have missed `migrations/index.ts` when a PowerShell `Get-Content` /
+ * `Set-Content` round trip corrupted it on 2026-09-08 — the same mechanism as
+ * the original incident, in a file the gate did not look at.
+ *
+ * These files are not vault notes: they have no frontmatter, no wikilinks and
+ * no place in the graph. Only {@link MOJIBAKE} is applied to them.
+ *
+ * `validate-vault.mjs` is excluded because it *contains* the patterns it hunts
+ * for, in the comment explaining them.
+ */
+const SOURCE_GLOBS = ['packages', 'services', 'apps', 'scripts', 'tests'];
+const SOURCE_EXTENSIONS = ['.ts', '.mts', '.mjs', '.js', '.json'];
+
+function walkSource(dir) {
+  const out = [];
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const name of entries) {
+    if (name === 'node_modules' || name === 'dist' || name === 'build') continue;
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...walkSource(full));
+    else if (SOURCE_EXTENSIONS.some((ext) => name.endsWith(ext))) out.push(full);
+  }
+  return out;
+}
+
+const sourceFiles = [
+  ...SOURCE_GLOBS.flatMap((dir) => walkSource(join(ROOT, dir))),
+  join(ROOT, 'package.json'),
+].filter((file) => !file.endsWith(`scripts${sep}validate-vault.mjs`));
+
 const files = [...walk(VAULT), ...EXTRA];
 const titles = new Map();
 for (const file of files) {
@@ -202,6 +243,18 @@ for (const file of files) {
   if (links.size === 0 && !isRootDoc(file)) problems.noOutbound.push(rel);
 }
 
+// Source and configuration: mojibake only. Everything else about these files —
+// frontmatter, links, reachability — is meaningless for them.
+for (const file of sourceFiles) {
+  const raw = readFileSync(file, 'utf8');
+  if (!MOJIBAKE.test(raw)) continue;
+  const line = raw.split('\n').findIndex((l) => MOJIBAKE.test(l)) + 1;
+  const count = (raw.match(new RegExp(MOJIBAKE.source, 'g')) ?? []).length;
+  problems.mojibake.push(
+    `${relative(ROOT, file)}:${String(line)}: ${String(count)} double-encoded sequence(s)`,
+  );
+}
+
 for (const [stem, file] of titles) {
   if (stem === '00 Home' || stem === 'CLAUDE' || stem === LOCAL_INDEX) continue;
   if (isRootDoc(titles.get(stem))) continue;
@@ -230,6 +283,7 @@ console.log(`Not linked from 00 Home: ${String(notInHome.length)}`);
 console.log(`Local-only notes:  ${String(localOnly.size)}`);
 console.log(`Published notes:   ${String(titles.size - localOnly.size)}`);
 console.log(`Published -> local-only links: ${String(problems.crossedBoundary.length)}`);
+console.log(`Source files scanned: ${String(sourceFiles.length)}`);
 console.log(`Double-encoded (mojibake) files: ${String(problems.mojibake.length)}`);
 
 for (const [label, list] of Object.entries({ ...problems, notInHome })) {

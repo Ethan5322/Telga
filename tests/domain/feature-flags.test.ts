@@ -126,12 +126,13 @@ describe('what is switched off', () => {
 
 describe('what is switched on', () => {
   it('allows only simulations with no counterparty', () => {
-    // Data bundles and the card simulator were switched OFF by founder
-    // decision D112, which narrowed the training scope to airtime vending and
-    // platform operations. Deposits stay on: they credit a training ledger,
-    // not a bank, and were audited against that claim before being retained.
+    // Data bundles stay OFF (D112). The card simulator came back ON by founder
+    // decision **D124**, which restores the Telga Pay surface — and with it
+    // `/pay/deposit`, the only in-app way to credit a training float. Deposits
+    // stay on: they credit a training ledger, not a bank, and were audited
+    // against that claim before being retained.
     expect(isEnabled('product.data')).toBe(false);
-    expect(isEnabled('card.simulated')).toBe(false);
+    expect(isEnabled('card.simulated')).toBe(true);
     expect(isEnabled('deposits.training')).toBe(true);
     expect(isEnabled('airtime.vending')).toBe(true);
     expect(isEnabled('training.mode')).toBe(true);
@@ -148,10 +149,12 @@ describe('what is switched on', () => {
     // switches. If `card.simulated` were ever the same flag as
     // `payments.acceptance`, turning the simulator on would turn a licence
     // requirement on with it.
-    // Both are off today (D112 switched the simulator off), but they must
-    // remain SEPARATE switches: re-enabling the simulator must never be the
-    // same edit as enabling a licence requirement.
-    expect(isEnabled('card.simulated')).toBe(false);
+    // **This is now the live case, not a hypothetical.** D124 turned the
+    // simulator on and `payments.acceptance` stayed off — which is the exact
+    // pairing this test exists to protect. If one edit had moved both, a
+    // request to restore a training screen would have enabled a licence
+    // requirement with it.
+    expect(isEnabled('card.simulated')).toBe(true);
     expect(isEnabled('payments.acceptance')).toBe(false);
     expect(MOVES_REAL_MONEY).not.toContain('card.simulated');
     expect(MOVES_REAL_MONEY).toContain('payments.acceptance');
@@ -184,11 +187,15 @@ describe('layer 2 — the API refuses, it does not merely hide', () => {
     expect(routeBlockedBy('/lending/apply')).toBe('lending');
     expect(routeBlockedBy('/remittance/send')).toBe('remittance');
     expect(routeBlockedBy('/electricity/buy')).toBe('product.electricity');
-    // Off by D112, so both are refused — and the refusal covers the WHOLE
-    // Telga Pay tree, not just the card screen. Nine of these paths answered
-    // normally before the route table was corrected.
+    // Data stays off by D112, so both of these are still refused.
     expect(routeBlockedBy('/data/buy')).toBe('product.data');
     expect(routeBlockedBy('/vouchers/data')).toBe('product.data');
+
+    // Telga Pay came back on by D124, so the whole tree is served again. The
+    // list is kept in full rather than deleted: it is the same twelve paths the
+    // corrected route table gates, and if `card.simulated` is ever switched off
+    // again this is what must go dark — all of it, not just the card screen.
+    // Nine of these answered normally before the table was fixed.
     for (const path of [
       '/pay',
       '/pay/card',
@@ -203,7 +210,9 @@ describe('layer 2 — the API refuses, it does not merely hide', () => {
       '/pay/transactions',
       '/pay/result',
     ]) {
-      expect(routeBlockedBy(path), `${path} must be refused`).toBe('card.simulated');
+      expect(routeBlockedBy(path), `${path} must be served`).toBeUndefined();
+      // Still governed by the flag, so switching it off refuses all twelve.
+      expect(featureForPath(path), `${path} must resolve to card.simulated`).toBe('card.simulated');
     }
     // Airtime vouchers are airtime vending, and stay served.
     expect(routeBlockedBy('/vouchers')).toBeUndefined();
@@ -294,8 +303,10 @@ describe('requireFeature', () => {
   it('throws rather than returning false, so a caller cannot forget to check', () => {
     expect(() => requireFeature('payments.acceptance')).toThrow(FeatureDisabledError);
     expect(() => requireFeature('product.data')).toThrow(FeatureDisabledError);
-    expect(() => requireFeature('card.simulated')).toThrow(FeatureDisabledError);
     expect(() => requireFeature('airtime.vending')).not.toThrow();
+    // On since D124. It sits beside `payments.acceptance` here on purpose: the
+    // simulator passes and the licence-bearing flag still throws.
+    expect(() => requireFeature('card.simulated')).not.toThrow();
   });
 
   it('names the flag in the refusal, so a log line says which', () => {

@@ -124,12 +124,27 @@ export const FEATURE_FLAGS: Readonly<Record<FeatureFlag, boolean>> = Object.free
   'settlement.independent': false,
   'funding.submission': false,
 
-  // **Off by founder decision D112**, reversing D87. D87 built card payment as
-  // two ports so a real reader could be dropped in later; that reasoning stands
-  // and the ports stay. What the founder switched off is the *surface*: Telga
-  // Pay is not part of the approved training scope, so the whole `/pay` tree is
-  // refused rather than merely unlinked.
-  'card.simulated': false,
+  // **On by founder decision D124**, reversing D112 and restoring D87's surface.
+  //
+  // The founder asked for Telga Pay back "just like it was on localhost" — the
+  // simulator, not payment acceptance. That distinction is the whole safety of
+  // this flag and it is unchanged: nothing behind `card.simulated` reaches a
+  // card network, a processor or a bank. `services/provider-adapters/` contains
+  // no `fetch`, no HTTP client and no socket; the card screens in
+  // `ui/telgaPay.ts` write nothing; every simulated result is marked
+  // `simulated: true`; and the Visa and Mastercard wordmarks carry the string
+  // "shown as training examples only. No real card network is connected."
+  //
+  // **`payments.acceptance` stays false and stays a different flag.** Turning
+  // the simulator on must never be the same edit as turning a licence
+  // requirement on — see the test that pins them apart.
+  //
+  // What comes back with it: `/pay`, `/pay/purchase`, `/pay/cashback`,
+  // `/pay/card`, `/pay/result`, `/pay/settings`, `/pay/statements`,
+  // `/pay/transactions`, and — the operationally useful one — `/pay/deposit`,
+  // which is the only in-app way to credit a training float and was unreachable
+  // while this was off (A100, D113c).
+  'card.simulated': true,
 
   // Stays on, and stays deliberately narrow. `application/deposits.ts` refuses
   // any mode but TRAINING before it reads an amount, credits a balanced

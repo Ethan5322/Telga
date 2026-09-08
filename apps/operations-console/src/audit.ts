@@ -41,11 +41,57 @@ export type AdminAuditEvent =
   | 'ADMIN_MFA_RESET'
   | 'ADMIN_STEPPED_UP'
   | 'ADMIN_STEP_UP_REFUSED'
+  /** An admin recorded a registration taken at a shop. Creates no account. */
+  | 'ADMIN_APPLICATION_RECORDED'
+  /**
+   * Somebody opened a scanned identity document.
+   *
+   * Its own event because R37 requires that "who looked at whose passport" be
+   * answerable. Written **before** the bytes are sent, so a read that happened
+   * is recorded even if the response never completes.
+   */
+  | 'ADMIN_DOCUMENT_VIEWED'
+  /**
+   * Sign-in parameters were generated for a shop.
+   *
+   * Records the operator and device ids, which are not secrets. The device key
+   * and PIN are never recorded anywhere — they exist in the response that shows
+   * them and nowhere else.
+   */
+  | 'ADMIN_CREDENTIALS_ISSUED'
+  /**
+   * A deposit was recorded and decided.
+   *
+   * Carries the outcome and the bank's reference. **Never the quoted
+   * reference** — under D125 that is the shop's device key, and an audit screen
+   * carrying it would hand a credential to every reader of the trail.
+   */
+  | 'ADMIN_DEPOSIT_RECORDED'
+  /**
+   * A shop was stopped from selling, or allowed to again.
+   *
+   * The reason is recorded on the suspension, because it is the thing an
+   * operator will be asked about — by the shop, and possibly later by somebody
+   * reviewing why a business lost a day's trade.
+   */
+  | 'ADMIN_MERCHANT_SUSPENDED'
+  | 'ADMIN_MERCHANT_REINSTATED'
+  /** One device stopped and its sessions revoked. The shop's others carry on. */
+  | 'ADMIN_DEVICE_STOPPED'
   | 'ADMIN_APPLICATION_PICKED_UP'
   | 'ADMIN_APPLICATION_DECIDED'
   | 'ADMIN_ENROLLMENT_TOKEN_ISSUED'
   | 'ADMIN_CREATED'
-  | 'ADMIN_MERCHANT_PROVISIONED';
+  | 'ADMIN_MERCHANT_PROVISIONED'
+  /**
+   * Approval succeeded and provisioning did not.
+   *
+   * Its own event rather than a field on the success one: the two are read for
+   * different reasons. A refused provisioning leaves an approved application
+   * with no shop behind it, which is a state somebody has to resolve, and it
+   * should be findable without reading the metadata of every provisioning.
+   */
+  | 'ADMIN_MERCHANT_PROVISION_REFUSED';
 
 export interface AdminAuditInput {
   readonly event: AdminAuditEvent;

@@ -28,14 +28,26 @@ import {
   beginMfaEnrolment,
   satisfyAdminMfa,
   stepUpAdmin,
-  summariseResiduals,
   tenantsBehind,
   backupsOverdue,
   ENROLLMENT_NOTICE,
   enrollmentExpiryFrom,
+  normalizeEnrollmentToken,
   reviewRefusal,
   statusAfterReview,
+  ProvisioningError,
+  provisionMerchant,
+  newSubmissionReference,
+  submissionRejection,
+  boundaryOf,
+  createDocumentVault,
+  isAllowedMediaType,
+  issueCredentials,
+  recordDeposit,
+  parseMultipart,
+  MAX_DOCUMENT_BYTES,
 } from '@telga/api';
+import type { DocumentMediaType, MultipartFile } from '@telga/api';
 import type { AdminAuthContext, AdminPermission } from '@telga/domain';
 import { AdminAccessDeniedError, effectivePermissions, requireAdmin } from '@telga/domain';
 import {
@@ -47,12 +59,17 @@ import {
 } from '@telga/persistence';
 import { recordAdminAction } from './audit';
 import type { AdminAuditInput } from './audit';
+import { consoleProvisioningPorts } from './provisioningPorts';
 import { CONTENT_SECURITY_POLICY, document } from './ui/page';
 import type { ConsoleChrome } from './ui/page';
 import {
   adminsScreen,
   applicationDetailScreen,
   applicationsScreen,
+  registerShopScreen,
+  handoverScreen,
+  depositsScreen,
+  recordDepositScreen,
   auditScreen,
   dashboardScreen,
   deniedScreen,
@@ -78,6 +95,45 @@ export interface ConsoleOptions {
   readonly allowedHosts?: readonly string[];
   /** Set `Secure` on the session cookie. False only for loopback HTTP. */
   readonly secureCookies?: boolean;
+  /**
+   * Where scanned registration documents are kept, and the key they are
+   * encrypted with.
+   *
+   * **Optional, and its absence is a refusal rather than a fallback.** With no
+   * vault configured the console still records registrations by reference
+   * number — which is what M1a did — and refuses uploads. It never writes an
+   * unencrypted passport because a key was missing, which is exactly how a
+   * store of identity documents ends up in the clear on a volume nobody
+   * remembers provisioning. See D125 and R37.
+   */
+  readonly documents?: {
+    readonly directory: string;
+    readonly encryptionKey: string | undefined;
+  };
+  /**
+   * How a verified deposit is credited to a shop.
+   *
+   * A port rather than a driver, so the console does not acquire a second
+   * opinion about how the ledger works. In production it is `fundMerchant` over
+   * the same connection.
+   *
+   * **Optional, and its absence closes the deposit screens entirely** rather
+   * than letting them record a credit that never posted. A `funding_submissions`
+   * row saying `CREDITED` when no money moved is worse than no deposit feature:
+   * it is a false record of a shop's balance, and every later reconciliation
+   * would start from it.
+   */
+  readonly creditMerchant?: (input: {
+    readonly merchantId: string;
+    readonly amountMinor: number;
+    readonly correlationId: string;
+    readonly postingId: string;
+    readonly at: string;
+  }) => void;
+  /** The account shops are told to pay into. Checked against every deposit. */
+  readonly depositAccount?: string;
+  /** Above this, a second approver is required. Defaults to 50,000 birr. */
+  readonly autoCreditCapMinor?: number;
 }
 
 type Statement = {
@@ -101,6 +157,26 @@ const parseCookies = (header: string | undefined): Record<string, string> => {
   }
   return out;
 };
+
+/**
+ * The whole body, or `undefined` when it exceeds the cap.
+ *
+ * Separate from {@link readForm} because a multipart body is bytes, not text:
+ * decoding a JPEG as UTF-8 and re-encoding it produces a file of exactly the
+ * right length that will not open. The cap is applied while reading, so an
+ * oversized upload is abandoned rather than buffered and then rejected.
+ */
+async function readBody(request: IncomingMessage, limit: number): Promise<Buffer | undefined> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = chunk as Buffer;
+    size += buffer.byteLength;
+    if (size > limit) return undefined;
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
+}
 
 async function readForm(request: IncomingMessage, limit = 64 * 1024): Promise<Record<string, string>> {
   const chunks: Buffer[] = [];
@@ -181,6 +257,22 @@ export function createConsoleServer(options: ConsoleOptions): Server {
   const secure = options.secureCookies ?? false;
   const ports = { db: options.db as never, now: options.now, newId: options.newId };
 
+  /**
+   * The document vault, created **once at startup** or not at all.
+   *
+   * Building it eagerly means a console configured with a missing or malformed
+   * key fails here, on the operator's screen, rather than at the first upload —
+   * with an admin standing in a shop holding somebody's passport.
+   */
+  const documentVault =
+    options.documents === undefined
+      ? undefined
+      : createDocumentVault({
+          directory: options.documents.directory,
+          encryptionKey: options.documents.encryptionKey,
+          newId: options.newId,
+        });
+
   const respond = (response: ServerResponse, status: number, body: string, extra: string[] = []): void => {
     response.writeHead(status, {
       ...headers(secure),
@@ -222,6 +314,58 @@ export function createConsoleServer(options: ConsoleOptions): Server {
 
     if (method !== 'GET' && !originOk(request, allowedHosts)) {
       respond(response, 403, document(deniedScreen(chromeFor(undefined, csrf), 'Refused: cross-site request.'), 'Refused'));
+      return;
+    }
+
+    /**
+     * Liveness, for a platform health check.
+     *
+     * Public and unauthenticated, because a health check has no session — and
+     * therefore it says as little as possible. `ok`, the mode, and whether the
+     * database answers. **No version, no schema number, no counts, no admin
+     * names**: this is the one endpoint reachable without signing in, and every
+     * field on it is a field an attacker gets for free.
+     *
+     * It reports `degraded` rather than lying when the database will not
+     * answer. A health check that returns `ok` while the console cannot read
+     * anything is worse than none — the platform keeps the container in
+     * rotation and nobody is told.
+     */
+    if (path === '/api/health/ready') {
+      // `09 Engineering/Health Endpoints`: the route table registers GET only,
+      // and anything else is refused rather than answered. A health check that
+      // could be POSTed is a health check that could be made to do something.
+      if (method !== 'GET') {
+        response.writeHead(405, { allow: 'GET', 'cache-control': 'no-store' });
+        response.end();
+        return;
+      }
+
+      let databaseOk = true;
+      try {
+        options.db.prepare('SELECT 1 AS ok').get();
+      } catch {
+        databaseOk = false;
+      }
+
+      // The same header set as the rest of the training HTTP surface, and a
+      // **stable reason code** rather than an exception message — the vault is
+      // explicit that a failure must never carry a raw database error or a file
+      // path, because this is the one route reachable without signing in.
+      response.writeHead(databaseOk ? 200 : 503, {
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'no-referrer',
+      });
+      response.end(
+        JSON.stringify({
+          status: databaseOk ? 'ok' : 'degraded',
+          service: 'operations-console',
+          mode: 'TRAINING',
+          ...(databaseOk ? {} : { reasonCode: 'DATABASE_UNREACHABLE' }),
+        }),
+      );
       return;
     }
 
@@ -455,6 +599,331 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       return;
     }
 
+    // Must be tested before `/applications/:id`, or "new" is read as an id and
+    // answers "no such application".
+    if (path === '/applications/new' && method === 'GET') {
+      if (!guard('ADMIN_REVIEW_APPLICATION')) return;
+      screen(registerShopScreen({ chrome: chromeFor(context, csrf) }), 'Register Telga User');
+      return;
+    }
+
+    /**
+     * Record a registration an admin took at a shop.
+     *
+     * Creates an **application**, and nothing else: no merchant, no operator, no
+     * device, no credentials. `Admin Operations Console` Decision 3 — *"no
+     * account until approved"* — so there is nothing here for an unvetted
+     * applicant to attack, rather than a locked account guarded on every route.
+     *
+     * Approving is what creates a shop, and that path already exists (D120).
+     */
+    if (path === '/applications' && method === 'POST') {
+      if (!guard('ADMIN_REVIEW_APPLICATION')) return;
+
+      // The form posts `multipart/form-data` when it carries scans and
+      // urlencoded when it does not, so both are accepted. A body cap sized for
+      // three documents plus the text fields is applied before a byte is
+      // parsed — a parser with no bound in front of it is a way to exhaust
+      // memory from a socket.
+      const boundary = boundaryOf(request.headers['content-type']);
+      let form: Record<string, string>;
+      let uploads: readonly MultipartFile[] = [];
+      if (boundary === undefined) {
+        form = await readForm(request);
+      } else {
+        const raw = await readBody(request, 3 * MAX_DOCUMENT_BYTES + 64 * 1024);
+        if (raw === undefined) {
+          screen(
+            registerShopScreen({ chrome: chromeFor(context, csrf), error: 'UPLOAD_TOO_LARGE' }),
+            'Register Telga User',
+          );
+          return;
+        }
+        try {
+          const parsed = parseMultipart(raw, boundary);
+          form = parsed.fields;
+          uploads = parsed.files;
+        } catch {
+          screen(
+            registerShopScreen({ chrome: chromeFor(context, csrf), error: 'UPLOAD_NOT_READABLE' }),
+            'Register Telga User',
+          );
+          return;
+        }
+      }
+
+      // Refused before anything is written, so a registration is never recorded
+      // with its documents silently dropped.
+      if (uploads.length > 0) {
+        if (documentVault === undefined) {
+          screen(
+            registerShopScreen({
+              chrome: chromeFor(context, csrf),
+              error: 'DOCUMENT_STORE_NOT_CONFIGURED',
+              values: form,
+            }),
+            'Register Telga User',
+          );
+          return;
+        }
+        const badType = uploads.find((file) => !isAllowedMediaType(file.mediaType));
+        if (badType !== undefined) {
+          screen(
+            registerShopScreen({
+              chrome: chromeFor(context, csrf),
+              error: 'DOCUMENT_TYPE_NOT_ALLOWED',
+              values: form,
+            }),
+            'Register Telga User',
+          );
+          return;
+        }
+      }
+
+      const at = options.now();
+
+      const submission = {
+        legalName: form['legalName'] ?? '',
+        ownerName: form['ownerName'] ?? '',
+        phone: form['phone'] ?? '',
+        email: form['email'] ?? '',
+        address: form['address'] ?? '',
+        locality: form['locality'] ?? '',
+        entityType: 'SOLE_TRADER' as const,
+        documents: [
+          {
+            kind: 'TRADE_LICENCE' as const,
+            reference: form['tradeLicence'] ?? '',
+            // A bare date from a `type="date"` input. Compared against `now`,
+            // which is an ISO timestamp, so it is widened to one — a licence
+            // expiring today has not expired yet.
+            expiresAt:
+              (form['tradeLicenceExpiry'] ?? '').length > 0
+                ? `${form['tradeLicenceExpiry'] ?? ''}T23:59:59.999Z`
+                : '',
+          },
+          { kind: 'TIN_CERTIFICATE' as const, reference: form['tin'] ?? '' },
+          { kind: 'OWNER_PHOTO_ID' as const, reference: form['photoId'] ?? '' },
+        ],
+      };
+
+      const rejection = submissionRejection(submission, at);
+      if (rejection !== undefined) {
+        // The form comes back filled in. An admin standing at a counter with a
+        // folder should fix one field, not retype seven.
+        screen(
+          registerShopScreen({
+            chrome: chromeFor(context, csrf),
+            error: rejection,
+            values: form,
+          }),
+          'Register Telga User',
+        );
+        return;
+      }
+
+      const applicationId = options.newId('app');
+      const reference = newSubmissionReference();
+
+      // **One transaction, and the tests found out why.**
+      //
+      // The application row was written first and the documents after it, so a
+      // document that collided on the unique `(kind, reference)` index left the
+      // application behind: a shop in the review queue with no papers, created
+      // by the very check meant to refuse it. A duplicate TIN is exactly the
+      // case that index exists for — one person opening shops under several
+      // names — so it is the case least able to afford a half-written record.
+      options.db.prepare('BEGIN').run();
+      try {
+        options.db
+          .prepare(
+            `INSERT INTO merchant_applications
+               (id, reference, status, legal_name, owner_name, phone, email,
+                address, locality, submitted_at, created_at, updated_at)
+             VALUES (?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            applicationId,
+            reference,
+            submission.legalName.trim(),
+            submission.ownerName.trim(),
+            submission.phone.trim(),
+            submission.email.trim().length > 0 ? submission.email.trim() : null,
+            submission.address.trim(),
+            submission.locality.trim(),
+            at,
+            at,
+            at,
+          );
+
+        // Which upload belongs to which document. The form names its file
+        // inputs after the reference field they accompany.
+        const fileFor: Readonly<Record<string, string>> = {
+          TRADE_LICENCE: 'tradeLicenceFile',
+          TIN_CERTIFICATE: 'tinFile',
+          OWNER_PHOTO_ID: 'photoIdFile',
+        };
+
+        for (const document of submission.documents) {
+          // Encrypted to the volume **inside** the transaction, so a database
+          // failure after this point leaves an unreferenced file rather than a
+          // row pointing at nothing. An orphan ciphertext nobody can open is a
+          // tidy-up; a row promising a passport that is not there is a gap in
+          // the evidence the founder is keeping these for.
+          const upload = uploads.find((file) => file.name === fileFor[document.kind]);
+          const stored =
+            upload !== undefined && documentVault !== undefined
+              ? documentVault.store({
+                  content: upload.content,
+                  mediaType: upload.mediaType,
+                })
+              : undefined;
+
+          options.db
+            .prepare(
+              `INSERT INTO merchant_application_documents
+                 (id, application_id, kind, reference, status, expires_at,
+                  document_uri, media_type, byte_size, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'SUPPLIED', ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              options.newId('doc'),
+              applicationId,
+              document.kind,
+              document.reference.trim(),
+              (document.expiresAt ?? '').length > 0 ? document.expiresAt : null,
+              stored?.documentUri ?? null,
+              stored?.mediaType ?? null,
+              stored?.bytes ?? null,
+              at,
+              at,
+            );
+        }
+        options.db.prepare('COMMIT').run();
+      } catch (error) {
+        // Nothing is left behind: no application, no partial set of documents.
+        options.db.prepare('ROLLBACK').run();
+        // The unique index on (kind, reference) is the one that fires here: a
+        // licence or TIN already registered to another shop. That is a finding,
+        // not a validation error — one person opening shops under several names
+        // is exactly what it was added to catch.
+        const duplicate = /UNIQUE constraint failed/.test(
+          error instanceof Error ? error.message : '',
+        );
+        screen(
+          registerShopScreen({
+            chrome: chromeFor(context, csrf),
+            error: duplicate
+              ? 'DOCUMENT_ALREADY_REGISTERED_TO_ANOTHER_SHOP'
+              : 'REGISTRATION_NOT_SAVED',
+            values: form,
+          }),
+          'Register Telga User',
+        );
+        return;
+      }
+
+      record({
+        event: 'ADMIN_APPLICATION_RECORDED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'MERCHANT_APPLICATION',
+        entityId: applicationId,
+        // The reference and the shop, never a document number: an audit trail
+        // that carries identity-document numbers turns every reader of the
+        // audit screen into a holder of them.
+        metadata: { reference, locality: submission.locality.trim() },
+      });
+
+      response.writeHead(303, { location: `/applications/${encodeURIComponent(applicationId)}` });
+      response.end();
+      return;
+    }
+
+    /**
+     * Look at a scanned identity document.
+     *
+     * **R37's other half.** The vault encrypts; this decides who may open one
+     * and makes sure the opening is answerable.
+     *
+     * ## Why `ADMIN_EXPORT_DATA` and not `ADMIN_REVIEW_APPLICATION`
+     *
+     * Reading the queue and taking a copy of somebody's passport are different
+     * acts, and the second one **is** a data export. Using the export permission
+     * says so, keeps the reviewing role narrow, and brings **step-up
+     * re-authentication** with it for free — `STEP_UP_REQUIRED` already lists
+     * it, so the password must have been typed *now* rather than at the start of
+     * a shift. That is the difference between an authorised person and an
+     * unattended laptop, and inventing a second step-up check here would have
+     * duplicated the window logic that `requireAdmin` already owns.
+     *
+     * The audit event is written **before** the bytes are sent, so a read that
+     * happened is recorded even if the response never completes. The media type
+     * comes from the row and is bound into the decryption, so a document re-filed
+     * in the database as another type does not open.
+     */
+    const documentMatch = /^\/applications\/([^/]+)\/documents\/([^/]+)$/.exec(path);
+    if (documentMatch && method === 'GET') {
+      if (!guard('ADMIN_EXPORT_DATA')) return;
+
+      const applicationId = decodeURIComponent(documentMatch[1]);
+      const documentId = decodeURIComponent(documentMatch[2]);
+      const row = options.db
+        .prepare(
+          `SELECT id, kind, document_uri, media_type FROM merchant_application_documents
+            WHERE id = ? AND application_id = ?`,
+        )
+        .get(documentId, applicationId) as
+        | { id: string; kind: string; document_uri: string | null; media_type: string | null }
+        | undefined;
+
+      // A document belonging to another application answers exactly as a
+      // missing one does: the id is scoped, so this cannot be used to walk the
+      // store.
+      if (row === undefined || row.document_uri === null || row.media_type === null) {
+        respond(response, 404, document(deniedScreen(chromeFor(context, csrf), 'No such document.'), 'Not found'));
+        return;
+      }
+      if (documentVault === undefined) {
+        respond(response, 404, document(deniedScreen(chromeFor(context, csrf), 'No such document.'), 'Not found'));
+        return;
+      }
+
+      record({
+        event: 'ADMIN_DOCUMENT_VIEWED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'MERCHANT_APPLICATION_DOCUMENT',
+        entityId: documentId,
+        // Which kind of document, and whose application. Never the reference
+        // number — an audit trail carrying passport numbers turns every reader
+        // of the audit screen into a holder of them.
+        metadata: { applicationId, kind: row.kind },
+      });
+
+      let plaintext: Buffer;
+      try {
+        plaintext = documentVault.read(row.document_uri, row.media_type as DocumentMediaType);
+      } catch {
+        // The tag failed: the file was altered, the key changed, or the row was
+        // re-filed as another type. None of those should render as an image.
+        respond(response, 409, document(deniedScreen(chromeFor(context, csrf), 'This document could not be opened. It may have been altered.'), 'Unreadable'));
+        return;
+      }
+
+      response.writeHead(200, {
+        'content-type': row.media_type,
+        // Never rendered inline and never cached: a passport left in a browser
+        // cache on a shared laptop outlives the session that opened it.
+        'content-disposition': `attachment; filename="${row.kind.toLowerCase()}"`,
+        'cache-control': 'no-store, private',
+        'content-security-policy': "default-src 'none'; sandbox",
+        'x-content-type-options': 'nosniff',
+      });
+      response.end(plaintext);
+      return;
+    }
+
     const applicationMatch = /^\/applications\/([^/]+)$/.exec(path);
     if (applicationMatch && method === 'GET') {
       if (!guard('ADMIN_REVIEW_APPLICATION')) return;
@@ -531,14 +1000,498 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         // merchant may see, so it stays on the application, not in the trail.
         metadata: { outcome: decision.outcome, status: next, from: found.status },
       });
+
+      // Approval used to end here, which meant an `APPROVED` application and a
+      // shop that could trade were unrelated facts — somebody had to run a CLI
+      // by hand, and nothing said so. Provisioning now runs in the same request,
+      // so the decision and its consequence cannot drift apart.
+      //
+      // It runs *after* the decision is recorded, deliberately: if provisioning
+      // fails, the approval still stands and is auditable, and the tenant row is
+      // left `FAILED` for an operator to see. The reverse order would risk a
+      // provisioned shop with no record of who approved it.
+      if (next === 'APPROVED') {
+        try {
+          const result = provisionMerchant(
+            consoleProvisioningPorts({
+              db: options.db,
+              now: options.now,
+              schemaVersion: options.schemaVersion,
+            }),
+            // `found` still carries the status the row had *before* the update.
+            // `provisionMerchant` refuses anything but APPROVED/PROVISIONING, so
+            // it is given the status the row now has rather than the stale one.
+            { ...found, status: next },
+          );
+          record({
+            event: 'ADMIN_MERCHANT_PROVISIONED',
+            actorId: context.user.id,
+            actorRole: context.user.role,
+            entityType: 'MERCHANT',
+            entityId: result.merchantId,
+            metadata: {
+              applicationId: id,
+              databaseName: result.databaseName,
+              schemaVersion: result.schemaVersion,
+            },
+          });
+        } catch (error) {
+          // A refusal is not a crash. `ALREADY_PROVISIONED` in particular means
+          // the shop exists — which is what was wanted — and the operator needs
+          // to be told which of the five refusals happened rather than seeing a
+          // 500 with no explanation.
+          const refusal = error instanceof ProvisioningError ? error.refusal : 'DATABASE_FAILED';
+          record({
+            event: 'ADMIN_MERCHANT_PROVISION_REFUSED',
+            actorId: context.user.id,
+            actorRole: context.user.role,
+            entityType: 'MERCHANT_APPLICATION',
+            entityId: id,
+            metadata: { refusal },
+          });
+          response.writeHead(303, {
+            location: `/applications/${encodeURIComponent(id)}?error=${encodeURIComponent(refusal)}`,
+          });
+          response.end();
+          return;
+        }
+      }
+
       response.writeHead(303, { location: `/applications/${encodeURIComponent(id)}` });
+      response.end();
+      return;
+    }
+
+    /**
+     * Issue the four sign-in parameters for a provisioned shop.
+     *
+     * The founder's Steps 5 and 6. A `POST` because it is the only screen that
+     * displays a secret: a `GET` would put a device key in browser history and
+     * bring it back on a press of the back button.
+     *
+     * `ADMIN_REGISTER_DEVICE` carries step-up with it (`STEP_UP_REQUIRED`), so
+     * the password was typed *now* — creating a device that can trade for a
+     * shop's money is not something an unattended laptop should be able to do.
+     *
+     * **Repeatable on purpose.** A shop that has lost its device key needs new
+     * parameters, not a new shop. Each issue creates a fresh operator and device
+     * rather than overwriting: the ledger references devices, and rewriting one
+     * would re-point history at a machine that did not make it.
+     */
+    const issueMatch = /^\/merchants\/([^/]+)\/credentials$/.exec(path);
+    if (issueMatch && method === 'POST') {
+      if (!guard('ADMIN_REGISTER_DEVICE')) return;
+      const merchantId = decodeURIComponent(issueMatch[1]);
+
+      const merchant = options.db
+        .prepare(`SELECT id FROM merchants WHERE id = ?`)
+        .get(merchantId) as { id: string } | undefined;
+      if (merchant === undefined) {
+        respond(response, 404, document(deniedScreen(chromeFor(context, csrf), 'No such merchant.'), 'Not found'));
+        return;
+      }
+
+      // One transaction: an operator with no device, or a device with no
+      // enrolment, is a shop that looks provisioned and cannot sign in.
+      options.db.prepare('BEGIN').run();
+      let issued;
+      try {
+        issued = await issueCredentials(
+          {
+            now: options.now,
+            highestNumberFor: (prefix) => {
+              const row = options.db
+                .prepare(
+                  prefix === 'operator'
+                    ? `SELECT MAX(CAST(SUBSTR(id, 10) AS INTEGER)) AS n FROM merchant_users WHERE id LIKE 'operator_%'`
+                    : `SELECT MAX(CAST(SUBSTR(id, 8) AS INTEGER)) AS n FROM devices WHERE id LIKE 'device_%'`,
+                )
+                .get() as { n: number | null } | undefined;
+              return row?.n ?? 0;
+            },
+            saveDevice: (input) => {
+              options.db
+                .prepare(
+                  `INSERT INTO devices (id, merchant_id, status, device_type, created_at, updated_at)
+                   VALUES (?, ?, 'ACTIVE', 'SMART_POS', ?, ?)`,
+                )
+                .run(input.id, input.merchantId, input.at, input.at);
+            },
+            saveEnrolment: (input) => {
+              options.db
+                .prepare(
+                  `INSERT INTO device_enrollments
+                     (device_id, merchant_id, enrollment_state, secret_hash, secret_salt,
+                      deposit_lookup, enrolled_at, created_at, updated_at)
+                   VALUES (?, ?, 'ENROLLED', ?, ?, ?, ?, ?, ?)`,
+                )
+                .run(
+                  input.deviceId,
+                  input.merchantId,
+                  input.secretHash,
+                  input.secretSalt,
+                  input.depositLookup,
+                  input.at,
+                  input.at,
+                  input.at,
+                );
+            },
+            saveOperator: (input) => {
+              // `must_change_pin = 1`: a PIN Telga staff have read out is a
+              // shared secret, not the shop's credential. Migration 015.
+              options.db
+                .prepare(
+                  `INSERT INTO merchant_users
+                     (id, merchant_id, display_name, role, pin_hash, pin_salt, pin_params,
+                      status, failed_attempts, locked_until, last_login_at, mode,
+                      must_change_pin, created_at, updated_at)
+                   VALUES (?, ?, ?, 'MERCHANT_OWNER', ?, ?, ?, 'ACTIVE', 0, NULL, NULL,
+                           'TRAINING', 1, ?, ?)`,
+                )
+                .run(
+                  input.id,
+                  input.merchantId,
+                  input.displayName,
+                  input.pinHash,
+                  input.pinSalt,
+                  input.pinParams,
+                  input.at,
+                  input.at,
+                );
+            },
+          },
+          { merchantId: merchantId as never },
+        );
+        options.db.prepare('COMMIT').run();
+      } catch {
+        options.db.prepare('ROLLBACK').run();
+        respond(response, 500, document(deniedScreen(chromeFor(context, csrf), 'The sign-in parameters could not be created. Nothing was changed.'), 'Not issued'));
+        return;
+      }
+
+      record({
+        event: 'ADMIN_CREDENTIALS_ISSUED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'MERCHANT',
+        entityId: merchantId,
+        merchantId,
+        // The identifiers, which are not secrets. **Never the key or the PIN** —
+        // those exist in the response about to be rendered and nowhere else.
+        metadata: { operatorId: issued.operatorId, deviceId: issued.deviceId },
+      });
+
+      screen(
+        handoverScreen({
+          chrome: chromeFor(context, csrf),
+          merchantId,
+          operatorId: issued.operatorId,
+          deviceId: issued.deviceId,
+          deviceKey: issued.deviceKey,
+          temporaryPin: issued.temporaryPin,
+        }),
+        'Sign-in parameters',
+      );
+      return;
+    }
+
+    /**
+     * Suspend a shop, or reinstate one.
+     *
+     * **This is not a display change.** `createSale.ts` refuses a merchant whose
+     * status is not `ACTIVE`, so suspending here stops that shop selling on
+     * every device it owns, immediately.
+     *
+     * `ADMIN_SUSPEND_MERCHANT` carries step-up: stopping a shop trading is a
+     * decision with a shop's livelihood on the other side of it.
+     *
+     * **Nothing is deleted.** `05 Operations/Merchant Onboarding` and
+     * `09 Engineering/Security Model` both state the rule — *"halts selling
+     * without deleting history"* — and it holds here because only one column
+     * moves. Transactions, ledger entries, receipts and the audit trail are
+     * untouched, and reinstating restores exactly what was there.
+     */
+    const suspendMatch = /^\/merchants\/([^/]+)\/(suspend|reinstate)$/.exec(path);
+    if (suspendMatch && method === 'POST') {
+      if (!guard('ADMIN_SUSPEND_MERCHANT')) return;
+      const merchantId = decodeURIComponent(suspendMatch[1]);
+      const action = suspendMatch[2];
+      const next = action === 'suspend' ? 'SUSPENDED' : 'ACTIVE';
+
+      const form = await readForm(request);
+      const reason = (form['reason'] ?? '').trim();
+      // A suspension with no reason is not a decision somebody can answer for.
+      // Reinstating does not need one: the shop is being returned to normal.
+      if (action === 'suspend' && reason.length === 0) {
+        response.writeHead(303, { location: '/merchants?error=REASON_REQUIRED' });
+        response.end();
+        return;
+      }
+
+      const changed = options.db
+        .prepare(`UPDATE merchants SET status = ?, updated_at = ? WHERE id = ? AND status <> ?`)
+        .run(next, options.now(), merchantId, next) as { changes: number };
+
+      if (changed.changes === 0) {
+        // Already in that state, or no such shop. Neither is an error worth a
+        // stack trace, and both are answered the same way so this cannot be
+        // used to discover which merchant ids exist.
+        response.writeHead(303, { location: '/merchants?error=NOT_CHANGED' });
+        response.end();
+        return;
+      }
+
+      record({
+        event: action === 'suspend' ? 'ADMIN_MERCHANT_SUSPENDED' : 'ADMIN_MERCHANT_REINSTATED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'MERCHANT',
+        entityId: merchantId,
+        merchantId,
+        // The reason a shop was stopped is the thing an operator will be asked
+        // about, so it goes in the trail rather than only on a screen.
+        ...(reason.length > 0 ? { metadata: { reason } } : {}),
+      });
+
+      response.writeHead(303, { location: '/merchants' });
+      response.end();
+      return;
+    }
+
+    /**
+     * Remote stop for one device.
+     *
+     * `05 Operations/Merchant Onboarding`: *"halts selling without deleting
+     * history"*. Two things move together, which is why this is one route and
+     * not two: the device stops being `ACTIVE`, so `createSale` refuses it, and
+     * every session it was carrying is revoked — a stopped device that kept a
+     * live session would still be usable, which is the opposite of stopped.
+     *
+     * The shop keeps trading on its other devices. That is the difference
+     * between this and suspending a merchant, and it is the case R14 describes:
+     * one machine lost or stolen, a shop still open.
+     */
+    const stopMatch = /^\/devices\/([^/]+)\/stop$/.exec(path);
+    if (stopMatch && method === 'POST') {
+      if (!guard('ADMIN_REMOTE_STOP_SALES')) return;
+      const deviceId = decodeURIComponent(stopMatch[1]);
+      const at = options.now();
+
+      options.db.prepare('BEGIN').run();
+      try {
+        options.db
+          .prepare(`UPDATE devices SET status = 'STOPPED', updated_at = ? WHERE id = ?`)
+          .run(at, deviceId);
+        options.db
+          .prepare(
+            `UPDATE device_enrollments SET enrollment_state = 'REVOKED', revoked_at = ?,
+                    revocation_reason = 'REMOTE_STOP', updated_at = ?
+              WHERE device_id = ?`,
+          )
+          .run(at, at, deviceId);
+        options.db
+          .prepare(
+            // `revocation_reason`, not `revoked_reason` — the column name in
+            // migration 006. Typecheck cannot see inside a SQL string, which is
+            // why this was read from the schema rather than assumed.
+            `UPDATE sessions SET status = 'REVOKED', revoked_at = ?,
+                    revocation_reason = 'DEVICE_STOPPED'
+              WHERE device_id = ? AND status = 'ACTIVE'`,
+          )
+          .run(at, deviceId);
+        options.db.prepare('COMMIT').run();
+      } catch {
+        options.db.prepare('ROLLBACK').run();
+        respond(response, 500, document(deniedScreen(chromeFor(context, csrf), 'The device could not be stopped. Nothing was changed.'), 'Not stopped'));
+        return;
+      }
+
+      record({
+        event: 'ADMIN_DEVICE_STOPPED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'DEVICE',
+        entityId: deviceId,
+      });
+
+      response.writeHead(303, { location: '/devices' });
+      response.end();
+      return;
+    }
+
+    // --- deposits ------------------------------------------------------------
+    //
+    // Closed entirely when no credit port is configured. A deposit screen that
+    // could record `CREDITED` without money moving would be a false record of a
+    // shop's balance, and every later reconciliation would start from it.
+    if (path.startsWith('/deposits') && options.creditMerchant === undefined) {
+      respond(response, 404, document(deniedScreen(chromeFor(context, csrf), 'Deposits are not configured on this console.'), 'Not found'));
+      return;
+    }
+
+    if (path === '/deposits' && method === 'GET') {
+      if (!guard('ADMIN_REVIEW_FUNDING')) return;
+      screen(depositsScreen(chromeFor(context, csrf), deposits(), allowed), 'Deposits');
+      return;
+    }
+
+    if (path === '/deposits/new' && method === 'GET') {
+      // `ADMIN_APPROVE_FUNDING` carries step-up and dual control. Recording a
+      // deposit moves a shop's money, so it is not a viewing permission.
+      if (!guard('ADMIN_APPROVE_FUNDING')) return;
+      screen(recordDepositScreen({ chrome: chromeFor(context, csrf) }), 'Record a deposit');
+      return;
+    }
+
+    if (path === '/deposits' && method === 'POST') {
+      if (!guard('ADMIN_APPROVE_FUNDING')) return;
+      const form = await readForm(request);
+
+      const birrToMinor = (raw: string): number | undefined => {
+        const trimmed = raw.trim();
+        if (trimmed.length === 0) return undefined;
+        // Integer minor units throughout — CLAUDE.md §13.9. Parsed from birr
+        // because that is what a person reads off a statement.
+        const value = Number(trimmed);
+        if (!Number.isFinite(value) || value <= 0) return undefined;
+        return Math.round(value * 100);
+      };
+
+      const bankAmount = birrToMinor(form['bankAmountBirr'] ?? '');
+      const claimedAmount = birrToMinor(form['claimedAmountBirr'] ?? '');
+      const bankReference = (form['bankReference'] ?? '').trim();
+      const creditedAccount = (form['creditedAccount'] ?? '').trim();
+
+      if (bankReference.length === 0) {
+        screen(
+          recordDepositScreen({
+            chrome: chromeFor(context, csrf),
+            error: 'BANK_REFERENCE_REQUIRED',
+            values: form,
+          }),
+          'Record a deposit',
+        );
+        return;
+      }
+
+      // Empty bank fields are a legitimate answer meaning "the bank has no such
+      // transaction", and `verifyDeposit` turns that into a rejection. They are
+      // only passed as a record when **all three** are present: a partial one
+      // would be a claim wearing a bank record's clothes.
+      const bankRecord =
+        bankAmount !== undefined && creditedAccount.length > 0
+          ? { bankReference, amountMinor: bankAmount, creditedAccount }
+          : undefined;
+
+      const at = options.now();
+      options.db.prepare('BEGIN').run();
+      let outcome;
+      try {
+        outcome = recordDeposit(
+          {
+            now: options.now,
+            newId: options.newId,
+            merchantForReference: (lookup) =>
+              (
+                options.db
+                  .prepare(`SELECT merchant_id FROM device_enrollments WHERE deposit_lookup = ?`)
+                  .get(lookup) as { merchant_id: string } | undefined
+              )?.merchant_id,
+            alreadyCredited: (reference) =>
+              options.db
+                .prepare(
+                  `SELECT 1 FROM funding_submissions WHERE bank_reference = ? AND status = 'CREDITED'`,
+                )
+                .get(reference) !== undefined,
+            insertSubmission: (row) => {
+              options.db
+                .prepare(
+                  `INSERT INTO funding_submissions
+                     (id, merchant_id, quoted_reference, bank_reference, claimed_amount_minor,
+                      bank_amount_minor, status, outcome_reason, evidence, currency,
+                      recorded_by, decided_by, decided_at, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ETB', ?, ?, ?, ?, ?)`,
+                )
+                .run(
+                  row.id,
+                  row.merchantId,
+                  row.quotedReference,
+                  row.bankReference,
+                  row.claimedAmountMinor,
+                  row.bankAmountMinor,
+                  row.status,
+                  row.outcomeReason,
+                  row.evidence,
+                  row.recordedBy,
+                  row.decidedBy,
+                  row.at,
+                  row.at,
+                  row.at,
+                );
+            },
+            creditMerchant: (input) => {
+              (options.creditMerchant as NonNullable<typeof options.creditMerchant>)(input);
+            },
+            linkPosting: (submissionId, postingId, when) => {
+              options.db
+                .prepare(`UPDATE funding_submissions SET posting_id = ?, updated_at = ? WHERE id = ?`)
+                .run(postingId, when, submissionId);
+            },
+          },
+          {
+            quotedReference: (form['quotedReference'] ?? '').trim(),
+            bankReference,
+            bankRecord,
+            // Computed once. Calling `birrToMinor` twice to test it and then use
+            // it invited a cast, and a cast in the middle of parsing a money
+            // field is the wrong shape of code to have there.
+            ...(claimedAmount === undefined ? {} : { claimedAmountMinor: claimedAmount }),
+            ...((form['evidence'] ?? '').trim().length === 0
+              ? {}
+              : { evidence: (form['evidence'] ?? '').trim() }),
+            expectedAccount: options.depositAccount ?? '',
+            // 50,000 birr, matching the training deposit ceiling.
+            autoCreditCapMinor: options.autoCreditCapMinor ?? 5_000_000,
+            recordedBy: context.user.id,
+          },
+        );
+        options.db.prepare('COMMIT').run();
+      } catch {
+        options.db.prepare('ROLLBACK').run();
+        screen(
+          recordDepositScreen({
+            chrome: chromeFor(context, csrf),
+            error: 'DEPOSIT_NOT_RECORDED',
+            values: form,
+          }),
+          'Record a deposit',
+        );
+        return;
+      }
+
+      record({
+        event: 'ADMIN_DEPOSIT_RECORDED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'FUNDING_SUBMISSION',
+        entityId: outcome.submissionId,
+        ...(outcome.decision.kind === 'CREDIT' || outcome.decision.kind === 'NEEDS_APPROVAL'
+          ? { merchantId: outcome.decision.merchantId }
+          : {}),
+        // The outcome and the bank reference. Never the quoted reference: under
+        // D125 that is the shop's device key, and an audit screen carrying it
+        // would hand a credential to every reader.
+        metadata: { status: outcome.status, bankReference, at },
+      });
+
+      response.writeHead(303, { location: '/deposits' });
       response.end();
       return;
     }
 
     if (path === '/merchants') {
       if (!guard('ADMIN_VIEW_MERCHANT')) return;
-      screen(merchantsScreen(chromeFor(context, csrf), merchants()), 'Merchants');
+      screen(merchantsScreen(chromeFor(context, csrf), merchants(), allowed), 'Merchants');
       return;
     }
 
@@ -556,7 +1509,16 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       const expiresAt = enrollmentExpiryFrom(options.now());
       // Only the hash is stored. The plaintext exists in this response and
       // nowhere else — not in the database, not in a log.
-      const derived = await hashAdminSecret(token);
+      //
+      // **Hashed in its normalized form**, not as displayed. The code is shown
+      // grouped in fives so a person can read it aloud without losing their
+      // place, and whoever types it back may include the hyphens or not. Hashing
+      // the displayed form made the grouping part of the secret, so a shop that
+      // typed the code without hyphens would have been refused with no way to
+      // tell why. Nothing redeemed a code until now, so the mismatch had never
+      // had a chance to show itself — see `admin/redeemEnrollment.ts`, which
+      // normalizes on the way in.
+      const derived = await hashAdminSecret(normalizeEnrollmentToken(token));
       options.db
         .prepare(
           `UPDATE device_enrollments
@@ -784,12 +1746,82 @@ export function createConsoleServer(options: ConsoleOptions): Server {
     };
   }
 
+  /**
+   * One row per shop, carrying **that shop's own** figures.
+   *
+   * Every column beyond the merchant row itself is a correlated subquery keyed
+   * on `m.id`, so a shop's balance and sale count are computed from its rows and
+   * nothing else. There is no aggregate here that spans shops, and no way to
+   * write one by accident: remove the `WHERE ... = m.id` and the query stops
+   * being valid rather than quietly returning a platform total.
+   *
+   * `available_minor` mirrors `balanceFor()` in `repositories/ledger.ts` —
+   * `MERCHANT_AVAILABLE` and `MERCHANT_FUNDS`, credits positive. `BANK_CLEARING`
+   * is deliberately absent from that list there and here, so the counterparty
+   * side of a deposit can never appear as a shop's money.
+   *
+   * **Sales is a count, never the rows.** The brief requires shop-level
+   * performance *and* forbids an administrator seeing individual transactions;
+   * a count answers "is this shop trading" without disclosing what was sold, to
+   * whom, or for how much.
+   */
   function merchants() {
-    return rows<{ id: string; status: string; created_at: string; devices: number }>(
+    return rows<{
+      id: string;
+      status: string;
+      created_at: string;
+      devices: number;
+      available_minor: number;
+      transactions: number;
+    }>(
       `SELECT m.id, m.status, m.created_at,
-              (SELECT COUNT(*) FROM devices d WHERE d.merchant_id = m.id) AS devices
+              (SELECT COUNT(*) FROM devices d WHERE d.merchant_id = m.id) AS devices,
+              (SELECT COALESCE(SUM(CASE le.direction
+                                     WHEN 'CREDIT' THEN le.amount_minor
+                                     ELSE -le.amount_minor END), 0)
+                 FROM ledger_entries le
+                WHERE le.merchant_id = m.id
+                  AND le.account_type IN ('MERCHANT_AVAILABLE', 'MERCHANT_FUNDS')
+              ) AS available_minor,
+              (SELECT COUNT(*) FROM transactions t WHERE t.merchant_id = m.id) AS transactions
          FROM merchants m ORDER BY m.created_at DESC`,
-    ).map((r) => ({ id: r.id, status: r.status, devices: r.devices, createdAt: r.created_at }));
+    ).map((r) => ({
+      id: r.id,
+      status: r.status,
+      devices: r.devices,
+      createdAt: r.created_at,
+      availableMinor: r.available_minor,
+      transactions: r.transactions,
+    }));
+  }
+
+  /** The deposit queue, newest first. */
+  function deposits() {
+    return rows<{
+      id: string;
+      merchant_id: string | null;
+      bank_reference: string;
+      bank_amount_minor: number | null;
+      status: string;
+      outcome_reason: string | null;
+      decided_by: string | null;
+      approved_by: string | null;
+      created_at: string;
+    }>(
+      `SELECT id, merchant_id, bank_reference, bank_amount_minor, status,
+              outcome_reason, decided_by, approved_by, created_at
+         FROM funding_submissions ORDER BY created_at DESC, id DESC`,
+    ).map((r) => ({
+      id: r.id,
+      merchantId: r.merchant_id,
+      bankReference: r.bank_reference,
+      bankAmountMinor: r.bank_amount_minor,
+      status: r.status,
+      outcomeReason: r.outcome_reason,
+      decidedBy: r.decided_by,
+      approvedBy: r.approved_by,
+      createdAt: r.created_at,
+    }));
   }
 
   function devices() {
@@ -881,9 +1913,44 @@ export function createConsoleServer(options: ConsoleOptions): Server {
     const behind = tenantsBehind(registry, options.schemaVersion);
     const overdue = backupsOverdue(registry, options.now(), 24 * 60 * 60 * 1000);
 
-    // Per-shop databases mean the platform figure is a sum over tenants, and a
-    // tenant that could not be read makes it a guess rather than a proof.
-    const residual = summariseResiduals(registry.map((t) => ({ merchantId: t.merchantId, residualMinor: null })));
+    // Under D120 every shop's entries are in this database, so the platform
+    // residual is a single sum rather than a fan-out over tenant files. Every
+    // posting must balance to zero — `Ledger Invariants` §13.2.
+    const residualMinor = one(
+      `SELECT COALESCE(SUM(CASE direction WHEN 'CREDIT' THEN amount_minor ELSE -amount_minor END), 0) AS n
+         FROM ledger_entries`,
+    );
+
+    // The float every shop holds, added up. Mirrors `balanceFor` exactly —
+    // `MERCHANT_AVAILABLE` and `MERCHANT_FUNDS`, credits positive, and
+    // `BANK_CLEARING` absent so a deposit's counterparty side is never counted
+    // as money a shop has.
+    const totalFloatMinor = one(
+      `SELECT COALESCE(SUM(CASE direction WHEN 'CREDIT' THEN amount_minor ELSE -amount_minor END), 0) AS n
+         FROM ledger_entries
+        WHERE merchant_id IS NOT NULL
+          AND account_type IN ('MERCHANT_AVAILABLE', 'MERCHANT_FUNDS')`,
+    );
+
+    // Shops whose available float has fallen below a day's trading. A flat
+    // threshold rather than a per-shop one: Telga has no evidence yet about what
+    // a busy shop turns over, and inventing a per-shop figure would be exactly
+    // the fabricated number CLAUDE.md §30 forbids. It becomes a setting when
+    // pilot data exists.
+    const shopsLowOnFloat = one(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT m.id,
+                COALESCE(SUM(CASE le.direction WHEN 'CREDIT' THEN le.amount_minor
+                                               ELSE -le.amount_minor END), 0) AS float_minor
+           FROM merchants m
+           LEFT JOIN ledger_entries le
+             ON le.merchant_id = m.id
+            AND le.account_type IN ('MERCHANT_AVAILABLE', 'MERCHANT_FUNDS')
+          WHERE m.status = 'ACTIVE'
+          GROUP BY m.id
+         HAVING float_minor < 10000
+       )`,
+    );
 
     return {
       applicationsAwaiting: one(
@@ -893,12 +1960,40 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       devicesActive: one(`SELECT COUNT(*) AS n FROM devices WHERE status = 'ACTIVE'`),
       tenantsBehind: behind.length,
       backupsOverdue: overdue.length,
-      ledgerSound: registry.length === 0,
+
+      // Platform totals. A count and a sum — never a way into a shop's rows.
+      totalSales: one(`SELECT COUNT(*) AS n FROM transactions WHERE state = 'SUCCESSFUL'`),
+      totalVolumeMinor: one(
+        `SELECT COALESCE(SUM(amount_minor), 0) AS n FROM transactions WHERE state = 'SUCCESSFUL'`,
+      ),
+      totalFloatMinor,
+
+      depositsWaiting: one(
+        `SELECT COUNT(*) AS n FROM funding_submissions WHERE status IN ('MATCHED','MANUAL_REVIEW')`,
+      ),
+      shopsLowOnFloat,
+      // Expired, or expiring within thirty days. A licence that lapses must
+      // raise a review rather than pass silently — migration 015.
+      licencesExpiring: one(
+        `SELECT COUNT(*) AS n FROM merchant_application_documents
+          WHERE kind = 'TRADE_LICENCE' AND status = 'SUPPLIED' AND expires_at IS NOT NULL
+            AND expires_at < datetime('now', '+30 days')`,
+      ),
+
+      // **Corrected under D120.** This used to report that the platform residual
+      // "cannot be proven" because per-shop databases were unreadable from here.
+      // Under the shared-database model every shop's entries are in this file,
+      // so the residual is one query — and reporting it as unprovable would now
+      // be the opposite failure: telling an operator nothing is known when it is.
+      //
+      // A non-zero residual means debits and credits do not cancel, which
+      // `Ledger Invariants` §13.2 says must never happen.
+      ledgerSound: residualMinor === 0,
       ledgerNote:
-        registry.length === 0
-          ? 'No tenant databases registered, so there is nothing to reconcile yet.'
-          : `Platform ledger residual cannot be proven: ${String(residual.tenantsUnreadable.length)} tenant database(s) ` +
-            'are not yet readable from the console. Per-shop routing is not built — see ASSUMPTIONS.md A86.',
+        residualMinor === 0
+          ? 'Every posting balances: debits and credits cancel across the platform.'
+          : `Ledger residual is ${String(residualMinor)} minor units. Debits and credits do not ` +
+            'cancel, which Ledger Invariants §13.2 says must never happen. Investigate before trading.',
     };
   }
 }

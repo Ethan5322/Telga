@@ -10,3 +10,4 @@ export * from './manifest';
 export * from './paths';
 export * from './backup';
 export * from './restore';
+export * from './schedule';

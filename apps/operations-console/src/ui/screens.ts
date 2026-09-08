@@ -193,6 +193,23 @@ export interface DashboardCounts {
   readonly backupsOverdue: number;
   readonly ledgerSound: boolean;
   readonly ledgerNote: string;
+  /**
+   * Platform totals — the founder's *"total transactions, total volume"*.
+   *
+   * Sums across shops, which is the **only** aggregate an administrator sees.
+   * No shop's line items are reachable from here: `totalSales` is a count and
+   * `totalVolumeMinor` a sum, and neither can be opened.
+   */
+  readonly totalSales: number;
+  readonly totalVolumeMinor: number;
+  /** Every shop's float added together. A platform figure, never a shop's. */
+  readonly totalFloatMinor: number;
+  /** Deposits sitting in `MATCHED` or `MANUAL_REVIEW`, waiting for a person. */
+  readonly depositsWaiting: number;
+  /** Shops whose float has fallen below the alert threshold. */
+  readonly shopsLowOnFloat: number;
+  /** Trade licences that have expired or expire within thirty days. */
+  readonly licencesExpiring: number;
 }
 
 export function dashboardScreen(chrome: ConsoleChrome, counts: DashboardCounts): El {
@@ -218,6 +235,37 @@ export function dashboardScreen(chrome: ConsoleChrome, counts: DashboardCounts):
         stat('Active devices', String(counts.devicesActive), 'stat-devices'),
         stat('Tenants behind on schema', String(counts.tenantsBehind), 'stat-tenants-behind'),
         stat('Backups overdue', String(counts.backupsOverdue), 'stat-backups-overdue'),
+      ),
+    ),
+
+    // Platform totals. Sums across shops and nothing else: an administrator sees
+    // how the system is doing, never what a shop sold.
+    h('h2', {}, 'Across the platform'),
+    h(
+      'table',
+      { class: 'console__table', 'data-testid': 'dashboard-totals' },
+      h(
+        'tbody',
+        {},
+        stat('Sales', String(counts.totalSales), 'stat-total-sales'),
+        stat('Volume', birr(counts.totalVolumeMinor), 'stat-total-volume'),
+        stat('Float held by shops', birr(counts.totalFloatMinor), 'stat-total-float'),
+      ),
+    ),
+
+    // Things a person has to do something about. A dashboard that only reports
+    // totals tells an operator the system is busy; this tells them what is
+    // waiting, which is the difference between a report and an operations screen.
+    h('h2', {}, 'Needs attention'),
+    h(
+      'table',
+      { class: 'console__table', 'data-testid': 'dashboard-alerts' },
+      h(
+        'tbody',
+        {},
+        stat('Deposits waiting for a decision', String(counts.depositsWaiting), 'alert-deposits'),
+        stat('Shops low on float', String(counts.shopsLowOnFloat), 'alert-low-float'),
+        stat('Licences expired or expiring', String(counts.licencesExpiring), 'alert-licences'),
       ),
     ),
     // The one figure that must never be reported as "fine" when it is really
@@ -253,6 +301,19 @@ export function applicationsScreen(
   return page(
     { ...chrome, section: 'applications' },
     'Applications',
+    // Offered only to an admin who could use it. The route refuses regardless —
+    // this avoids presenting a dead control, the same rule the Review link uses.
+    allowed.has('ADMIN_REVIEW_APPLICATION')
+      ? h(
+          'p',
+          {},
+          h(
+            'a',
+            { href: '/applications/new', class: 'console__button', 'data-testid': 'register-telga-user' },
+            'Register Telga User',
+          ),
+        )
+      : '',
     rows.length === 0
       ? h('p', { 'data-testid': 'applications-empty' }, 'No applications yet.')
       : h(
@@ -304,6 +365,383 @@ export function applicationsScreen(
             ),
           ),
         ),
+  );
+}
+
+/**
+ * "Register Telga User" — the form an admin fills in at the shop.
+ *
+ * The founder's seven fields, plus two the schema and the operation need.
+ *
+ * ## Why there is a City field the founder did not list
+ *
+ * `merchant_applications.locality` is `NOT NULL`, and it is what the
+ * applications list is grouped and searched by. Splitting it out of the address
+ * costs the admin one box and makes "every shop in Adama" a query rather than a
+ * scan of free text.
+ *
+ * ## Why the document boxes take numbers and not files
+ *
+ * This is **M1a**. The founder has decided that licence and ID *images* are
+ * stored, for fraud identification — [[Decision Log]] D125 — and that arrives as
+ * **M1b**, because handling photographed identity documents well is a security
+ * task rather than a form field: encrypted at rest, access behind step-up and
+ * itself audited, and a retention policy. Recorded as **R37**. Until then the
+ * reference number is captured, which is what a verifier checks against the
+ * issuing authority anyway.
+ *
+ * ## Why nothing is pre-filled and nothing is remembered
+ *
+ * An admin registers many shops in a day from a laptop that travels. A form that
+ * helpfully retained the last shop's TIN is a form that eventually files one
+ * shop's documents against another's name.
+ */
+export interface RegisterShopFormProps {
+  readonly chrome: ConsoleChrome;
+  /** Shown above the form when a submission was refused. */
+  readonly error?: string;
+  /** What the admin typed, so a refusal does not empty the form. */
+  readonly values?: Readonly<Record<string, string>>;
+}
+
+export function registerShopScreen(props: RegisterShopFormProps): El {
+  const { chrome, values = {} } = props;
+
+  const field = (
+    id: string,
+    label: string,
+    opts: { required?: boolean; type?: string; hint?: string } = {},
+  ): El =>
+    h(
+      'div',
+      { class: 'console__field' },
+      h('label', { for: id }, opts.required === false ? `${label} (optional)` : label),
+      h('input', {
+        id,
+        name: id,
+        type: opts.type ?? 'text',
+        value: values[id] ?? '',
+        'data-testid': `field-${id}`,
+        ...(opts.required === false ? {} : { required: true }),
+      }),
+      opts.hint !== undefined ? h('p', { class: 'console__hint' }, opts.hint) : '',
+    );
+
+  /**
+   * A file input for a scanned document.
+   *
+   * Never carries a value: a browser will not let a page pre-fill one, and it
+   * would be wrong if it could — a refused form must not appear to still hold
+   * somebody's passport. The admin re-attaches, which is a second's work and
+   * removes any doubt about which file is on the form.
+   */
+  const scan = (id: string, label: string): El =>
+    h(
+      'div',
+      { class: 'console__field' },
+      h('label', { for: id }, label),
+      h('input', {
+        id,
+        name: id,
+        type: 'file',
+        accept: 'image/jpeg,image/png,application/pdf',
+        'data-testid': `field-${id}`,
+      }),
+    );
+
+  return page(
+    { ...chrome, section: 'applications' },
+    'Register Telga User',
+    props.error !== undefined &&
+      h('p', { class: 'console__error', role: 'alert', 'data-testid': 'register-error' }, props.error),
+    h(
+      'p',
+      { class: 'console__note', 'data-testid': 'register-intro' },
+      'Recording a registration creates no account, no credentials and no device. ' +
+        'It creates an application for review. Approving one is what creates a shop.',
+    ),
+    h(
+      'form',
+      {
+        method: 'post',
+        action: '/applications',
+        // Required for the file inputs. The route accepts urlencoded too, so a
+        // form posted without scans still records a registration.
+        enctype: 'multipart/form-data',
+        'data-testid': 'register-form',
+      },
+      h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+
+      h('h2', {}, 'The shop'),
+      field('legalName', 'Shop name'),
+      field('address', 'Shop address'),
+      field('locality', 'City or town'),
+
+      h('h2', {}, 'The owner'),
+      field('ownerName', 'Shop owner legal name', { hint: 'Exactly as written on the ID or passport.' }),
+      field('phone', 'Phone number', {
+        hint: 'The number Telga will call to hand over the sign-in parameters.',
+      }),
+      field('email', 'Email', { required: false, type: 'email' }),
+
+      h('h2', {}, 'Documents'),
+      h(
+        'p',
+        { class: 'console__hint', 'data-testid': 'register-documents-note' },
+        'Photograph or scan each document. JPEG, PNG or PDF, up to 4 MB. ' +
+          'Documents are encrypted and only opened with a recorded reason.',
+      ),
+      field('tradeLicence', 'Business licence number'),
+      field('tradeLicenceExpiry', 'Business licence expiry', {
+        type: 'date',
+        hint: 'A licence that has already expired is refused: the shop is not currently licensed to trade.',
+      }),
+      scan('tradeLicenceFile', 'Business licence photograph'),
+      field('tin', 'TIN number'),
+      scan('tinFile', 'TIN certificate photograph'),
+      field('photoId', 'ID or passport number'),
+      scan('photoIdFile', 'ID or passport photograph'),
+
+      h(
+        'p',
+        {},
+        h(
+          'button',
+          { type: 'submit', class: 'console__button', 'data-testid': 'register-submit' },
+          'Register Telga User',
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * The hand-over screen: the four parameters, shown once.
+ *
+ * ## Why this page is deliberately awkward
+ *
+ * It is reached only by a `POST`, so it is not in browser history and pressing
+ * back does not bring a device key onto the screen again. It offers no copy
+ * button and no download — the founder's Step 6 is *"written down, not shared
+ * digitally"*, and a page that made it easy to paste a device key into a chat
+ * would quietly undo that.
+ *
+ * The key and PIN exist in this response and nowhere else. The database holds
+ * scrypt hashes, so nobody — including Telga — can recover them afterwards.
+ * That is the property being protected, and the screen says so.
+ */
+export interface HandoverProps {
+  readonly chrome: ConsoleChrome;
+  readonly merchantId: string;
+  readonly operatorId: string;
+  readonly deviceId: string;
+  readonly deviceKey: string;
+  readonly temporaryPin: string;
+}
+
+export function handoverScreen(props: HandoverProps): El {
+  const line = (label: string, value: string, id: string, secret = false): El =>
+    h(
+      'tr',
+      {},
+      h('th', { scope: 'row' }, label),
+      h(
+        'td',
+        { 'data-testid': id, class: secret ? 'console__secret' : undefined },
+        value,
+      ),
+    );
+
+  return page(
+    { ...chrome(props), section: 'applications' },
+    'Sign-in parameters',
+    h(
+      'p',
+      { class: 'console__warning', role: 'alert', 'data-testid': 'handover-once' },
+      'Shown once. Telga stores only hashes of the device key and PIN and cannot ' +
+        'show them again. Write them down now and give them to the shop owner in person.',
+    ),
+    h(
+      'table',
+      { class: 'console__table', 'data-testid': 'handover-table' },
+      h(
+        'tbody',
+        {},
+        line('Merchant ID', props.merchantId, 'handover-merchant'),
+        line('Operator ID', props.operatorId, 'handover-operator'),
+        line('Device ID', props.deviceId, 'handover-device'),
+        line('Device Key', props.deviceKey, 'handover-key', true),
+        line('Temporary PIN', props.temporaryPin, 'handover-pin', true),
+      ),
+    ),
+    h(
+      'p',
+      { class: 'console__note', 'data-testid': 'handover-next' },
+      'The operator must change the PIN at first sign-in. If the device key is lost, ' +
+        'issue new parameters — it cannot be recovered.',
+    ),
+    h('p', {}, h('a', { href: '/merchants', 'data-testid': 'handover-done' }, 'Done')),
+  );
+}
+
+/** Narrowing helper so the props object can carry the chrome alongside the values. */
+const chrome = (props: HandoverProps): ConsoleChrome => props.chrome;
+
+// ---------------------------------------------------------------------------
+// Deposits
+// ---------------------------------------------------------------------------
+
+export interface DepositRow {
+  readonly id: string;
+  readonly merchantId: string | null;
+  readonly bankReference: string;
+  readonly bankAmountMinor: number | null;
+  readonly status: string;
+  readonly outcomeReason: string | null;
+  readonly decidedBy: string | null;
+  readonly approvedBy: string | null;
+  readonly createdAt: string;
+}
+
+/**
+ * The deposit queue.
+ *
+ * `05 Operations/Funding Verification`'s state flow, as a list. The two rows
+ * that need a person are the ones this screen exists for: `MATCHED`, waiting for
+ * a **second** approver because it is over the cap, and `MANUAL_REVIEW`, where
+ * the quoted reference resolved to no shop and **must not be guessed at**.
+ */
+export function depositsScreen(
+  chromeIn: ConsoleChrome,
+  rows: readonly DepositRow[],
+  allowed: Allowed,
+): El {
+  const waiting = rows.filter((r) => r.status === 'MATCHED' || r.status === 'MANUAL_REVIEW');
+
+  return page(
+    { ...chromeIn, section: 'deposits' },
+    'Deposits',
+    allowed.has('ADMIN_APPROVE_FUNDING')
+      ? h(
+          'p',
+          {},
+          h(
+            'a',
+            { href: '/deposits/new', class: 'console__button', 'data-testid': 'record-deposit' },
+            'Record a deposit',
+          ),
+        )
+      : '',
+    h(
+      'p',
+      { class: 'console__note', 'data-testid': 'deposits-waiting' },
+      `${String(waiting.length)} waiting for a decision.`,
+    ),
+    rows.length === 0
+      ? h('p', { 'data-testid': 'deposits-empty' }, 'No deposits recorded yet.')
+      : h(
+          'table',
+          { class: 'console__table', 'data-testid': 'deposits-table' },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              h('th', { scope: 'col' }, 'Bank reference'),
+              h('th', { scope: 'col' }, 'Shop'),
+              h('th', { scope: 'col' }, 'Amount'),
+              h('th', { scope: 'col' }, 'Status'),
+              h('th', { scope: 'col' }, 'Why'),
+              h('th', { scope: 'col' }, 'Verifier'),
+            ),
+          ),
+          h(
+            'tbody',
+            {},
+            ...rows.map((row) =>
+              h(
+                'tr',
+                { 'data-testid': `deposit-${row.bankReference}` },
+                h('td', {}, row.bankReference),
+                // An unmatched deposit shows a dash, not a nearest guess.
+                h('td', {}, row.merchantId ?? '—'),
+                h('td', {}, row.bankAmountMinor === null ? '—' : birr(row.bankAmountMinor)),
+                h('td', {}, h('span', { class: 'console__pill' }, row.status)),
+                h('td', {}, row.outcomeReason ?? ''),
+                h('td', {}, row.approvedBy ?? row.decidedBy ?? ''),
+              ),
+            ),
+          ),
+        ),
+  );
+}
+
+export interface RecordDepositProps {
+  readonly chrome: ConsoleChrome;
+  readonly error?: string;
+  readonly values?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Recording a deposit an operator has checked against the bank.
+ *
+ * The form asks for the bank's figures **separately** from the shop's claim,
+ * because they are different kinds of thing and the difference is the whole
+ * control: the claim is what somebody said, the bank record is what an operator
+ * read in the bank. CLAUDE.md forbids crediting from a claim alone at L128 and
+ * L402, and a form with one amount box would quietly invite exactly that.
+ *
+ * Leaving the bank fields empty is a legitimate answer — it means *"the bank has
+ * no such transaction"* — and produces a rejection rather than a credit.
+ */
+export function recordDepositScreen(props: RecordDepositProps): El {
+  const { values = {} } = props;
+  const field = (id: string, label: string, hint?: string, type = 'text'): El =>
+    h(
+      'div',
+      { class: 'console__field' },
+      h('label', { for: id }, label),
+      h('input', { id, name: id, type, value: values[id] ?? '', 'data-testid': `field-${id}` }),
+      hint !== undefined ? h('p', { class: 'console__hint' }, hint) : '',
+    );
+
+  return page(
+    { ...props.chrome, section: 'deposits' },
+    'Record a deposit',
+    props.error !== undefined &&
+      h('p', { class: 'console__error', role: 'alert', 'data-testid': 'deposit-error' }, props.error),
+    h(
+      'p',
+      { class: 'console__note', 'data-testid': 'deposit-intro' },
+      'A slip or a message from a shop is the claim. What you read in the bank is the proof. ' +
+        'Leave the bank fields empty if the bank has no such transaction.',
+    ),
+    h(
+      'form',
+      { method: 'post', action: '/deposits', 'data-testid': 'deposit-form' },
+      h('input', { type: 'hidden', name: 'csrfToken', value: props.chrome.csrfToken ?? '' }),
+
+      h('h2', {}, 'What the shop says'),
+      field('quotedReference', 'Reference the shop quoted', 'The device key written on the deposit.'),
+      field('claimedAmountBirr', 'Amount claimed (birr)', 'Optional. The bank’s figure is what gets credited.'),
+
+      h('h2', {}, 'What the bank shows'),
+      field('bankReference', 'Bank transaction reference'),
+      field('bankAmountBirr', 'Amount received (birr)'),
+      field('creditedAccount', 'Account credited'),
+      field('evidence', 'Evidence', 'Statement line, slip number, or where you checked.'),
+
+      h(
+        'p',
+        {},
+        h(
+          'button',
+          { type: 'submit', class: 'console__button', 'data-testid': 'deposit-submit' },
+          'Record deposit',
+        ),
+      ),
+    ),
   );
 }
 
@@ -414,9 +852,34 @@ export interface MerchantRow {
   readonly status: string;
   readonly devices: number;
   readonly createdAt: string;
+  /**
+   * **This shop's** available float, in minor units.
+   *
+   * One figure per shop, summed only from ledger entries carrying that
+   * merchant's id. Shop A's money is never part of shop B's number, and there
+   * is no query here that could produce a shared one — `available_minor` is a
+   * correlated subquery keyed on `m.id`.
+   */
+  readonly availableMinor: number;
+  /**
+   * How many transactions this shop has made. **A count, never the rows.**
+   *
+   * The brief requires an administrator to see shop-level *performance* and
+   * **not** individual transactions. A count answers "is this shop trading?"
+   * without disclosing what was sold, to whom, or for how much.
+   */
+  readonly transactions: number;
 }
 
-export function merchantsScreen(chrome: ConsoleChrome, rows: readonly MerchantRow[]): El {
+/** Minor units as birr. Integer arithmetic throughout — CLAUDE.md §13.9. */
+const birr = (minor: number): string =>
+  `${(minor / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB`;
+
+export function merchantsScreen(
+  chrome: ConsoleChrome,
+  rows: readonly MerchantRow[],
+  allowed: Allowed = new Set(),
+): El {
   return page(
     { ...chrome, section: 'merchants' },
     'Merchants',
@@ -434,7 +897,13 @@ export function merchantsScreen(chrome: ConsoleChrome, rows: readonly MerchantRo
               h('th', { scope: 'col' }, 'Merchant'),
               h('th', { scope: 'col' }, 'Status'),
               h('th', { scope: 'col' }, 'Devices'),
+              h('th', { scope: 'col' }, 'Own balance'),
+              h('th', { scope: 'col' }, 'Sales'),
               h('th', { scope: 'col' }, 'Since'),
+              allowed.has('ADMIN_REGISTER_DEVICE')
+                ? h('th', { scope: 'col' }, 'Sign-in parameters')
+                : '',
+              allowed.has('ADMIN_SUSPEND_MERCHANT') ? h('th', { scope: 'col' }, 'Trading') : '',
             ),
           ),
           h(
@@ -447,11 +916,99 @@ export function merchantsScreen(chrome: ConsoleChrome, rows: readonly MerchantRo
                 h('td', {}, row.id),
                 h('td', {}, h('span', { class: 'console__pill' }, row.status)),
                 h('td', {}, String(row.devices)),
+                // Each shop's own float. The column is headed "Own balance"
+                // rather than "Balance" because the question this screen was
+                // built to answer is *whose* money this is.
+                h('td', { 'data-testid': `merchant-${row.id}-balance` }, birr(row.availableMinor)),
+                // A count. Opening a shop's transactions is deliberately not
+                // possible from here — see `MerchantRow.transactions`.
+                h('td', { 'data-testid': `merchant-${row.id}-sales` }, String(row.transactions)),
                 h('td', {}, row.createdAt.slice(0, 10)),
+                // A POST, because the screen it opens shows a device key once.
+                // A link would put that key in browser history.
+                allowed.has('ADMIN_REGISTER_DEVICE')
+                  ? h(
+                      'td',
+                      {},
+                      h(
+                        'form',
+                        {
+                          method: 'post',
+                          action: `/merchants/${encodeURIComponent(row.id)}/credentials`,
+                        },
+                        h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                        h(
+                          'button',
+                          {
+                            type: 'submit',
+                            class: 'console__button',
+                            'data-testid': `merchant-${row.id}-issue`,
+                          },
+                          'Issue',
+                        ),
+                      ),
+                    )
+                  : '',
+                // Suspend, or reinstate — whichever the shop is not already.
+                // A suspension asks for a reason; reinstating does not, because
+                // it returns a shop to normal rather than taking something away.
+                allowed.has('ADMIN_SUSPEND_MERCHANT')
+                  ? h(
+                      'td',
+                      {},
+                      row.status === 'SUSPENDED'
+                        ? h(
+                            'form',
+                            {
+                              method: 'post',
+                              action: `/merchants/${encodeURIComponent(row.id)}/reinstate`,
+                            },
+                            h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                            h(
+                              'button',
+                              {
+                                type: 'submit',
+                                class: 'console__button',
+                                'data-testid': `merchant-${row.id}-reinstate`,
+                              },
+                              'Reinstate',
+                            ),
+                          )
+                        : h(
+                            'form',
+                            {
+                              method: 'post',
+                              action: `/merchants/${encodeURIComponent(row.id)}/suspend`,
+                            },
+                            h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                            h('input', {
+                              type: 'text',
+                              name: 'reason',
+                              placeholder: 'Reason',
+                              'data-testid': `merchant-${row.id}-reason`,
+                            }),
+                            h(
+                              'button',
+                              {
+                                type: 'submit',
+                                class: 'console__button',
+                                'data-testid': `merchant-${row.id}-suspend`,
+                              },
+                              'Suspend',
+                            ),
+                          ),
+                    )
+                  : '',
               ),
             ),
           ),
         ),
+    h(
+      'p',
+      { class: 'console__note', 'data-testid': 'merchants-isolation-note' },
+      'Each shop holds its own balance. Figures here are that shop’s alone, and ' +
+        'sales is a count — individual transactions are not shown.',
+    ),
   );
 }
 

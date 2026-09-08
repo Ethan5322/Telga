@@ -49,6 +49,10 @@ publication by `.gitignore`.
 - [[Roadmap]] — phases 0 to 5 · **Mermaid: roadmap and phases**
 - [[User Journeys]] — the counter-level flows · **Mermaid: merchant airtime sale journey**
 - [[Feature Flags]] — how disabled means inaccessible, not hidden
+- [[Balance Top-Up and Funding]] — where a merchant's balance comes from, and why Telga Pay is not it
+- [[Multi-Shop Onboarding]] — the admin panel, per-shop data, and the four links that are missing
+- [[Multi-Tenant Architecture Proposal]] — multi-shop design, registration documents, and the Kazang/Flash study
+- [[Multi-Shop Build Phases]] — M0–M9, and the seven conflicts to settle before M1
 - [[Definition of Done]] — the fifteen conditions a feature must meet
 
 ## 03 Domain
@@ -144,6 +148,7 @@ material, excluded on the same basis as the partnership folder.
 - [[APK Install Troubleshooting]] — when a phone says "App not installed": how to make Android say what it actually means
 - [[Admin Operations Console]] — the Telga staff console: proposed architecture and the four decisions behind it (**proposed, not built**)
 - [[Vercel Deployment Limits]] — why a Vercel build is not a running Telga
+- [[Deposit Rail Options]] — how Telga could learn a shop has paid in, and why it is not a bank question
 - [[Training Deployment Architecture]] — **Mermaid: the persistent-host architecture**
 - [[Deployment Target Evaluation]] — five hosting categories compared, none purchased
 - [[Health Endpoints]] — `/api/health/live` and `/api/health/ready`, implemented and tested

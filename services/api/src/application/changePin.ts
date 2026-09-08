@@ -74,6 +74,37 @@ export function newPinRejection(newPin: string, currentPin: string): PinWeakness
   return undefined;
 }
 
+/**
+ * Must this operator replace their PIN before doing anything else?
+ *
+ * True only for a PIN somebody else issued. An administrator provisioning a
+ * shop sets `mustChangePin`, because a PIN that Telga staff have read out, or
+ * that is written on the paperwork handed over with the device, is not a
+ * credential belonging to that shop — it is a shared secret with an unknown
+ * number of holders.
+ *
+ * `updateMerchantUserPin` clears the flag in the same statement that writes the
+ * new hash, so there is no window in which a changed PIN is still marked
+ * temporary. Nothing else clears it: signing in with a temporary PIN does not
+ * make it permanent, however many times it happens.
+ *
+ * An operator that predates migration 015 reads as `0` and is unaffected, which
+ * is the whole reason the column defaults that way.
+ *
+ * **This answers the question; it does not enforce anything.** The caller
+ * decides what to do with the answer — the POS is expected to send the operator
+ * to the change-PIN screen and refuse to sell until it is done.
+ */
+export function pinChangeRequired(
+  deps: AuthedApiDeps,
+  context: Pick<AuthContext, 'userId' | 'merchantId'>,
+): boolean {
+  // Scoped by merchant as well as id: one shop must never be able to read
+  // another's operator row, even with a guessed user id.
+  const user = deps.driver.findMerchantUser(context.userId, context.merchantId);
+  return user?.must_change_pin === 1;
+}
+
 export async function changePin(
   deps: AuthedApiDeps,
   context: AuthContext,

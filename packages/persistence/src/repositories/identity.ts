@@ -41,24 +41,36 @@ export interface MerchantUserInput {
   readonly pinParams: string;
   readonly status: MerchantUserRow['status'];
   readonly at: Timestamp;
+  /**
+   * True when this PIN was issued by somebody else and must be replaced at the
+   * next sign-in.
+   *
+   * Optional, defaulting to false, so every existing caller keeps its current
+   * behaviour: a PIN chosen by the operator is not temporary, and that is the
+   * common case. An admin provisioning a shop passes `true`, because a PIN that
+   * Telga staff have seen is not a credential belonging to that shop.
+   */
+  readonly mustChangePin?: boolean;
 }
 
 export function saveMerchantUser(db: Db, input: MerchantUserInput): MerchantUserRow {
   db.prepare(
     `INSERT INTO merchant_users (
        id, merchant_id, display_name, role, pin_hash, pin_salt, pin_params,
-       status, failed_attempts, locked_until, last_login_at, mode, created_at, updated_at)
+       status, failed_attempts, locked_until, last_login_at, mode,
+       must_change_pin, created_at, updated_at)
      VALUES (@id, @merchantId, @displayName, @role, @pinHash, @pinSalt, @pinParams,
-       @status, 0, NULL, NULL, 'TRAINING', @at, @at)
+       @status, 0, NULL, NULL, 'TRAINING', @mustChangePin, @at, @at)
      ON CONFLICT(id) DO UPDATE SET
-       display_name = excluded.display_name,
-       role         = excluded.role,
-       pin_hash     = excluded.pin_hash,
-       pin_salt     = excluded.pin_salt,
-       pin_params   = excluded.pin_params,
-       status       = excluded.status,
-       updated_at   = excluded.updated_at`,
-  ).run(input);
+       display_name    = excluded.display_name,
+       role            = excluded.role,
+       pin_hash        = excluded.pin_hash,
+       pin_salt        = excluded.pin_salt,
+       pin_params      = excluded.pin_params,
+       status          = excluded.status,
+       must_change_pin = excluded.must_change_pin,
+       updated_at      = excluded.updated_at`,
+  ).run({ ...input, mustChangePin: input.mustChangePin === true ? 1 : 0 });
   return findMerchantUser(db, input.id) as MerchantUserRow;
 }
 
@@ -90,9 +102,14 @@ export function updateMerchantUserPin(
 ): boolean {
   const result = db
     .prepare(
+      // `must_change_pin` is cleared here and nowhere else. Whoever reaches this
+      // has supplied the current PIN, so the new one is theirs — which is the
+      // whole meaning of the flag. Clearing it in the same statement as the
+      // hash means there is no window in which a changed PIN is still marked
+      // temporary, and no second write that could fail on its own.
       `UPDATE merchant_users
           SET pin_hash = @pinHash, pin_salt = @pinSalt, pin_params = @pinParams,
-              updated_at = @at
+              must_change_pin = 0, updated_at = @at
         WHERE id = @id AND merchant_id = @merchantId`,
     )
     .run(input);

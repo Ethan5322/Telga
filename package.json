@@ -2,7 +2,7 @@
   "name": "telga",
   "version": "0.0.0",
   "private": true,
-  "description": "Telga â€” merchant digital-vending platform of MuleSoo Digital Services. TRAINING MODE ONLY: no live provider, no live money.",
+  "description": "Telga — merchant digital-vending platform of MuleSoo Digital Services. TRAINING MODE ONLY: no live provider, no live money.",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -14,7 +14,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "test": "node scripts/run-suite.mjs",
+    "test:raw": "vitest run",
     "test:watch": "vitest",
     "docs:validate": "node scripts/validate-vault.mjs",
     "build": "node scripts/build.mjs",

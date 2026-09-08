@@ -19,6 +19,8 @@ export * from './ledger';
 export * from './balance';
 export * from './commission';
 export * from './voucherCode';
+export * from './depositReference';
+export * from './fundingSubmission';
 export * from './productId';
 export * from './cardPayment';
 export * from './admin';
