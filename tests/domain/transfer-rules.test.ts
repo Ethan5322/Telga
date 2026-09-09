@@ -1,10 +1,10 @@
 /**
  * Balance moving from one shop to another — `CLAUDE.md` §19.1.
  *
- * > The feature is **off** (`transfer.shop_to_shop`) and what sits behind it is
- * > a training simulation. These tests pin the rules so that the day a founder
- * > decision and legal advice turn it on, the behaviour is already known rather
- * > than discovered with real money.
+ * > **On for training** by founder decision D146, and what sits behind it is a
+ * > simulation. The flag was never what blocks real money — `money.live` is,
+ * > and it is false. These tests pin both: the rules of a transfer, and the
+ * > distinction that keeps a training deployment from moving real value.
  *
  * ## What they defend
  *
@@ -19,7 +19,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { FEATURE_FLAGS, TRAINING_TRANSFER_POLICY, decideTransfer, transferFeeFor } from '@telga/domain';
+import {
+  FEATURE_FLAGS,
+  MOVES_REAL_MONEY,
+  TRAINING_TRANSFER_POLICY,
+  decideTransfer,
+  transferFeeFor,
+} from '@telga/domain';
 import type { ShopStatus, TransferPolicy, TransferRequest } from '@telga/domain';
 import { MIGRATIONS } from '@telga/persistence';
 
@@ -36,12 +42,32 @@ const request = (over: Partial<TransferRequest> = {}): TransferRequest => ({
 const decide = (over: Partial<TransferRequest> = {}, policy: TransferPolicy = TRAINING_TRANSFER_POLICY) =>
   decideTransfer(request(over), policy);
 
-describe('the feature is off, and that is the point', () => {
-  it('is switched off, because moving value between shops is regulated', () => {
-    // §2 and §7 list remittance, cash.in_out and payments.acceptance as
-    // disabled until legal review. This belongs with them, and a test says so
-    // rather than a comment nobody re-reads.
-    expect(FEATURE_FLAGS['transfer.shop_to_shop']).toBe(false);
+describe('what actually keeps this safe', () => {
+  it('is on for training, by founder decision D146', () => {
+    // Was off. The founder was shown that moving value between two legal
+    // entities is regulated (§2, §7) and instructed that it proceed, to be
+    // revoked if it causes a problem.
+    expect(FEATURE_FLAGS['transfer.shop_to_shop']).toBe(true);
+  });
+
+  it('is not the flag that blocks real money — money.live is', () => {
+    // The distinction this whole feature rests on. `transfer.shop_to_shop`
+    // gates the *simulation*; `money.live` gates whether anything can leave the
+    // building, and `assertSafeStartup` refuses to boot if it or any other
+    // MOVES_REAL_MONEY flag is on. If this ever inverts, a training deployment
+    // could move real value between shops.
+    expect(FEATURE_FLAGS['money.live']).toBe(false);
+    expect(FEATURE_FLAGS['training.mode']).toBe(true);
+  });
+
+  it('stays out of MOVES_REAL_MONEY, because what it moves is simulated', () => {
+    // Adding it would make that list mean "features we are nervous about"
+    // rather than "features that move real money" — and the startup assertion
+    // is only useful while it means the second thing.
+    expect(MOVES_REAL_MONEY).not.toContain('transfer.shop_to_shop');
+    // The list still names the ones that would.
+    expect(MOVES_REAL_MONEY).toContain('remittance');
+    expect(MOVES_REAL_MONEY).toContain('money.live');
   });
 });
 

@@ -42,6 +42,8 @@ export type { SettingKey, SettingRow } from './repositories/settings';
 export * as shopbookRepo from './repositories/shopbook';
 export * as adminRepo from './repositories/admin';
 export * as applicationsRepo from './repositories/applications';
+export * as extensionsRepo from './repositories/extensions';
+export * from './repositories/extensions';
 export {
   recordApplication,
   countRegistrationAttemptsSince,

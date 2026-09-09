@@ -87,6 +87,7 @@ Faults found and fixed during development and pilot. Newest first.
 | 2026-09-09 | A suspended shop's operators could still sign in | **High** | **Resolved** — see below |
 | 2026-09-09 | `migration-008.test.ts` failed after migration 018 was added | Low | **Resolved — the test was right** — see below |
 | 2026-09-09 | Console sign-in refused as cross-site **again**, from a browser | **High** | **Resolved — different cause from the first one** — see below |
+| 2026-09-09 | `TRAINING_TRANSFER_POLICY` imported from the wrong package | Low | **Resolved** — see below |
 | 2026-08-19 | [[Source Specification Clipped In PDF]] | Low | Resolved — assumptions recorded |
 
 ### 2026-09-09 — every console sign-in refused as cross-site
@@ -274,6 +275,50 @@ wrong order of operations. Recorded as [[Risk Register]] **R43**.
 > hand-built request is a model of a browser, and both times the model was the
 > thing that was broken. The new tests now include the header the server sends
 > as an assertion, not just the behaviour it produces.
+
+### 2026-09-09 — a value imported from the package that does not own it
+
+**Small, and worth the note because of what it says about layering.**
+`shop-transfer.test.ts` imported `TRAINING_TRANSFER_POLICY` from `@telga/api`
+alongside `settleShopTransfer`. It comes from `@telga/domain`. The import
+resolved to `undefined` and three tests failed with
+`Cannot read properties of undefined`.
+
+**The fix is one line and the reason is the interesting part.** The policy is a
+**rule** — limits and pricing — and rules live in the domain package. The api
+package *applies* them. Importing it from `api` worked syntactically because
+`api` re-exports plenty, and would have kept working if `api` had happened to
+re-export the domain too. It failed loudly instead, which is the better outcome:
+a policy reachable from two packages is a policy that will eventually differ
+between them.
+
+> [!tip] Recommendation
+> **When an import fails to resolve, ask which package *owns* the value before
+> reaching for a different import path.** The failure named a missing export;
+> the actual finding was a layering question. Adding a domain re-export to
+> `@telga/api` would have made this test pass and made the boundary meaningless.
+
+### 2026-09-09 — the column guard the runbook asked for
+
+**Not an incident. A recommendation from this log, carried out.**
+
+The write-up on `migration-008.test.ts` ended:
+
+> *"Columns are not covered by this guard, and three migrations have now added
+> one (`must_change_pin`, `deposit_lookup`, `submitted_via`). Only the first has
+> a direct assertion. A companion guard over column lists would close the gap."*
+
+`tests/persistence/schema-columns.test.ts` closes it. It pins every column of
+the tables it covers, names the three that earlier migrations added quietly, and
+asserts the vocabulary `ledger_entries` is read through — a rename there would
+be silent everywhere until a total came out wrong.
+
+It pins **columns only**, not types or constraints: those belong to the
+migration that declares them, and duplicating them would make every `CHECK`
+widening a two-file edit for no extra safety.
+
+**How to read a failure:** *"did I mean to change that?"* — never *"how do I make
+this pass?"* A dropped column is the one that loses data.
 
 ## Related
 

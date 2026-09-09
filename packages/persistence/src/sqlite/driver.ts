@@ -68,6 +68,7 @@ import * as pendingOrders from '../repositories/pendingOrders';
 import * as settings from '../repositories/settings';
 import * as shopbook from '../repositories/shopbook';
 import * as applications from '../repositories/applications';
+import * as extensions from '../repositories/extensions';
 import type { PendingOrderInput } from '../repositories/pendingOrders';
 
 export class SqliteLedgerDriver implements LedgerDriver {
@@ -546,6 +547,61 @@ export class SqliteLedgerDriver implements LedgerDriver {
 
   pruneRegistrationAttempts(before: string): number {
     return applications.pruneRegistrationAttempts(this.handle(), before);
+  }
+
+  // --- reversal requests, complaints and shop transfers ----------------------
+  //
+  // §17.1, §17.2 and §19.1. Delegating rather than handing a raw connection out,
+  // for the reason the application intake methods above give: the POS holds a
+  // driver, and widening that to a whole database would give the one process an
+  // unauthenticated stranger can reach the widest possible access.
+
+  saveReversalRequest(input: extensions.NewReversalRequest): void {
+    extensions.saveReversalRequest(this.handle(), input);
+  }
+
+  findOpenReversalRequest(transactionId: string): extensions.ReversalRequestRow | undefined {
+    return extensions.findOpenReversalRequest(this.handle(), transactionId);
+  }
+
+  listReversalQueue(): readonly extensions.ReversalRequestRow[] {
+    return extensions.listReversalQueue(this.handle());
+  }
+
+  decideReversalRequest(input: Parameters<typeof extensions.decideReversalRequest>[1]): number {
+    return extensions.decideReversalRequest(this.handle(), input);
+  }
+
+  saveComplaintReview(input: Parameters<typeof extensions.saveComplaintReview>[1]): void {
+    extensions.saveComplaintReview(this.handle(), input);
+  }
+
+  listOpenComplaints(): readonly extensions.ComplaintReviewRow[] {
+    return extensions.listOpenComplaints(this.handle());
+  }
+
+  findComplaintReview(id: string): extensions.ComplaintReviewRow | undefined {
+    return extensions.findComplaintReview(this.handle(), id);
+  }
+
+  recordComplaintVerdict(input: Parameters<typeof extensions.recordComplaintVerdict>[1]): number {
+    return extensions.recordComplaintVerdict(this.handle(), input);
+  }
+
+  saveShopTransfer(input: Parameters<typeof extensions.saveShopTransfer>[1]): void {
+    extensions.saveShopTransfer(this.handle(), input);
+  }
+
+  sentTodayMinor(merchantId: string, sinceIso: string): number {
+    return extensions.sentTodayMinor(this.handle(), merchantId, sinceIso);
+  }
+
+  listTransfersFor(merchantId: string, limit?: number): readonly extensions.ShopTransferRow[] {
+    return extensions.listTransfersFor(this.handle(), merchantId, limit);
+  }
+
+  listTransferQueue(): readonly extensions.ShopTransferRow[] {
+    return extensions.listTransferQueue(this.handle());
   }
 
   // --- voucher pending orders ------------------------------------------------

@@ -18,6 +18,7 @@ export * from './application/reprint';
 export * from './application/settings';
 export * from './application/deposits';
 export * from './application/profitTransfer';
+export * from './application/shopTransfer';
 export * from './application/changePin';
 export * from './auth/totp';
 export * from './auth/adminSessions';

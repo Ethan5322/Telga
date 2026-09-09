@@ -210,6 +210,7 @@ describe('migration 008', () => {
       //   015 → merchant_application_documents
       //   016 → funding_submissions
       //   018 → registration_attempts
+      //   019 → reversal_requests, complaint_reviews, shop_transfers
       //
       // 015 also adds `merchant_users.must_change_pin`, 016 adds
       // `device_enrollments.deposit_lookup`, and 018 adds
@@ -221,14 +222,17 @@ describe('migration 008', () => {
         'admin_permissions',
         'admin_sessions',
         'admin_users',
+        'complaint_reviews',
         'customers',
         'funding_submissions',
         'merchant_application_documents',
         'merchant_applications',
         'provider_health_events',
         'registration_attempts',
+        'reversal_requests',
         'settings',
         'shifts',
+        'shop_transfers',
         'tenant_registry',
         'transaction_attempts',
       ]);

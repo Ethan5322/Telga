@@ -207,9 +207,19 @@ export const FEATURE_FLAGS: Readonly<Record<FeatureFlag, boolean>> = Object.free
   // worst it can produce is a queue item — see §17.1.
   'reversal.merchant_initiated': true,
 
-  // **Off, and it stays off until legal advice says otherwise.** See the note
-  // on the flag itself.
-  'transfer.shop_to_shop': false,
+  // **On by founder decision D146**, for the training deployment.
+  //
+  // The founder was shown that moving value between two legal entities is
+  // regulated (§2, §7) and instructed that the feature proceed, to be revoked
+  // if it causes a problem. Recorded as theirs.
+  //
+  // **This flag was never what blocks real money.** `money.live` is false and
+  // `assertSafeStartup` refuses to boot if any MOVES_REAL_MONEY flag is on, so
+  // what this gates is the *simulation* — a training ledger, no counterparty,
+  // no bank, no network — exactly as `card.simulated` gates Telga Pay. The
+  // regulated question returns in full the day `money.live` is considered, and
+  // D146 does not touch that.
+  'transfer.shop_to_shop': true,
 });
 
 /** Flags that stay off until the CLAUDE.md §8 launch gates are documented. */
