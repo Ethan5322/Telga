@@ -312,6 +312,25 @@ stateDiagram-v2
     REVERSED --> [*]
 ```
 
+### 14.1 Reversing a delivered-but-unredeemed sale
+
+`SUCCESSFUL` is otherwise terminal. **One** transition out of it exists, added 2026-09-09:
+
+```
+SUCCESSFUL --> REVERSAL_REQUIRED: token proven UNREDEEMED, within the reversal window
+```
+
+**Only when the token is proven unredeemed.** The founder's case is a customer who is handed an
+airtime or data token, cannot use it, and hands it back — the sale succeeded from Telga's side
+because a token was issued, and no value has reached anybody. Reversing it returns the shop's money.
+
+**Redemption is read, never assumed.** If the token has been redeemed, the customer has the value
+and the reversal is refused — a merchant must not be able to reclaim money for something a customer
+already spent. If redemption cannot be determined, the request goes to `UNDER_REVIEW`; it does not
+default to either answer.
+
+`FAILED` stays terminal and has no reversal path: nothing was taken, so there is nothing to return.
+
 ### Required transaction fields
 
 Internal ID · merchant / device / operator · product / provider · amount / currency ·
@@ -365,6 +384,86 @@ For a "paid but no airtime" complaint:
 Telga temporarily protects the merchant for **verified provider-side non-delivery**, then recovers
 from the responsible provider where contractually possible. Wrong details, misuse, fraud, and
 unrecorded payments require evidence. **Never auto-refund an unknown outcome.**
+
+### 17.1 Merchant-initiated reversal
+
+A merchant may **request** a reversal from the app. Telga **approves** it. The two are separate
+acts and must stay separate.
+
+| Step | Who | What |
+|---|---|---|
+| 1 | Merchant | Presses **Reverse** on a transaction, states a reason, authorises with their PIN |
+| 2 | Telga | Checks state, reversal window, and token redemption |
+| 3 | Telga | Moves the transaction to `REVERSAL_REQUIRED` and opens a support case |
+| 4 | Supervisor | `OPS_APPROVER` or `ADMIN` completes it — the money moves here, not at step 1 |
+| 5 | Both | A reversal receipt is available, marked `REVERSED`, carrying both transaction ids |
+
+**Why a merchant cannot complete their own reversal.** §13 invariant 8: *"Corrections are authorized
+adjustment entries, never silent edits."* A reversal moves money back on the strength of a human
+judgement about whether value was delivered. A merchant judging that alone is a merchant who can
+return their own money for a sale a customer received.
+
+**The reversal fee is configurable and defaults to ZERO.** §19 states plainly: *"No ordinary fee for
+blocked, rejected, failed, pending, duplicate, or normally reversed requests."* The mechanism exists
+so a fee can be set if the commercial model later requires one; setting it above zero **contradicts
+§19 and requires a founder decision recorded in [[Decision Log]]**. Nothing may invent a rate.
+
+**Reversal window and approval threshold are configuration, not constants in code.** Both default to
+values marked `NOT YET CONFIRMED` and neither may be presented as a commercial term.
+
+**Refusals a merchant will actually meet**, each with its own message: already reversed · not in a
+reversible state · token already redeemed · outside the reversal window · above the threshold and
+awaiting Telga approval.
+
+### 17.2 Complaint verification
+
+A merchant reports a problem; Telga decides whether it is real. This extends `support_cases` — it
+does not introduce a second case system.
+
+| Verdict | Evidence | Action |
+|---|---|---|
+| **Legitimate** | Provider did not deliver · token unredeemed · state `FAILED` or `PENDING` | Reverse, credit the merchant, recover from the provider where contractually possible |
+| **Scam** | Provider confirmed delivery · token redeemed · state `SUCCESSFUL` | Refuse, and flag for review |
+| **Uncertain** | Provider unclear · redemption unknown | Escalate. Protect the merchant temporarily per §17, and say so |
+
+**No photograph upload from the app.** D138 refused an unauthenticated upload path for registration
+for the same reason: it is a way to put arbitrary bytes on Telga's volume. The merchant describes
+the problem and names the transaction; an admin attaches evidence at review, where the originals are.
+
+**A complaint is the one place staff may see an individual transaction.** D144 limits Telga staff to
+aggregates. The exception is inside an **open case, scoped to that one shop** — which is how §17
+becomes answerable again without reopening general browsing. Every such view is audited with the
+case reference.
+
+**Never auto-refund an unknown outcome** (§17). Uncertain is a state, not a decision.
+
+### 19.1 Shop-to-shop transfer — TRAINING ONLY
+
+A shop may send selling balance to another shop.
+
+> **This is a regulated activity and is switched off.** Moving value between two legal entities is
+> money transfer. §2 and §7 list `remittance`, `cash.in_out` and `payments.acceptance` as disabled
+> until legal review and an authorized-partner structure exist. The flag
+> `transfer.shop_to_shop` is **off**, and turning it on is a founder decision that needs legal
+> advice first — not a configuration change.
+
+Built now as a **training-mode simulation**, on the same precedent as the Telga Pay card simulator
+(D87/D124) and training deposits (D70): a training ledger, no counterparty, no bank, no network.
+
+**Rules that hold whatever the flag says:**
+
+- The recipient is named by **device id**, never device key. A device key is a credential; asking a
+  shop to read one aloud to another shop teaches exactly the wrong habit (§18.2).
+- Both shops must be `ACTIVE`. A suspended shop neither sends nor receives.
+- One balanced ledger pair, both sides inside one transaction. A transfer that debited without
+  crediting is money destroyed.
+- **PIN authorised**, per-transfer and daily limits, both configurable and both `NOT YET CONFIRMED`.
+- Above the approval threshold, Telga must approve before it settles.
+- **Irreversible** once settled, unless both shops agree and an admin approves — recorded as an
+  adjustment (§13 invariant 8), never an edit.
+- Any transfer fee is configurable and defaults to **zero**. No rate may be invented.
+- Suspicious patterns — rapid repeats, circular routes — raise an alert rather than blocking
+  silently.
 
 ## 18. Merchant onboarding and hardware
 

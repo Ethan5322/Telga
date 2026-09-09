@@ -107,7 +107,31 @@ export type FeatureFlag =
    * write through. If that ever needs closing — a flood, an abuse report, a
    * regulator's question — it must be one switch, not a deployment.
    */
-  | 'registration.self_service';
+  | 'registration.self_service'
+  /**
+   * A merchant asking for a sale to be reversed — `CLAUDE.md` §17.1.
+   *
+   * Gates the *request*, never the settlement. Completing a reversal is a
+   * supervisor's act and has its own permission; turning this off stops
+   * merchants filing, and changes nothing about who may approve one.
+   */
+  | 'reversal.merchant_initiated'
+  /**
+   * Balance moving from one shop to another — §19.1. **Off, and regulated.**
+   *
+   * Moving value between two legal entities is money transfer. §2 and §7 list
+   * `remittance`, `cash.in_out` and `payments.acceptance` as disabled until
+   * legal review and an authorized-partner structure exist, and this belongs
+   * with them. What is built behind it is a **training simulation** on the same
+   * precedent as the Telga Pay card simulator (D87/D124): a training ledger, no
+   * counterparty, no bank, no network.
+   *
+   * Turning it on is a founder decision that needs legal advice first. It is
+   * deliberately **not** listed in `MOVES_REAL_MONEY`, because what sits behind
+   * it today moves none — and putting it there would make that list mean
+   * "features we are nervous about" rather than "features that move real money".
+   */
+  | 'transfer.shop_to_shop';
 
 /**
  * What is on.
@@ -178,6 +202,14 @@ export const FEATURE_FLAGS: Readonly<Record<FeatureFlag, boolean>> = Object.free
   // not provision itself. Registering a *business* and provisioning a *machine*
   // are different acts with different secrets, and only the first is open here.
   'registration.self_service': true,
+
+  // On. It gates a *request* that a supervisor must still approve, so the
+  // worst it can produce is a queue item — see §17.1.
+  'reversal.merchant_initiated': true,
+
+  // **Off, and it stays off until legal advice says otherwise.** See the note
+  // on the flag itself.
+  'transfer.shop_to_shop': false,
 });
 
 /** Flags that stay off until the CLAUDE.md §8 launch gates are documented. */
@@ -293,6 +325,12 @@ const FEATURE_ROUTES: readonly (readonly [string, FeatureFlag])[] = Object.freez
   // is refused by this entry on the day it is written rather than the day
   // somebody remembers to guard it.
   ['/register', 'registration.self_service'],
+
+  // Gated as trees, so a later `/reverse/confirm` or `/transfer/status` is
+  // refused by this table on the day it is written rather than the day
+  // somebody remembers to guard it.
+  ['/reverse', 'reversal.merchant_initiated'],
+  ['/transfer', 'transfer.shop_to_shop'],
 ] as const);
 
 /**

@@ -26,6 +26,8 @@ export * from './cardPayment';
 export * from './admin';
 export * from './attempt';
 export * from './featureFlags';
+export * from './reversal';
+export * from './transfer';
 export * from './provider';
 export * from './receipt';
 export * from './auth';
