@@ -13,6 +13,36 @@
  *   2. the recovery worker — a supervised sweep loop
  *   3. the POS/API listener
  *
+ * ...and, **only when `TELGA_CONSOLE_HOST` is set**, two more:
+ *
+ *   4. the operations console — the admin panel where applications are approved
+ *   5. a front proxy on `$PORT` that routes by `Host` between the two
+ *
+ * ## Why the console can now be served, and why it is opt-in
+ *
+ * Until 2026-09-09 this script started the POS and the worker and nothing else,
+ * so on a live deployment a shop could submit a registration and **nobody could
+ * approve it** — the console ran only on an operator's own laptop. That makes
+ * the end-to-end flow untestable by anyone who is not sitting at that laptop.
+ *
+ * It stays **off unless `TELGA_CONSOLE_HOST` is set**, and when it is off this
+ * file behaves exactly as it did: the POS binds `$PORT` directly and no proxy
+ * exists. An admin panel is not something to switch on by accident.
+ *
+ * ## Why routing by Host and not by path
+ *
+ * A path prefix (`/admin/...`) would mean rewriting every absolute link, form
+ * action and redirect in the console — 50-odd places — and **one missed link is
+ * a silently half-working admin panel**, which is worse than no admin panel.
+ * Routing on `Host` needs no rewriting at all: each app sees itself at the root,
+ * its cookies scope to its own hostname, and its own origin check keeps working
+ * unchanged.
+ *
+ * The cost is that the operator must attach a second domain to the service in
+ * Railway and name it in `TELGA_CONSOLE_HOST`. That is one setting, and it buys
+ * a separation that is real: an admin panel on its own hostname cannot be
+ * reached by a link that merely guesses a path.
+ *
  * Steps 2 and 3 are long-running and share one SQLite file, which is why they
  * belong in **one** service with **one** volume rather than two services that
  * would each need their own copy of a file that must not be copied. Order
@@ -36,6 +66,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { createServer, request as httpRequest } from 'node:http';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 
@@ -130,9 +161,33 @@ const allowedHosts = required('TELGA_ALLOWED_HOSTS');
 const trustProxy = required('TELGA_TRUST_PROXY');
 const port = process.env.PORT ?? '4321';
 
+/**
+ * The hostname the operations console answers on, or undefined for "not served".
+ *
+ * Set it to a domain attached to this Railway service. Anything arriving with
+ * that `Host` goes to the console; everything else goes to the POS.
+ */
+const consoleHost = (process.env.TELGA_CONSOLE_HOST ?? '').trim().toLowerCase();
+const serveConsole = consoleHost.length > 0;
+
+/**
+ * Internal ports, bound to loopback inside the container.
+ *
+ * Only the proxy is reachable from outside. Neither app binds a public
+ * interface when the console is being served, so there is no way to reach
+ * either one except through the routing decision below.
+ */
+const POS_INTERNAL_PORT = '4321';
+const CONSOLE_INTERNAL_PORT = '4800';
+
 console.log('[telga] TRAINING MODE — NO REAL VALUE');
 console.log(`[telga] database: ${dbPath}`);
 console.log(`[telga] volume:   ${volumeRoot}`);
+console.log(
+  serveConsole
+    ? `[telga] console:  serving on Host "${consoleHost}"`
+    : '[telga] console:  not served (set TELGA_CONSOLE_HOST to enable)',
+);
 
 /** Run a command to completion. Resolves with its exit code. */
 function run(args) {
@@ -162,6 +217,8 @@ console.log('[telga] migrations applied.');
 // --- 2 and 3. the two long-running processes ---------------------------------
 const children = new Map();
 let shuttingDown = false;
+/** The front listener, when the console is being served. */
+let proxyListener;
 
 function start(label, args) {
   const child = spawn(process.execPath, args, { stdio: 'inherit' });
@@ -181,6 +238,9 @@ function shutdown(reason, code) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[telga] shutting down (${reason})…`);
+  // Stop accepting before the children are asked to stop, so a request cannot
+  // arrive for a process that is already draining.
+  if (proxyListener !== undefined) proxyListener.close();
   for (const [label, child] of children) {
     console.log(`[telga] stopping ${label}`);
     // Both CLIs handle SIGTERM: stop accepting, finish in-flight work, release
@@ -208,21 +268,189 @@ function shutdown(reason, code) {
 
 start('worker', ['services/worker/dist/cli.js', '--db', dbPath]);
 
+/**
+ * Where the POS listens, and what it will believe about the client.
+ *
+ * **Without the console** it binds `$PORT` on every interface, exactly as
+ * before, and trusts only `TELGA_TRUST_PROXY` — Railway's edge.
+ *
+ * **With the console** it binds loopback on an internal port, and the proxy in
+ * front of it is a second hop. So loopback is added to its trusted set: the
+ * proxy is inside this container, it is the only thing that can reach the
+ * port, and it forwards the edge's own `X-Forwarded-*` headers unchanged. The
+ * edge's range stays in the list too, so the app's view of "who may tell me the
+ * client's scheme" is still an explicit list and still has no trust-all entry
+ * (D45, D109).
+ */
+const posHost = serveConsole ? '127.0.0.1' : '0.0.0.0';
+const posPort = serveConsole ? POS_INTERNAL_PORT : port;
+const posTrust = serveConsole ? `${trustProxy},127.0.0.1/32,::1/128` : trustProxy;
+
 start('pos', [
   'apps/merchant-pos/dist/cli.js',
   '--db', dbPath,
   '--merchant', merchantId,
-  '--host', '0.0.0.0',
-  '--port', port,
+  '--host', posHost,
+  '--port', posPort,
   '--transport', 'TRAINING_HTTPS',
   // Railway terminates TLS at its edge and speaks HTTP to this container, so
   // the scheme is whatever the edge says it is — believed only from the
   // address range named in TELGA_TRUST_PROXY. There is no trust-all option and
   // no built-in range: see `apps/merchant-pos/src/transport/proxy.ts`.
   '--tls-termination', 'TRUSTED_PROXY',
-  '--trust-proxy', trustProxy,
+  '--trust-proxy', posTrust,
   '--allowed-hosts', allowedHosts,
 ]);
+
+if (serveConsole) {
+  /**
+   * The first administrator, so somebody can actually sign in.
+   *
+   * A fresh volume has no admin user, and the console has no sign-up: without
+   * this, the panel deploys and nobody on earth can open it. There is no shell
+   * on a Railway container to run the CLI by hand, so the supervisor runs it.
+   *
+   * ## Why this is safe to run on every boot
+   *
+   * `saveAdminUser` inserts, and the email is unique — so the **second** and
+   * every later attempt fails and changes nothing. It cannot overwrite an
+   * existing owner, reset a password, or reinstate a suspended account. A
+   * non-zero exit here is therefore the normal case after the first deploy, and
+   * it is logged rather than treated as a failure.
+   *
+   * The trade this accepts: a genuine refusal (a malformed email, a password
+   * under twelve characters) looks the same as "already exists" from here. The
+   * console prints its own reason to stderr and Railway keeps it, so the
+   * distinction is one log line away rather than invisible.
+   *
+   * ## What it does not grant
+   *
+   * A password alone opens nothing. The console requires a second factor to be
+   * enrolled before any screen works, so an environment variable that leaked
+   * would still not be an admin session. Change the password after first
+   * sign-in regardless — it has been in a deployment variable, which is not
+   * where a credential should live permanently.
+   */
+  const ownerEmail = (process.env.TELGA_CONSOLE_OWNER_EMAIL ?? '').trim();
+  const ownerPassword = process.env.TELGA_CONSOLE_OWNER_PASSWORD ?? '';
+  if (ownerEmail.length > 0 && ownerPassword.length > 0) {
+    console.log(`[telga] ensuring a Platform Owner exists (${ownerEmail})…`);
+    const ownerCode = await run([
+      'apps/operations-console/dist/cli.js',
+      '--db', dbPath,
+      '--create-owner', ownerEmail,
+      '--owner-password', ownerPassword,
+      '--owner-name', process.env.TELGA_CONSOLE_OWNER_NAME ?? ownerEmail,
+    ]);
+    console.log(
+      ownerCode === 0
+        ? '[telga] Platform Owner created. Sign in and enrol a second factor.'
+        : '[telga] no Platform Owner created — it already exists, or the console refused it above.',
+    );
+  } else {
+    console.log(
+      '[telga] TELGA_CONSOLE_OWNER_EMAIL/PASSWORD not set — no administrator will be created.',
+    );
+  }
+
+  start('console', [
+    'apps/operations-console/dist/cli.js',
+    '--db', dbPath,
+    '--host', '127.0.0.1',
+    '--port', CONSOLE_INTERNAL_PORT,
+    // The console refuses a non-loopback bind without proof that something in
+    // front is terminating TLS. It binds loopback here, and the range is what
+    // makes its session cookie `Secure` — which it must be, because the
+    // connection from the browser to Railway's edge is HTTPS.
+    '--trust-proxy', `${trustProxy},127.0.0.1/32,::1/128`,
+    // Its own hostname, not the POS's. The console answers only for the host it
+    // was told about, and that host is what the proxy routes on.
+    '--allowed-hosts', consoleHost,
+  ]);
+
+  startProxy();
+}
+
+
+/**
+ * The front door: one listener on `$PORT`, routing on `Host`.
+ *
+ * ## What it does and does not touch
+ *
+ * It forwards the request unchanged — method, path, body, and **every header**,
+ * including the `X-Forwarded-*` set Railway's edge already wrote. It adds
+ * nothing to them: rewriting `X-Forwarded-For` here would replace the client's
+ * address with the proxy's own, and both apps use that value (the POS to
+ * throttle registration by source, both to decide the client's scheme). The one
+ * header it must preserve above all is `Host`, because that is what each app's
+ * own allow-list checks.
+ *
+ * ## Why an unknown Host goes to the POS
+ *
+ * Because that is the merchant-facing app and the safe default: a request that
+ * does not name the console's hostname must never reach the console. The
+ * console's own `--allowed-hosts` would refuse it anyway — this is the first of
+ * two checks, not the only one.
+ *
+ * ## What it is not
+ *
+ * Not a load balancer, not a cache, not a TLS terminator. Railway's edge does
+ * TLS; this speaks plain HTTP to loopback inside one container.
+ *
+ * The routing decision below is pinned by `tests/admin/console-routing.test.ts`,
+ * which duplicates it against real listeners — including the near-miss
+ * hostnames a `startsWith` or `includes` comparison would hand the admin panel
+ * to. This file cannot be imported by a test: it reads the environment and
+ * spawns children at module scope, so importing it would start a deployment.
+ */
+function startProxy() {
+  const listener = createServer((clientReq, clientRes) => {
+    const rawHost = String(clientReq.headers.host ?? '');
+    // Compared without the port, and lowercased: a browser may send
+    // `admin.example.com:443` and an allow-list is written bare.
+    const host = rawHost.replace(/:\d+$/, '').toLowerCase();
+    const target = host === consoleHost ? CONSOLE_INTERNAL_PORT : POS_INTERNAL_PORT;
+
+    const upstream = httpRequest(
+      {
+        host: '127.0.0.1',
+        port: target,
+        path: clientReq.url,
+        method: clientReq.method,
+        headers: clientReq.headers,
+      },
+      (upstreamRes) => {
+        clientRes.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+        upstreamRes.pipe(clientRes);
+      },
+    );
+
+    upstream.on('error', (error) => {
+      // The app behind this is starting, or has just died — in which case the
+      // supervisor is already tearing the service down. Answer plainly rather
+      // than hanging: a socket left open is a request the edge waits on until
+      // it times out.
+      console.error(`[telga] proxy: upstream :${target} unreachable (${error.message})`);
+      if (!clientRes.headersSent) clientRes.writeHead(502, { 'content-type': 'text/plain' });
+      clientRes.end('Telga is starting or restarting. Try again in a moment.\n');
+    });
+
+    clientReq.pipe(upstream);
+  });
+
+  listener.on('error', (error) => {
+    console.error(`[telga] proxy failed to bind :${port} (${error.message})`);
+    shutdown('proxy-failed', EXIT.childFailed);
+  });
+
+  listener.listen(Number(port), '0.0.0.0', () => {
+    console.log(`[telga] proxy listening on :${port}`);
+    console.log(`[telga]   Host ${consoleHost} -> console :${CONSOLE_INTERNAL_PORT}`);
+    console.log(`[telga]   everything else    -> pos     :${POS_INTERNAL_PORT}`);
+  });
+
+  proxyListener = listener;
+}
 
 process.on('SIGTERM', () => shutdown('SIGTERM', EXIT.ok));
 process.on('SIGINT', () => shutdown('SIGINT', EXIT.ok));
