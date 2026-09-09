@@ -260,7 +260,11 @@ describe('security headers over TLS', () => {
     const response = await fetchOnce(port, '/login');
 
     expect(response.headers['x-content-type-options']).toBe('nosniff');
-    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    // `same-origin`, not `no-referrer` — D142. `no-referrer` makes a browser
+    // send `Origin: null` on a form POST, which turned the console's origin
+    // check into a lockout and left this app relying on a blanket allowance for
+    // opaque origins (R43). No referrer still leaves this origin.
+    expect(response.headers['referrer-policy']).toBe('same-origin');
     expect(String(response.headers['permissions-policy'])).toContain('camera=()');
     expect(String(response.headers['cache-control'])).toContain('no-store');
     expect(response.headers['cross-origin-opener-policy']).toBe('same-origin');

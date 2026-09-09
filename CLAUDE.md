@@ -347,6 +347,12 @@ secure reconnect and state synchronization. **No offline vending in pilot.**
 
 ## 17. Complaints and loss
 
+> **Unimplemented, and deliberately so.** Founder decision **D144** limits Telga staff to
+> **aggregates** — the operations console shows per-shop counts and states, never an individual
+> transaction. Step 1 below ("search by transaction ID…") therefore **cannot be performed from the
+> console**, and no replacement mechanism exists yet. The obligation in this section still stands;
+> the means does not. Tracked as **R44**, and it must be resolved before a pilot.
+
 For a "paid but no airtime" complaint:
 
 1. Search by transaction ID, receipt, time, amount, or reference.
@@ -662,6 +668,48 @@ interface AirtimeProvider {
   healthCheck(): Promise<ProviderHealth>;
 }
 ```
+
+### 23.1 Console identity policy
+
+The operations console enforces two identity checks: a **second factor** on the
+session, and **step-up re-authentication** within a five-minute window before
+high-risk actions (approving a merchant, registering a device, issuing an
+enrolment token, approving funding, managing administrators).
+
+Both may be switched off together — `--single-factor true` /
+`TELGA_CONSOLE_SINGLE_FACTOR=true` — for a training deployment where an
+administrator would otherwise retype a code on every button ([[Decision Log]]
+D143). **Off by default**, announced at start-up, and shown as a banner on
+every page.
+
+**The relaxation is of identity proof only.** Permissions are unchanged, a
+suspended administrator is still refused, and every action is still audited
+under its actor. Widening authority is a different decision and must never ride
+along with this flag.
+
+**It must be off before live money.** §8's "security and permissions tested"
+gate cannot close while it is on.
+
+### 23.2 What Telga staff may see of a shop
+
+**Aggregates, not individual transactions** — founder decision **D144**.
+
+| Telga staff may see | Telga staff may **not** see |
+|---|---|
+| Per-shop sales count, volume, and counts by state | Any individual transaction |
+| Pending and under-review counts | Any recipient, masked or otherwise |
+| Balances, devices, operators, applications, deposits | Any single sale's amount |
+| Audit of their own colleagues' actions | — |
+
+**No slip printing.** A slip is the shop's document for its customer. The console produces no
+receipt, no reprint and no admin copy, and a test asserts that none appears.
+
+**Removed, not hidden.** `/transactions` and `/transactions/:id` answer 404. Hiding a control while
+its endpoint still answers is a defect, not a control.
+
+**Why pending and under-review counts survive the boundary:** that a shop *has* an unresolved sale
+is a platform fact an operations desk cannot work without. Whose money it was is the shop's
+business. That is where the line sits.
 
 ## 24. Security
 

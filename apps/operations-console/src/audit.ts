@@ -78,6 +78,21 @@ export type AdminAuditEvent =
   | 'ADMIN_MERCHANT_REINSTATED'
   /** One device stopped and its sessions revoked. The shop's others carry on. */
   | 'ADMIN_DEVICE_STOPPED'
+  /**
+   * One **operator** stopped, and their sessions revoked. The shop's other
+   * operators carry on — the same shape as stopping one device rather than
+   * suspending a merchant, one level further in.
+   */
+  | 'ADMIN_OPERATOR_SUSPENDED'
+  | 'ADMIN_OPERATOR_REINSTATED'
+  /**
+   * A temporary PIN issued for an operator who had lost theirs.
+   *
+   * The event records **that** it happened and who did it, never the PIN. An
+   * audit trail carrying credentials turns every reader of the audit screen
+   * into a holder of them.
+   */
+  | 'ADMIN_OPERATOR_PIN_RESET'
   | 'ADMIN_APPLICATION_PICKED_UP'
   | 'ADMIN_APPLICATION_DECIDED'
   | 'ADMIN_ENROLLMENT_TOKEN_ISSUED'

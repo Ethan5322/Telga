@@ -260,23 +260,64 @@ export const STEP_UP_WINDOW_MS = 5 * 60 * 1000;
  * Throws rather than returning false, for the same reason `requireFeature`
  * does: a caller cannot forget to check a thrown error.
  */
+/**
+ * Which of the two identity checks are in force.
+ *
+ * **Both are on unless a caller explicitly turns one off.** The default value
+ * is the strict one, so a caller that has never heard of this parameter gets
+ * exactly the behaviour that existed before it.
+ *
+ * Single-factor exists because the founder asked for it on the training
+ * deployment ([[Decision Log]] D143): an administrator who has just typed a
+ * password should not be asked for a code again on every button. It is a
+ * **setting** rather than a code change for two reasons — turning it back on
+ * for real money is then one flag rather than a rebuild, and the fact that it
+ * is off is visible in configuration rather than buried in a diff.
+ *
+ * ## What neither flag is allowed to do
+ *
+ * **Change who may do what.** Permissions are untouched by both. Relaxing
+ * *identity proof* and widening *authority* are different decisions, and
+ * merging them is how an audit discovers that "training mode" quietly granted
+ * somebody the ability to move money.
+ */
+export interface AdminAuthPolicy {
+  /** Require a second factor to have been satisfied on this session. */
+  readonly requireMfa?: boolean;
+  /** Require the password to have been retyped recently for high-risk actions. */
+  readonly requireStepUp?: boolean;
+}
+
+/** Both checks in force. The default, and what production must use. */
+export const STRICT_ADMIN_AUTH: AdminAuthPolicy = Object.freeze({
+  requireMfa: true,
+  requireStepUp: true,
+});
+
 export function requireAdmin(
   context: AdminAuthContext,
   permission: AdminPermission,
   now: Timestamp,
+  policy: AdminAuthPolicy = STRICT_ADMIN_AUTH,
 ): void {
   if (context.user.status !== 'ACTIVE') {
     throw new AdminAccessDeniedError(permission, 'INACTIVE');
   }
   // MFA gates everything except enrolling MFA itself, which is handled by the
   // caller: an admin must be able to sign in once in order to enrol one.
-  if (!context.mfaSatisfied) {
+  //
+  // `!== false` rather than `=== true`: an absent field means strict, so a
+  // partly-filled policy object cannot silently disable a check.
+  if (policy.requireMfa !== false && !context.mfaSatisfied) {
     throw new AdminAccessDeniedError(permission, 'MFA_REQUIRED');
   }
+  // **Checked whatever the policy says.** Neither flag may widen authority — an
+  // administrator without the grant is refused in single-factor mode exactly as
+  // in strict mode.
   if (!effectivePermissions(context.user).includes(permission)) {
     throw new AdminAccessDeniedError(permission, 'NOT_GRANTED');
   }
-  if (STEP_UP_REQUIRED.includes(permission)) {
+  if (policy.requireStepUp !== false && STEP_UP_REQUIRED.includes(permission)) {
     const at = context.steppedUpAt === null ? NaN : Date.parse(context.steppedUpAt);
     const elapsed = Date.parse(now) - at;
     if (!Number.isFinite(elapsed) || elapsed > STEP_UP_WINDOW_MS) {

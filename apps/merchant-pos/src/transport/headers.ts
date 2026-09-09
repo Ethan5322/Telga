@@ -91,7 +91,20 @@ export function securityHeaders(options: HeaderOptions): Record<string, string> 
   const headers: Record<string, string> = {
     'content-security-policy': contentSecurityPolicy(options.nonce),
     'x-content-type-options': 'nosniff',
-    'referrer-policy': 'no-referrer',
+    /**
+     * `same-origin`, not `no-referrer`. See the console's copy of this header
+     * for the full story; the short version is that `no-referrer` makes a
+     * browser send `Origin: null` on a form POST, which turns an origin check
+     * into a lockout.
+     *
+     * The POS never showed the symptom because `checkOrigin` lets `null`
+     * through unconditionally — a blanket allowance that also lets a **sandboxed
+     * iframe** post to it. Removing the cause here is what makes tightening that
+     * allowance safe to do later, on real hardware, rather than blind.
+     *
+     * The privacy property is unchanged: no referrer leaves this origin.
+     */
+    'referrer-policy': 'same-origin',
     'permissions-policy': PERMISSIONS_POLICY,
     'cross-origin-opener-policy': 'same-origin',
     'cross-origin-resource-policy': 'same-origin',

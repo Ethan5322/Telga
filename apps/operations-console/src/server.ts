@@ -18,6 +18,7 @@
  * admin cannot use is a courtesy; the refusal is the route's job.
  */
 
+import { randomInt } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import {
@@ -48,8 +49,13 @@ import {
   MAX_DOCUMENT_BYTES,
 } from '@telga/api';
 import type { DocumentMediaType, MultipartFile } from '@telga/api';
-import type { AdminAuthContext, AdminPermission } from '@telga/domain';
-import { AdminAccessDeniedError, effectivePermissions, requireAdmin } from '@telga/domain';
+import type { AdminAuthContext, AdminAuthPolicy, AdminPermission } from '@telga/domain';
+import {
+  AdminAccessDeniedError,
+  STRICT_ADMIN_AUTH,
+  effectivePermissions,
+  requireAdmin,
+} from '@telga/domain';
 import {
   ApplicationWriteError,
   clearAdminMfaSecret,
@@ -59,6 +65,12 @@ import {
   revokeAllAdminSessions,
   saveAdminUser,
 } from '@telga/persistence';
+import {
+  activityScreen,
+  issuedPinScreen,
+  operatorsScreen,
+  providerHealthScreen,
+} from './ui/opsScreens';
 import { recordAdminAction } from './audit';
 import type { AdminAuditInput } from './audit';
 import { consoleProvisioningPorts } from './provisioningPorts';
@@ -95,6 +107,22 @@ export interface ConsoleOptions {
   readonly schemaVersion: string;
   /** Hosts the console will answer for. Anything else is refused. */
   readonly allowedHosts?: readonly string[];
+  /**
+   * Sign in with a password alone, and never ask again — [[Decision Log]] D143.
+   *
+   * **Absent means strict**, which is the only safe default: a deployment that
+   * forgets to set this gets a second factor and step-up re-authentication, not
+   * the relaxation.
+   *
+   * Turning it on skips *identity proof* and nothing else. Permissions are
+   * unchanged, every action is still audited with the administrator's name, and
+   * a banner appears on every page so nobody has to guess which mode a console
+   * is running in.
+   *
+   * **It must be off before real money.** `CLAUDE.md` §8 gate "security and
+   * permissions tested" cannot close with this on.
+   */
+  readonly singleFactorAuth?: boolean;
   /** Set `Secure` on the session cookie. False only for loopback HTTP. */
   readonly secureCookies?: boolean;
   /**
@@ -226,7 +254,27 @@ export function safeReturnTo(candidate: string | undefined): string {
 const headers = (secure: boolean) => ({
   'content-type': 'text/html; charset=utf-8',
   'content-security-policy': CONTENT_SECURITY_POLICY,
-  'referrer-policy': 'no-referrer',
+  /**
+   * `same-origin`, not `no-referrer` — and the difference was a sign-in bug.
+   *
+   * `no-referrer` looks like the strictly safer choice and reads that way. It
+   * is not, because it does not only strip the `Referer`: when the referrer
+   * policy suppresses the referrer entirely, browsers serialise the **`Origin`
+   * header of a form POST as the literal `null`**. The console then compared
+   * `null` against its allow-list, failed, and answered *"Refused: cross-site
+   * request"* — to a form it had served itself, one keystroke earlier, on the
+   * same origin.
+   *
+   * That is why the bug was invisible to every test and every command-line
+   * check: `curl` and Node send a real `Origin` and are let straight through.
+   * Only a browser submitting the actual form reproduced it.
+   *
+   * `same-origin` keeps the privacy property that mattered — **no referrer
+   * ever leaves this origin**, so no admin URL reaches a third party — while
+   * letting a same-origin navigation carry the header the CSRF check depends
+   * on. The merchant app carries the same change, for the same reason.
+   */
+  'referrer-policy': 'same-origin',
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
   // A console page is per-admin and privileged. It must not sit in a cache.
@@ -257,6 +305,35 @@ const unbracket = (host: string): string =>
 function originOk(request: IncomingMessage, allowedHosts: readonly string[]): boolean {
   const origin = request.headers['origin'];
   if (typeof origin !== 'string') return true; // Same-origin form posts may omit it.
+
+  /**
+   * An opaque origin, judged on `Sec-Fetch-Site` instead of being refused flat.
+   *
+   * A browser sends `Origin: null` in more situations than the obvious one. A
+   * sandboxed iframe does — and must stay refused. But so does a plain form
+   * POST under a referrer policy that suppresses the referrer, which is what
+   * this console used to send, and that is a page refusing a form it served
+   * itself. The header above is fixed; this is the belt to that braces, because
+   * a redirect, an embedded WebView or a future policy change can produce an
+   * opaque origin again and the failure mode is a locked-out administrator.
+   *
+   * `Sec-Fetch-Site` is set **by the browser** and is unreachable from script,
+   * so it cannot be spoofed by the cross-site page this check exists to stop.
+   * A cross-site form POST arrives as `cross-site`; a sandboxed iframe on
+   * another origin arrives as `cross-site`. Neither is accepted here.
+   *
+   *   - `same-origin` — the console's own page posting to itself.
+   *   - `none` — a user-initiated navigation, typed or bookmarked.
+   *
+   * Anything else, and any request whose browser did not send the header at
+   * all, keeps the old answer: refused. An older client that sends neither a
+   * usable `Origin` nor `Sec-Fetch-Site` is exactly the case that should not be
+   * given the benefit of the doubt on an admin console.
+   */
+  if (origin === 'null') {
+    const site = request.headers['sec-fetch-site'];
+    return site === 'same-origin' || site === 'none';
+  }
   try {
     // `hostname`, not `host.split(':')[0]`.
     //
@@ -296,6 +373,19 @@ export function createConsoleServer(options: ConsoleOptions): Server {
   // to agree, or the console serves a page it will not accept input from.
   const allowedHosts = options.allowedHosts ?? ['localhost', '127.0.0.1', '::1'];
   const secure = options.secureCookies ?? false;
+
+  /**
+   * The identity policy this console runs under, decided once at construction.
+   *
+   * Read from the option rather than consulted per request, so it cannot differ
+   * between the guard and the screens that decide what to render — a console
+   * that hid a button its guard would have allowed, or offered one it would
+   * refuse, is worse than either mode on its own.
+   */
+  const adminPolicy: AdminAuthPolicy =
+    options.singleFactorAuth === true
+      ? { requireMfa: false, requireStepUp: false }
+      : STRICT_ADMIN_AUTH;
   const ports = { db: options.db as never, now: options.now, newId: options.newId };
 
   /**
@@ -329,13 +419,27 @@ export function createConsoleServer(options: ConsoleOptions): Server {
     csrfToken: csrf,
     serverTime: options.now(),
     mfaSatisfied: context === undefined ? undefined : context.mfaSatisfied,
+    singleFactorAuth: options.singleFactorAuth === true,
   });
 
   return createServer((request, response) => {
-    void handle(request, response).catch(() => {
+    void handle(request, response).catch((error: unknown) => {
       // An unhandled throw must not leak a stack trace to a browser. The
       // console is the one surface where an internal detail is most useful to
       // an attacker.
+      /**
+       * Say what went wrong, to the operator's terminal.
+       *
+       * The browser gets "Something went wrong." and nothing more — this is the
+       * one surface where an internal detail is most useful to an attacker. But
+       * a 500 with no trace anywhere costs an hour: this exact handler swallowed
+       * a `no such column: revoked_reason` while the operator screen showed
+       * only a polite refusal, and the same shape of blindness is what
+       * `TELGA_DB_PATH is not set` and the cross-site refusal both had to be
+       * fixed for. To stderr, where whoever started the console can see it.
+       */
+      process.stderr.write(`[telga-console] unhandled: ${String(error)}
+`);
       respond(response, 500, document(deniedScreen({ serverTime: options.now() }, 'Something went wrong.'), 'Error'));
     });
   });
@@ -419,7 +523,7 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         'content-type': 'application/json',
         'cache-control': 'no-store',
         'x-content-type-options': 'nosniff',
-        'referrer-policy': 'no-referrer',
+        'referrer-policy': 'same-origin',
       });
       response.end(
         JSON.stringify({
@@ -475,7 +579,11 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         metadata: { mfaSatisfied: result.mfaSatisfied },
       });
       response.writeHead(303, {
-        location: '/mfa',
+        // Straight to the dashboard under single-factor (D143). Sending an
+        // administrator to a second-factor page that nothing is waiting on
+        // would be the same complaint in a different place: the session already
+        // has every permission its role grants.
+        location: adminPolicy.requireMfa === false ? '/' : '/mfa',
         'set-cookie': [
           cookie(SESSION_COOKIE, result.sessionToken, secure),
           cookie(CSRF_COOKIE, result.csrfToken, secure),
@@ -583,7 +691,15 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       return;
     }
 
-    if (!context.mfaSatisfied) {
+    /**
+     * The second-factor gate.
+     *
+     * Skipped entirely under single-factor (D143). Not "satisfied by default" —
+     * **skipped**, so `mfa_satisfied` on the session stays false and the audit
+     * trail never records a second factor that was not presented. The console
+     * says which mode it is in on every page, so nobody has to infer it.
+     */
+    if (adminPolicy.requireMfa !== false && !context.mfaSatisfied) {
       response.writeHead(303, { location: '/mfa' });
       response.end();
       return;
@@ -632,7 +748,7 @@ export function createConsoleServer(options: ConsoleOptions): Server {
     /** Refuse unless permitted, turning a step-up into a redirect rather than an error. */
     const guard = (permission: AdminPermission): boolean => {
       try {
-        requireAdmin(context, permission, options.now() as never);
+        requireAdmin(context, permission, options.now() as never, adminPolicy);
         return true;
       } catch (error) {
         if (error instanceof AdminAccessDeniedError && error.reason === 'STEP_UP_REQUIRED') {
@@ -1803,6 +1919,250 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       });
       response.writeHead(303, { location: '/admins' });
       response.end();
+      return;
+    }
+
+    // --- shop activity, aggregates only ------------------------------------
+    //
+    // A transaction list and a detail page lived here for about an hour on
+    // 2026-09-09 and were removed by founder decision **D144**: Telga staff see
+    // aggregates and performance, never a shop's individual sales.
+    //
+    // **The routes are gone, not hidden.** `/transactions` and
+    // `/transactions/:id` answer 404 like any unknown path — the feature-flag
+    // work already had to learn once that hiding a button while the endpoint
+    // still answers is a defect, not a control.
+    //
+    // The cost is real and recorded rather than absorbed: §17's "search by
+    // transaction ID" cannot be done from this console (R44).
+
+    if (path === '/activity' && method === 'GET') {
+      if (!guard('ADMIN_VIEW_MERCHANT')) return;
+
+      // Grouped in SQL rather than in memory. At 1000+ shops the alternative is
+      // reading every transaction row into this process to count them, which is
+      // the shape of query that works in training and falls over in a pilot.
+      const perShop = rows<{
+        merchant_id: string; status: string; sales: number; volume: number;
+        successful: number; pending: number; under_review: number; failed: number;
+        last_sale: string | null;
+      }>(
+        `SELECT m.id AS merchant_id,
+                m.status AS status,
+                COUNT(t.id) AS sales,
+                COALESCE(SUM(CASE WHEN t.state = 'SUCCESSFUL' THEN t.amount_minor ELSE 0 END), 0) AS volume,
+                COALESCE(SUM(CASE WHEN t.state = 'SUCCESSFUL' THEN 1 ELSE 0 END), 0) AS successful,
+                COALESCE(SUM(CASE WHEN t.state = 'PENDING' THEN 1 ELSE 0 END), 0) AS pending,
+                COALESCE(SUM(CASE WHEN t.state = 'UNDER_REVIEW' THEN 1 ELSE 0 END), 0) AS under_review,
+                COALESCE(SUM(CASE WHEN t.state IN ('FAILED','REJECTED','REVERSED') THEN 1 ELSE 0 END), 0) AS failed,
+                MAX(t.created_at) AS last_sale
+           FROM merchants m
+           LEFT JOIN transactions t ON t.merchant_id = m.id
+          GROUP BY m.id, m.status
+          ORDER BY sales DESC, m.id`,
+      );
+
+      const shaped = perShop.map((r) => ({
+        merchantId: r.merchant_id,
+        status: r.status,
+        sales: r.sales,
+        volumeMinor: r.volume,
+        successful: r.successful,
+        pending: r.pending,
+        underReview: r.under_review,
+        failed: r.failed,
+        lastSaleAt: r.last_sale,
+      }));
+
+      screen(
+        activityScreen({
+          chrome: chromeFor(context, csrf),
+          rows: shaped,
+          totals: {
+            // Shops that have actually traded, not shops that exist. "12 shops
+            // trading" and "12 shops registered" are different facts and the
+            // second one is already on the dashboard.
+            shops: shaped.filter((r) => r.sales > 0).length,
+            sales: shaped.reduce((n, r) => n + r.sales, 0),
+            volumeMinor: shaped.reduce((n, r) => n + r.volumeMinor, 0),
+            pending: shaped.reduce((n, r) => n + r.pending, 0),
+            underReview: shaped.reduce((n, r) => n + r.underReview, 0),
+          },
+        }),
+        'Shop activity',
+      );
+      return;
+    }
+
+    // --- operators ---------------------------------------------------------
+    //
+    // The people who actually sign in at a counter. Suspending one and
+    // resetting a forgotten PIN were CLI-only, which meant a shop with a locked
+    // operator had to wait for somebody with shell access.
+
+    if (path === '/operators' && method === 'GET') {
+      if (!guard('ADMIN_VIEW_OPERATOR')) return;
+      const found = rows<{
+        id: string; merchant_id: string; display_name: string; role: string; status: string;
+        locked_until: string | null; last_login_at: string | null; must_change_pin: number;
+      }>(
+        `SELECT id, merchant_id, display_name, role, status, locked_until, last_login_at,
+                must_change_pin
+           FROM merchant_users ORDER BY merchant_id, display_name`,
+      );
+      const now = options.now();
+      screen(
+        operatorsScreen({
+          chrome: chromeFor(context, csrf),
+          allowed,
+          error: url.searchParams.get('error') ?? undefined,
+          notice: url.searchParams.get('notice') ?? undefined,
+          rows: found.map((r) => ({
+            id: r.id,
+            merchantId: r.merchant_id,
+            displayName: r.display_name,
+            role: r.role,
+            status: r.status,
+            // Only a lock that is still in the future. A stale timestamp shown
+            // as a live lock sends somebody to reset a PIN that works.
+            lockedUntil: r.locked_until !== null && r.locked_until > now ? r.locked_until : null,
+            lastLoginAt: r.last_login_at,
+            mustChangePin: r.must_change_pin === 1,
+          })),
+        }),
+        'Operators',
+      );
+      return;
+    }
+
+    const operatorToggle = /^\/operators\/([^/]+)\/(suspend|reinstate)$/.exec(path);
+    if (operatorToggle && method === 'POST') {
+      if (!guard('ADMIN_SUSPEND_OPERATOR')) return;
+      const id = decodeURIComponent(operatorToggle[1]);
+      const next = operatorToggle[2] === 'suspend' ? 'SUSPENDED' : 'ACTIVE';
+      const changed = options.db
+        .prepare(`UPDATE merchant_users SET status = ?, updated_at = ? WHERE id = ? AND status <> ?`)
+        .run(next, options.now(), id, next) as { changes: number };
+
+      if (changed.changes === 0) {
+        response.writeHead(303, { location: '/operators?error=Nothing%20changed.' });
+        response.end();
+        return;
+      }
+
+      // Suspending must also end the session the operator is holding. A
+      // suspension that waited for a voluntary sign-out would leave the till
+      // working — the same reasoning the device-stop route already applies.
+      if (next === 'SUSPENDED') {
+        options.db
+          .prepare(
+            // The same three columns the device-stop route sets, read from the
+            // schema rather than assumed: a session is revoked by moving its
+            // `status`, not only by stamping `revoked_at`. Setting the timestamp
+            // alone would leave `status = 'ACTIVE'`, and `authenticate` reads
+            // the status — so the session would have kept working.
+            `UPDATE sessions SET status = 'REVOKED', revoked_at = ?,
+                    revocation_reason = 'OPERATOR_SUSPENDED'
+              WHERE user_id = ? AND status = 'ACTIVE'`,
+          )
+          .run(options.now(), id);
+      }
+
+      record({
+        event: next === 'SUSPENDED' ? 'ADMIN_OPERATOR_SUSPENDED' : 'ADMIN_OPERATOR_REINSTATED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'MERCHANT_USER',
+        entityId: id,
+      });
+      response.writeHead(303, { location: '/operators' });
+      response.end();
+      return;
+    }
+
+    const operatorReset = /^\/operators\/([^/]+)\/reset-pin$/.exec(path);
+    if (operatorReset && method === 'POST') {
+      if (!guard('ADMIN_RESET_OPERATOR_PIN')) return;
+      const id = decodeURIComponent(operatorReset[1]);
+      const exists = options.db
+        .prepare('SELECT id FROM merchant_users WHERE id = ?')
+        .get(id) as { id: string } | undefined;
+      if (exists === undefined) {
+        response.writeHead(303, { location: '/operators?error=No%20such%20operator.' });
+        response.end();
+        return;
+      }
+
+      // Six digits from `randomInt`, never `Math.random`: this is a credential.
+      const pin = String(randomInt(0, 1_000_000)).padStart(6, '0');
+      const derived = await hashAdminSecret(pin);
+      options.db
+        .prepare(
+          `UPDATE merchant_users
+              SET pin_hash = ?, pin_salt = ?, pin_params = ?, must_change_pin = 1,
+                  failed_attempts = 0, locked_until = NULL, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(derived.hash, derived.salt, derived.params, options.now(), id);
+
+      record({
+        event: 'ADMIN_OPERATOR_PIN_RESET',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'MERCHANT_USER',
+        entityId: id,
+        // Never the PIN. An audit trail carrying credentials turns every reader
+        // of the audit screen into a holder of them.
+      });
+
+      // Rendered, not redirected: a PIN must never reach a URL or a log.
+      respond(
+        response,
+        201,
+        document(issuedPinScreen({ chrome: chromeFor(context, csrf), operatorId: id, pin }), 'Temporary PIN'),
+      );
+      return;
+    }
+
+    // --- provider health ---------------------------------------------------
+    //
+    // §16 requires outage isolation and §26 asks for outage duration as a pilot
+    // metric. The events were written and nothing read them.
+
+    if (path === '/provider-health' && method === 'GET') {
+      if (!guard('ADMIN_VIEW_PROVIDER_HEALTH')) return;
+      const current = rows<{
+        provider_id: string; status: string; previous_status: string | null; at: string; detail: string | null;
+      }>(
+        `SELECT provider_id, status, previous_status, at, detail
+           FROM provider_health_events
+          WHERE at = (SELECT MAX(at) FROM provider_health_events inner_e
+                       WHERE inner_e.provider_id = provider_health_events.provider_id)
+          ORDER BY provider_id`,
+      );
+      const history = rows<{
+        provider_id: string; status: string; previous_status: string | null; at: string; detail: string | null;
+      }>(
+        `SELECT provider_id, status, previous_status, at, detail
+           FROM provider_health_events ORDER BY at DESC LIMIT 100`,
+      );
+      const shape = (r: {
+        provider_id: string; status: string; previous_status: string | null; at: string; detail: string | null;
+      }) => ({
+        providerId: r.provider_id,
+        status: r.status,
+        previousStatus: r.previous_status,
+        at: r.at,
+        detail: r.detail,
+      });
+      screen(
+        providerHealthScreen({
+          chrome: chromeFor(context, csrf),
+          current: current.map(shape),
+          history: history.map(shape),
+        }),
+        'Provider health',
+      );
       return;
     }
 

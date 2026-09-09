@@ -76,6 +76,13 @@ export interface ConsoleChrome {
   readonly section?: string;
   /** False until the second factor is cleared. Drives the banner. */
   readonly mfaSatisfied?: boolean;
+  /**
+   * True when this console is enforcing a password alone — D143.
+   *
+   * Drives the banner that says so on every page. It is a display flag only;
+   * the decision lives in `requireAdmin`'s policy.
+   */
+  readonly singleFactorAuth?: boolean;
 }
 
 interface NavEntry {
@@ -97,6 +104,20 @@ export const NAV: readonly NavEntry[] = Object.freeze([
   { id: 'applications', href: '/applications', label: 'Applications' },
   { id: 'merchants', href: '/merchants', label: 'Merchants' },
   { id: 'devices', href: '/devices', label: 'Devices' },
+  // Deposits had routes — `/deposits`, `/deposits/new`, `POST /deposits` — and
+  // no way to reach them but typing the address. A screen with no entry in the
+  // navigation is a screen that does not exist as far as an operator is
+  // concerned, which is how a working feature gets reported as missing.
+  { id: 'deposits', href: '/deposits', label: 'Deposits' },
+  // Added 2026-09-09 after an audit found fourteen of thirty admin permissions
+  // with no button anywhere. These three are the ones an operations desk cannot
+  // work without — see `ui/opsScreens.ts`.
+  // Aggregates, not a transaction list — D144. The label says "activity"
+  // rather than "transactions" deliberately: a nav entry reading
+  // "Transactions" would promise line items this console does not show.
+  { id: 'activity', href: '/activity', label: 'Shop activity' },
+  { id: 'operators', href: '/operators', label: 'Operators' },
+  { id: 'provider-health', href: '/provider-health', label: 'Provider health' },
   { id: 'tenants', href: '/tenants', label: 'Tenants' },
   { id: 'admins', href: '/admins', label: 'Administrators' },
   { id: 'audit', href: '/audit', label: 'Audit' },
@@ -121,7 +142,27 @@ export function page(
       h('strong', {}, 'TELGA OPERATIONS CONSOLE'),
       h('span', {}, 'Telga staff only. Every action here is recorded.'),
     ),
-    chrome.mfaSatisfied === false &&
+    /**
+     * Single-factor mode, said out loud on every page — D143.
+     *
+     * An operator must never have to *infer* which identity checks a console is
+     * enforcing. The relaxation is a deliberate training setting, and a
+     * deliberate setting that is invisible becomes an accidental one the moment
+     * somebody deploys the same configuration somewhere it does not belong.
+     *
+     * Rendered above the MFA notice and suppresses it, because in this mode
+     * "second factor not confirmed" is true and misleading: nothing is waiting
+     * on it.
+     */
+    chrome.singleFactorAuth === true &&
+      h(
+        'div',
+        { class: 'console__alert', role: 'alert', 'data-testid': 'console-single-factor' },
+        'SINGLE-FACTOR MODE — password only, no second factor, no re-authentication. ' +
+          'Training configuration. Must be switched off before real money.',
+      ),
+    chrome.singleFactorAuth !== true &&
+      chrome.mfaSatisfied === false &&
       h(
         'div',
         { class: 'console__alert', role: 'alert', 'data-testid': 'console-mfa-required' },

@@ -366,6 +366,20 @@ if (serveConsole) {
     // Its own hostname, not the POS's. The console answers only for the host it
     // was told about, and that host is what the proxy routes on.
     '--allowed-hosts', consoleHost,
+    /**
+     * Single-factor, when the operator asked for it — D143.
+     *
+     * Passed through rather than decided here: the console owns the meaning of
+     * the flag, prints it at start-up and shows a banner on every page. This
+     * script only relays the setting, so there is exactly one place that
+     * decides what "single factor" means.
+     *
+     * Absent means strict. A deployment that forgets the variable gets a second
+     * factor, which is the only safe direction for a default to fail in.
+     */
+    ...((process.env.TELGA_CONSOLE_SINGLE_FACTOR ?? '').toLowerCase() === 'true'
+      ? ['--single-factor', 'true']
+      : []),
   ]);
 
   startProxy();

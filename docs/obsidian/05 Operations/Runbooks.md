@@ -86,6 +86,7 @@ Faults found and fixed during development and pilot. Newest first.
 | 2026-09-09 | Console refused every sign-in as *"cross-site request"* | Medium | **Resolved** — see below |
 | 2026-09-09 | A suspended shop's operators could still sign in | **High** | **Resolved** — see below |
 | 2026-09-09 | `migration-008.test.ts` failed after migration 018 was added | Low | **Resolved — the test was right** — see below |
+| 2026-09-09 | Console sign-in refused as cross-site **again**, from a browser | **High** | **Resolved — different cause from the first one** — see below |
 | 2026-08-19 | [[Source Specification Clipped In PDF]] | Low | Resolved — assumptions recorded |
 
 ### 2026-09-09 — every console sign-in refused as cross-site
@@ -204,6 +205,75 @@ table?"* — never *"how do I make this pass?"*
 > (`must_change_pin`, `deposit_lookup`, `submitted_via`). Only the first has a direct assertion.
 > A companion guard over column lists would close the gap. Recorded here rather than done,
 > because it is a test-design change and belongs with [[Testing Strategy]].
+
+### 2026-09-09 — console sign-in refused as cross-site, the second cause
+
+**Reported from a browser, with the same words as the first one**: *"Not
+permitted — Refused: cross-site request."* The IPv6 fix earlier that day was
+real and is still in place. This was a **different bug wearing the same
+message**, and it is the more interesting of the two.
+
+#### What it was
+
+`Referrer-Policy: no-referrer`.
+
+That header does not only strip the `Referer`. When the referrer policy
+suppresses the referrer, a browser serialises the **`Origin` header of a form
+POST as the literal `null`**. `originOk` then compared `null` against the
+allow-list, failed, and refused — *a page rejecting a form it had served itself,
+one keystroke earlier, on the same origin.*
+
+The console's own code had a comment describing exactly this value and calling
+it an attack:
+
+> *"An unparseable origin, including the literal `null` a browser sends from a
+> sandboxed or redirected context. Refused."*
+
+Half right. A sandboxed iframe does send `null` and must stay refused. So does an
+ordinary sign-in form under a header the console was setting on every response.
+
+#### Why nothing caught it
+
+**Everything that is not a browser sends a real `Origin`.** `curl`, Node, and
+every test in `console-deployment.test.ts` construct the header by hand, so all
+of them sailed through. The suite even asserted that `null` must be refused —
+it had encoded the bug as the intended behaviour.
+
+It was found by reproducing the round trip properly rather than by reading the
+check again: serve the page, read the headers the server actually sends, and
+post as the browser would.
+
+#### The fix, in two parts
+
+1. **Remove the cause.** `Referrer-Policy: same-origin`, on the console and on
+   the merchant app. The privacy property that mattered is unchanged — no
+   referrer leaves the origin, so no admin URL reaches a third party — while a
+   same-origin navigation keeps the header the CSRF check depends on.
+2. **Stop refusing an opaque origin blindly.** `null` is now judged on
+   `Sec-Fetch-Site`, which the **browser** sets and script cannot reach, so a
+   cross-site page cannot forge it. `same-origin` and `none` are accepted;
+   `cross-site`, `same-site`, and *no header at all* are refused. A redirect, an
+   embedded WebView or a future policy change can produce an opaque origin
+   again, and the failure mode is a locked-out administrator.
+
+#### What this revealed about the merchant app
+
+The POS never showed the symptom because `checkOrigin` lets `null` through
+**unconditionally** — a blanket allowance that also admits a sandboxed iframe.
+That is a real if minor CSRF weakness, and it is **not tightened in this
+change**: removing the referrer-policy cause means browsers stop sending `null`
+to it at all, which makes the allowance mostly dead code and makes tightening it
+later a low-risk edit that can be tested on real hardware. Tightening a deployed
+merchant sign-in path blind, in the same change that fixes the console, is the
+wrong order of operations. Recorded as [[Risk Register]] **R43**.
+
+> [!tip] Recommendation
+> **When a check refuses, test it through the thing that will actually call
+> it.** Both console cross-site bugs shared one shape: a header or a parse that
+> was correct against a hand-built request and wrong against a browser. A
+> hand-built request is a model of a browser, and both times the model was the
+> thing that was broken. The new tests now include the header the server sends
+> as an assertion, not just the behaviour it produces.
 
 ## Related
 

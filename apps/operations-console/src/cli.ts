@@ -26,7 +26,13 @@ import { createServer as createHttpsServer } from 'node:https';
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { hashAdminSecret } from '@telga/api';
-import { assertMigrationsApplied, saveAdminUser } from '@telga/persistence';
+import {
+  SqliteLedgerDriver,
+  assertMigrationsApplied,
+  fundMerchant,
+  saveAdminUser,
+} from '@telga/persistence';
+import { fromBirr, postingId } from '@telga/domain';
 import { createConsoleServer } from './server';
 
 export const EXIT = Object.freeze({
@@ -267,6 +273,54 @@ export async function run(
     .map((h) => h.trim())
     .filter((h) => h.length > 0);
 
+  /**
+   * Sign in with a password alone — [[Decision Log]] **D143**.
+   *
+   * The founder's instruction, 2026-09-09: an administrator who has just typed
+   * a password should not be asked for a six-digit code again on every button.
+   * Both the second factor and step-up re-authentication are switched off
+   * together, because leaving one on would reproduce the complaint.
+   *
+   * ## What it does not touch
+   *
+   * **Permissions.** An administrator still cannot do anything their role does
+   * not grant, and every action is still audited under their name. Relaxing how
+   * hard identity is proved and widening what an identity may do are different
+   * decisions; this is only the first.
+   *
+   * ## Why a flag and not a code change
+   *
+   * So that switching it back on for real money is one setting rather than a
+   * rebuild, and so that its being off is visible in the deployment
+   * configuration rather than buried in a diff. The console prints it at
+   * start-up and shows a banner on **every page**, because a deliberate
+   * relaxation that is invisible becomes an accidental one the first time
+   * somebody copies the configuration somewhere it does not belong.
+   */
+  const singleFactorAuth =
+    values.get('single-factor') === 'true' ||
+    (process.env['TELGA_CONSOLE_SINGLE_FACTOR'] ?? '').toLowerCase() === 'true';
+
+  if (singleFactorAuth) {
+    write('SINGLE-FACTOR MODE: password only. No second factor, no step-up.');
+    write('Training configuration. This must be off before any real money.');
+  }
+
+  /**
+   * A driver over the same file, for the one operation that posts to the ledger.
+   *
+   * The console works in raw SQL against `connection` because it reads admin,
+   * tenant and application tables that the ledger driver knows nothing about.
+   * Crediting a deposit is different: it must go through `fundMerchant`, which
+   * writes a **balanced pair** inside the driver's transaction, because a
+   * deposit posted with hand-written SQL is how a ledger stops balancing.
+   *
+   * A second connection to one SQLite file is safe here — WAL, and SQLite
+   * serialises writers — and it is opened for the life of the process rather
+   * than per request, so it is closed alongside `connection` on shutdown.
+   */
+  const ledgerDriver = new SqliteLedgerDriver({ file: db });
+
   const handler = createConsoleServer({
     db: connection as never,
     now,
@@ -278,6 +332,32 @@ export async function run(
     // nothing: the cookie is sent without `Secure`, everything appears to work,
     // and the session travels in clear text on the last hop.
     secureCookies: wantsTls || behindProxy,
+    singleFactorAuth,
+    /**
+     * The deposit screens, wired to the ledger they claim to post to.
+     *
+     * They had a route, a screen and a navigation entry, and `creditMerchant`
+     * was never supplied — so `/deposits` answered **404** and the Deposits link
+     * led nowhere. The option is optional by design, and its own comment says
+     * why: *"its absence closes the deposit screens entirely rather than letting
+     * them record a credit that never posted."* That was the right guard, and
+     * the CLI simply never satisfied it.
+     *
+     * `fundMerchant` posts a **balanced, append-only** pair against
+     * `BANK_CLEARING` — the same call the deposit tests drive — so a recorded
+     * deposit and the shop's balance cannot disagree. Nothing here reaches a
+     * bank: this credits a training float, and `funding.submission` (a real
+     * deposit against a real bank reference) remains off.
+     */
+    creditMerchant: (input) => {
+      fundMerchant(ledgerDriver, {
+        merchantId: input.merchantId as never,
+        amount: fromBirr(input.amountMinor / 100),
+        at: input.at as never,
+        correlationId: input.correlationId,
+        postingId: postingId(input.postingId),
+      });
+    },
   });
 
   const server = wantsTls

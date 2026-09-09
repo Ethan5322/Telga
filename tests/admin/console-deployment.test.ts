@@ -186,7 +186,10 @@ describe('the health endpoint', () => {
     const reply = await call();
     expect(String(reply.headers['cache-control'])).toContain('no-store');
     expect(reply.headers['x-content-type-options']).toBe('nosniff');
-    expect(reply.headers['referrer-policy']).toBe('no-referrer');
+    // `same-origin`, matching every other response. It was `no-referrer`, and
+    // that is what made browsers send `Origin: null` on the sign-in form and
+    // locked administrators out — see the opaque-origin tests below.
+    expect(reply.headers['referrer-policy']).toBe('same-origin');
   });
 
   it('discloses nothing an attacker would want', async () => {
@@ -224,7 +227,7 @@ describe('the origin check accepts the machine it is running on', () => {
    * though `cli.ts` accepts `::1` as a bind host. The two definitions of "this
    * machine" have to agree.
    */
-  const post = (origin?: string): Promise<{ status: number }> =>
+  const post = (origin?: string, secFetchSite?: string): Promise<{ status: number }> =>
     new Promise((resolve, reject) => {
       const body = 'email=nobody@telga.local&password=irrelevant';
       const headers: Record<string, string> = {
@@ -233,6 +236,7 @@ describe('the origin check accepts the machine it is running on', () => {
         'content-length': String(Buffer.byteLength(body)),
       };
       if (origin !== undefined) headers['origin'] = origin;
+      if (secFetchSite !== undefined) headers['sec-fetch-site'] = secFetchSite;
       const req = httpRequest(
         { host: '127.0.0.1', port, path: '/login', method: 'POST', headers },
         (res) => {
@@ -284,10 +288,61 @@ describe('the origin check accepts the machine it is running on', () => {
 
   it('still refuses a genuinely foreign origin', async () => {
     await serve();
-    for (const origin of ['https://evil.example', 'http://192.168.1.50:4800', 'null']) {
+    for (const origin of ['https://evil.example', 'http://192.168.1.50:4800']) {
       const reply = await post(origin);
       expect(reply.status, `${origin} must be refused`).toBe(403);
     }
+  });
+
+  /**
+   * The opaque origin, which used to be refused flat — and which locked every
+   * administrator out of the console.
+   *
+   * `null` is what a browser sends when the referrer policy suppresses the
+   * referrer, which `no-referrer` did. So the console served a sign-in form and
+   * then answered "Refused: cross-site request" to that same form. It was
+   * invisible to every test here because `curl` and Node send a real `Origin`;
+   * only a browser posting the actual form reproduced it.
+   *
+   * The header is fixed, and these pin the fallback: `null` is now judged on
+   * `Sec-Fetch-Site`, which the browser sets and script cannot reach.
+   */
+  it('accepts an opaque origin only when the browser says it is same-origin', async () => {
+    await serve();
+    // Not 403: the origin was accepted and the request reached the login logic.
+    expect((await post('null', 'same-origin')).status).not.toBe(403);
+    // A typed or bookmarked navigation.
+    expect((await post('null', 'none')).status).not.toBe(403);
+  });
+
+  it('still refuses an opaque origin that is actually cross-site', async () => {
+    await serve();
+    // A sandboxed iframe on another origin sends exactly this pair, and is the
+    // case the null-origin refusal existed for.
+    expect((await post('null', 'cross-site')).status).toBe(403);
+    expect((await post('null', 'same-site')).status).toBe(403);
+    // No Sec-Fetch-Site at all keeps the old answer. A client that sends
+    // neither a usable Origin nor this header does not get the benefit of the
+    // doubt on an admin console.
+    expect((await post('null')).status).toBe(403);
+  });
+
+  it('does not send a referrer policy that causes the opaque origin', async () => {
+    // The root cause, asserted directly. `no-referrer` here would reintroduce
+    // the lockout on the next browser that follows the spec closely.
+    await serve();
+    const headers = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const req = httpRequest(
+        { host: '127.0.0.1', port, path: '/login', method: 'GET' },
+        (res) => {
+          res.resume();
+          resolve(res.headers as Record<string, unknown>);
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+    expect(headers['referrer-policy']).toBe('same-origin');
   });
 
   it('still allows a form post that omits Origin, as browsers may', async () => {

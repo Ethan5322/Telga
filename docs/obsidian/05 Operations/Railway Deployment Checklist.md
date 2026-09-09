@@ -491,6 +491,30 @@ proxy exists. An admin panel is not something to switch on by accident.
 2. Set the variables above and redeploy.
 3. The logs will say `console:  serving on Host "…"` and print the routing table.
 
+### Signing in without a six-digit code
+
+The console normally requires a second factor **and** re-authentication before
+high-risk actions — and those high-risk actions are exactly the buttons that
+approve a shop and issue a device code, so an acceptance round means typing a
+code constantly.
+
+Set `TELGA_CONSOLE_SINGLE_FACTOR=true` to sign in with a password alone. A
+banner then appears on every page saying so.
+
+> [!danger] This is the riskiest setting in the system
+> With it on, the console password is the **entire** barrier to approving
+> merchants, issuing device credentials and suspending shops — and that password
+> is seeded from a deployment variable, so anyone who can read the Railway
+> dashboard can sign in as Platform Owner.
+>
+> **Change the password after first sign-in, and switch this off when the
+> acceptance round is done.** `CLAUDE.md` §8's "security and permissions tested"
+> gate cannot close with it on. See `ASSUMPTIONS` A109 and [[Decision Log]] D143.
+
+Permissions are **not** relaxed by it: an administrator still cannot do what
+their role does not grant, a suspended administrator is still refused, and every
+action is still audited under its actor's name.
+
 ### First sign-in
 
 The owner is created on boot if it does not exist. Creating it is attempted on
