@@ -467,6 +467,59 @@ not only in this note. See [[Merchant POS Screens]].
 - **Formality** — drafts use the polite form (ይምረጡ, ያረጋግጡ). Confirm this suits merchant-facing POS copy.
 - **Numerals** — amounts and IDs stay in Latin digits per [[Design System]]. Confirm this matches merchant expectation.
 
+## Register as Telga member (D138)
+
+**DRAFT — REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION**, like every other
+Amharic string here. The English note's wording rule applies unchanged: none of
+these may read as *"your account has been created"*.
+
+| Key | English | Amharic |
+|---|---|---|
+| `screen.register` | Register as Telga member | እንደ ተልጋ አባል ይመዝገቡ |
+| `register.heading` | Register your shop with Telga | ሱቅዎን በተልጋ ያስመዝግቡ |
+| `register.intro` | Fill this in and Telga will review it. Approval is not automatic, and no account is created yet. If your shop is approved, Telga will contact you with your sign-in details. | ይህንን ይሙሉ፤ ተልጋ ይመረምረዋል። ፈቃድ በራሱ አይሰጥም፤ እስካሁን ምንም መለያ አልተፈጠረም። ሱቅዎ ከተፈቀደ ተልጋ የመግቢያ መረጃዎን ይልክልዎታል። |
+| `register.legal_name` | Business name | የንግድ ስም |
+| `register.legal_name.hint` | Exactly as it appears on your trade licence. | በንግድ ፈቃድዎ ላይ እንደተጻፈው በትክክል። |
+| `register.owner_name` | Owner full name | የባለቤቱ ሙሉ ስም |
+| `register.phone` | Phone number | የስልክ ቁጥር |
+| `register.phone.hint` | Telga will call this number about your application. | ተልጋ ስለ ማመልከቻዎ በዚህ ቁጥር ይደውላል። |
+| `register.email` | Email (optional) | ኢሜይል (አማራጭ) |
+| `register.email.hint` | Leave blank if you do not use email. | ኢሜይል ካልተጠቀሙ ባዶ ይተዉት። |
+| `register.address` | Shop address | የሱቅ አድራሻ |
+| `register.locality` | Town or sub-city | ከተማ ወይም ክፍለ ከተማ |
+| `register.documents` | Your documents | ሰነዶችዎ |
+| `register.documents.hint` | Enter the number printed on each document. Do not send photographs here — Telga will check the originals with you. | በእያንዳንዱ ሰነድ ላይ የተጻፈውን ቁጥር ያስገቡ። እዚህ ፎቶ አይላኩ — ተልጋ ዋናዎቹን ሰነዶች ከእርስዎ ጋር ያረጋግጣል። |
+| `register.trade_licence` | Trade licence number | የንግድ ፈቃድ ቁጥር |
+| `register.trade_licence_expiry` | Trade licence expiry date | የንግድ ፈቃድ የሚያበቃበት ቀን |
+| `register.tin` | TIN | የግብር መለያ ቁጥር (TIN) |
+| `register.photo_id` | Owner ID number | የባለቤቱ መታወቂያ ቁጥር |
+| `register.photo_id.hint` | National ID, passport or driving licence. | ብሔራዊ መታወቂያ፣ ፓስፖርት ወይም የመንጃ ፈቃድ። |
+| `register.submit` | Send for review | ለምርመራ ላክ |
+| `register.have_account` | Already registered? Sign in | ቀድሞ ተመዝግበዋል? ይግቡ |
+| `register.submitted.heading` | Sent to Telga for review | ለተልጋ ምርመራ ተልኳል |
+| `register.submitted.reference` | Your reference number — write it down: | የማጣቀሻ ቁጥርዎ — ይመዝግቡት፦ |
+| `register.submitted.next` | A member of Telga staff will check your details and contact you on the number you gave. Keep your original documents ready. | የተልጋ ሠራተኛ መረጃዎን አረጋግጦ በሰጡት ቁጥር ይደውልልዎታል። ዋና ሰነዶችዎን ዝግጁ ያድርጉ። |
+| `register.submitted.no_account` | There is nothing to sign in to yet. Your sign-in details are issued only if your shop is approved. | እስካሁን የሚገቡበት መለያ የለም። የመግቢያ መረጃዎ የሚሰጠው ሱቅዎ ሲፈቀድ ብቻ ነው። |
+| `login.register_cta` | Register as Telga member | እንደ ተልጋ አባል ይመዝገቡ |
+
+## Activate this device (D138)
+
+**DRAFT — REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.**
+
+| Key | English | Amharic |
+|---|---|---|
+| `screen.activate` | Activate this device | ይህን መሣሪያ ያግብሩ |
+| `activate.heading` | Activate this machine | ይህን መሣሪያ ያግብሩ |
+| `activate.intro` | Telga gives each machine an activation code, valid for one hour and usable once. Enter it with the device ID Telga gave you. | ተልጋ ለእያንዳንዱ መሣሪያ የማግበሪያ ኮድ ይሰጣል፤ ለአንድ ሰዓት ብቻ የሚሠራ እና አንድ ጊዜ የሚያገለግል። ተልጋ ከሰጠዎት የመሣሪያ መለያ ጋር ያስገቡት። |
+| `activate.device` | Device ID | የመሣሪያ መለያ |
+| `activate.code` | Activation code | የማግበሪያ ኮድ |
+| `activate.code.hint` | Groups of five letters and numbers. Case does not matter. | በአምስት ፊደላትና ቁጥሮች ተከፍሎ። ትልቅ ወይም ትንሽ ፊደል ችግር የለውም። |
+| `activate.submit` | Activate | አግብር |
+| `activate.done.heading` | This machine is activated | ይህ መሣሪያ ተግብሯል |
+| `activate.done.key` | Device key — shown once. Write it down now: | የመሣሪያ ቁልፍ — አንድ ጊዜ ብቻ ይታያል። አሁን ይመዝግቡት፦ |
+| `activate.done.warning` | Telga keeps only a scrambled copy and can never show this again. If it is lost, ask Telga for a new activation code. | ተልጋ የተመሰጠረ ቅጂ ብቻ ነው የሚይዘው፤ ዳግም ሊያሳይዎት አይችልም። ከጠፋ ከተልጋ አዲስ የማግበሪያ ኮድ ይጠይቁ። |
+| `login.activate_cta` | New machine? Activate it | አዲስ መሣሪያ? ያግብሩት |
+
 ## Related
 
 - [[English Strings]]

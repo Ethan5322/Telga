@@ -16,21 +16,29 @@ How to get Telga onto an Android phone and a smart-POS for testing.
 
 ## The honest starting point
 
-**There is no Android application in this repository.** `apps/` contains one
-thing — `merchant-pos` — which is a Node server that renders HTML. There is no
-`build.gradle`, no `AndroidManifest.xml`, no Capacitor, Cordova or React
-Native. CLAUDE.md §27 lists `apps/android/` as *intended* structure; it was
-never built.
+> [!warning] This section was written on 2026-08-30 and was overtaken the next day
+> It said *"There is no Android application in this repository"* and that Route B
+> needed a toolchain that did not exist. **[[Decision Log]] D106 built it on
+> 2026-08-31.** `apps/mobile/` is a Capacitor project with a real
+> `AndroidManifest.xml`, and `npm run mobile:release` produces a signed APK and
+> AAB. The original text is corrected below rather than left standing, because a
+> note that denies the existence of a shipped app is worse than no note.
+
+**There is one Telga Android application**, `et.mulesoo.telga`, in `apps/mobile/`.
+It is a **Capacitor shell**: a WebView pointed at a Telga server, reimplementing
+no screens. The **same APK installs on a phone and on POS hardware** — see
+[[Platform Shape]]. `apps/merchant-pos/` is the *server* that renders what it
+displays, not a second application.
 
 So there are two routes, and they are not equivalent:
 
 | | What it is | Ready today |
 |---|---|---|
 | **A. Install as a web app** | Chrome installs the page to the home screen. Real icon, no browser chrome, opens standalone | **Yes** |
-| **B. Wrap in Capacitor** | A genuine `.apk` built from an Android project added to this repo | **No** — needs a toolchain this machine does not have |
+| **B. Install the APK** | The Capacitor build in `apps/mobile/`, installed by sideload or from Play once listed | **Yes to build and sideload** — see [[Android Release and Play Store]] for what still blocks a listing |
 
-Route A is what this note covers end to end, because it can be done now. Route
-B is scoped at the bottom.
+Route A is what this note covers end to end, because it needs no toolchain at
+all. Route B is covered by [[Android Release and Play Store]].
 
 ---
 

@@ -92,13 +92,25 @@ Five of the twenty-one are implemented, in training mode only — see [[Merchant
 | # | Screen | Built as |
 |---|---|---|
 | 2 | Merchant home dashboard | `/` |
+| 1 | Login / PIN | `/login` — and it now carries the app's **second** option, *Register as Telga member* |
+| — | Register as Telga member | `/register` — the applicant-facing form. Added by [[Decision Log]] D138; see [[Vendor Registration]] |
+| — | Registration sent | `/register` on success — shows the reference number, and says plainly there is nothing to sign in to yet |
 | 4–6 | Amount, recipient and confirmation | `/sell`, as one form |
 | 7–8, 11–13 | Processing, pending, under review, failure, success | `/transactions/:id`, one screen driven by [[State To UI Mapping]] |
 | 14–15 | Find transaction, details | `/transactions` and `/transactions/:id` |
 | 21 | Review queue (merchant-facing part) | `/queue` |
 
-Not built: login and PIN, provider selection, receipt printing and reprint, balance detail,
-funding, verification queue, offline, support, reports and the operations console.
+Not built: provider selection, receipt printing and reprint, balance detail,
+funding, verification queue, offline, support and reports.
+
+> [!note] Two corrections to the line above — 2026-09-09
+> **Login is built** (`/login`, with the four-parameter form and the operator PIN), and so is
+> **the operations console**, which is its own application in `apps/operations-console/`. The
+> "not built" list had not been revisited since those landed.
+>
+> The two **registration** screens are new with D138 and are numbered `—` because the founder's
+> original twenty-one predates them: registration was named in `CLAUDE.md` §22 as a required
+> screen and had never been designed. See [[Vendor Registration]].
 
 ## Screens that exist but are not reachable
 

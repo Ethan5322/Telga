@@ -462,6 +462,63 @@ network is integrated. Currency stays ETB throughout; nothing here introduces an
 | `error.duplicate.blocked` | This sale is already in progress. Do not start it again. |
 | `error.network_unavailable` | Telga could not be reached. The result of this sale is not known yet — do not retry it. |
 
+## Register as Telga member (D138)
+
+The app's own registration form and its confirmation. **Nothing here may read as
+a sign-up.** The applicant is asking to be considered; a shop that believes it
+has an account and finds out days later that it has a queue position is a
+failure of these strings, not of the workflow.
+
+| Key | English |
+|---|---|
+| `screen.register` | Register as Telga member |
+| `register.heading` | Register your shop with Telga |
+| `register.intro` | Fill this in and Telga will review it. Approval is not automatic, and no account is created yet. If your shop is approved, Telga will contact you with your sign-in details. |
+| `register.legal_name` | Business name |
+| `register.legal_name.hint` | Exactly as it appears on your trade licence. |
+| `register.owner_name` | Owner full name |
+| `register.phone` | Phone number |
+| `register.phone.hint` | Telga will call this number about your application. |
+| `register.email` | Email (optional) |
+| `register.email.hint` | Leave blank if you do not use email. |
+| `register.address` | Shop address |
+| `register.locality` | Town or sub-city |
+| `register.documents` | Your documents |
+| `register.documents.hint` | Enter the number printed on each document. Do not send photographs here — Telga will check the originals with you. |
+| `register.trade_licence` | Trade licence number |
+| `register.trade_licence_expiry` | Trade licence expiry date |
+| `register.tin` | TIN |
+| `register.photo_id` | Owner ID number |
+| `register.photo_id.hint` | National ID, passport or driving licence. |
+| `register.submit` | Send for review |
+| `register.have_account` | Already registered? Sign in |
+| `register.submitted.heading` | Sent to Telga for review |
+| `register.submitted.reference` | Your reference number — write it down: |
+| `register.submitted.next` | A member of Telga staff will check your details and contact you on the number you gave. Keep your original documents ready. |
+| `register.submitted.no_account` | There is nothing to sign in to yet. Your sign-in details are issued only if your shop is approved. |
+| `login.register_cta` | Register as Telga member |
+
+## Activate this device (D138)
+
+The code a person carried to the shop, exchanged for the key the machine keeps —
+`CLAUDE.md` §18.2. **Nothing here may suggest the code is what signs the device
+in afterwards.** It is not: it dies on use, and the key it produces is a
+different secret that no human ever reads.
+
+| Key | English |
+|---|---|
+| `screen.activate` | Activate this device |
+| `activate.heading` | Activate this machine |
+| `activate.intro` | Telga gives each machine an activation code, valid for one hour and usable once. Enter it with the device ID Telga gave you. |
+| `activate.device` | Device ID |
+| `activate.code` | Activation code |
+| `activate.code.hint` | Groups of five letters and numbers. Case does not matter. |
+| `activate.submit` | Activate |
+| `activate.done.heading` | This machine is activated |
+| `activate.done.key` | Device key — shown once. Write it down now: |
+| `activate.done.warning` | Telga keeps only a scrambled copy and can never show this again. If it is lost, ask Telga for a new activation code. |
+| `login.activate_cta` | New machine? Activate it |
+
 ## Wording rules
 
 1. Never promise speed. No "instant", "immediately", or "right away" about a provider outcome.

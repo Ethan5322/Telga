@@ -92,9 +92,19 @@ READY_FOR_TRAINING → ACTIVE_TRAINING → LIVE_ELIGIBLE`, with `SUSPENDED` and
    Migration 015 adds `merchant_application_documents`, and
    `admin/applicationIntake.ts` encodes the register from
    [[Multi-Tenant Architecture Proposal]] §5 — six documents for a sole trader,
-   eight for a company, an expired trade licence refused outright. **No public
-   route**: a Telga operator records what a shop brought in, so D113(b)'s
-   deferral of self-service still stands.
+   eight for a company, an expired trade licence refused outright.
+
+   > [!note] The "no public route" caveat here is superseded — D138, 2026-09-09
+   > This entry used to end *"No public route: a Telga operator records what a
+   > shop brought in, so D113(b)'s deferral of self-service still stands."* That
+   > was true when written and is no longer. **D138** reverses the registration
+   > half of D113(b): `POST /register` on the merchant server now accepts a
+   > shop's own submission, flagged `submitted_via = 'SELF_SERVICE'` so a
+   > reviewer can tell it from a folder an admin held. See
+   > [[Vendor Registration]].
+   >
+   > D113(b)'s **device** half is untouched: a device still may not provision
+   > itself.
 2. ~~**Approval stops at a status change.**~~ **CLOSED 2026-09-08 — D120.**
    `/applications/:id/decide` now calls `provisionMerchant()` on approval, in the
    same request, and creates the merchant row, the registry row and the link back
@@ -115,10 +125,19 @@ READY_FOR_TRAINING → ACTIVE_TRAINING → LIVE_ELIGIBLE`, with `SUSPENDED` and
    reinstate D103. It waits on that reversal being decided, and the port design
    keeps the swap to one function.
 
-> [!warning] Built, but not reachable
-> Gaps 1, 2 and 4 are closed **as logic with tests**. No route serves intake,
-> redemption or the forced PIN change: those surfaces belong on the POS, which
-> *is* deployed, so wiring them needs its own approval. See D121.
+> [!warning] Built, but not reachable — partly resolved
+> Gaps 1, 2 and 4 were closed **as logic with tests**, with no route serving
+> intake, redemption or the forced PIN change.
+>
+> **Intake now has a route** (D138): `GET /register` and `POST /register` on the
+> merchant server, which is what the Android app reaches. See
+> [[Vendor Registration]].
+>
+> **Redemption now has one too.** `GET`/`POST /activate` calls
+> `redeemEnrollmentToken`, so a shop read a code down the phone finally has
+> somewhere to type it. The older `/enrol` route survives for re-keying a
+> machine whose operator is already signed in — a different act, deliberately
+> kept separate.
 
 > [!note] One balance per shop, not per device
 > `balanceFor(merchantId)` — the float belongs to the **merchant**, and every

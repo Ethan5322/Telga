@@ -13,6 +13,7 @@ tags:
   - training
 related:
   - "[[00 Home]]"
+  - "[[Device Registration]]"
   - "[[Authentication and Sessions]]"
   - "[[Security Model]]"
   - "[[Threat Model]]"
@@ -58,6 +59,13 @@ sequenceDiagram
     Srv->>Srv: verify key against the stored hash
     Srv-->>Dev: session cookie bound to device_1
 ```
+
+> [!note] The key is no longer written down by hand
+> The diagram above shows the original CLI enrolment, where an operator copied
+> the key onto paper. That path still exists, but the supported route is now the
+> activation-code exchange in [[Device Registration]]: a one-hour code a person
+> carries, redeemed by the device for a key **no human ever sees**. The change
+> removes the step where a long-term credential passed through handwriting.
 
 What that buys:
 

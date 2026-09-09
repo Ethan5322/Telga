@@ -376,6 +376,174 @@ status, support contact, daily report, tamper and damage record.
 The merchant independently sources and pays for compatible thermal paper.
 **Paper shortage is never a transaction failure.**
 
+### 18.0 One app, one backend, one console
+
+Three facts that are repeatedly misread, stated once so they cannot be:
+
+1. **There is one Telga Android app, not two.** `et.mulesoo.telga` — a Capacitor shell in
+   `apps/mobile/` hosting the server's own screens. A smart-POS terminal runs Android and a
+   merchant's phone runs Android, so **the same app is installed on both**. There is no separate
+   "POS app". `apps/merchant-pos/` is the **server** that renders those screens, not a second
+   client; its name is historical. Decision Log **D68** — *"Telga is one application"* — and
+   **D106**. A native reimplementation of the vending flow was rejected and stays rejected:
+   a second implementation is a second place a duplicate sale can originate, and §13 makes
+   duplicate prevention an invariant, not a preference.
+2. **One backend serves every shop.** Not one deployment per merchant, not one site per shop.
+   Each shop is a tenant record inside it, and the same backend serves both the app (every phone
+   and every POS, across every shop) and the operations console.
+3. **One operations console for the whole platform.** Telga staff only. It is a separate
+   *application* from the merchant app — different users, different auth, different threat
+   model — but not a separate *system*: same backend, same database.
+
+**Each installed instance belongs to exactly one shop.** Its device identity is issued by the
+backend and is separate from the console's own login; a shop may run several devices, and each
+carries its own device key while drawing on **one** shop balance (§18.3).
+
+> **Scale target: 1000+ shops**, each with its own owner, devices and credentials, all managed
+> from the one console, with no cross-tenant leakage. See §18.4 for what is and is not yet true
+> of that target.
+
+### 18.1 Vendor registration and approval
+
+The app opens on **two** options: **Login** and **Register as Telga member**. Registration is
+**never** automatic approval — a submission enters a queue that a Telga admin reads.
+
+A third route, **Activate this device**, is linked from the sign-in screen for a machine that has
+a code but no key yet (§18.2). It is on that screen because a device with no key cannot sign in,
+so the sign-in screen is the only one it can reach.
+
+**Sign-in lockout: four wrong attempts, then a five-minute hold.** The number is a trade between
+a stolen device being guessed at and a shopkeeper being locked out of their own till with
+customers waiting; five minutes is short enough that a genuine slip never becomes a support call.
+
+**Path A — the shop registers itself** (Decision Log **D138**, feature flag
+`registration.self_service`):
+
+| Step | Who acts | What happens |
+|---|---|---|
+| 1 | Shop owner | Opens the Telga app — on a phone or on POS hardware, the same app — and taps **Register as Telga member** |
+| 2 | Shop owner | Submits shop and owner details and document *numbers*. **No photographs**: an unauthenticated upload endpoint is a way to put arbitrary bytes on Telga's volume, and the originals must be seen by a person anyway |
+| 3 | The backend | Records one row in `merchant_applications` as `SUBMITTED` / `submitted_via = 'SELF_SERVICE'` and returns a **reference number**. **No account, no merchant, no device, no credential and no session are created** — [[Admin Operations Console]] Decision 3 |
+| 4 | Telga admin | Sees it in the console's review queue, flagged **Unverified — from app**, and checks the details |
+| 5 | Telga admin | **Approves or rejects.** Approval provisions the shop in the same request |
+| 6 | Telga admin | Issues the shop's sign-in parameters — a separate act, because it is the only moment a secret is displayed (§18.2) |
+| 7 | The shop | Signs in with those parameters. Not before |
+
+**Path B — a Telga admin registers the shop directly.** An admin holding the originals at the
+counter ticks *"Approve immediately — I have seen these documents"* on the console's
+**Register Telga User** form. **Admin creation is the approval**: there is no pending state and
+no second review, because the reviewer and the recorder are the same person and the same
+documents. It still requires `ADMIN_APPROVE_MERCHANT`, which carries step-up re-authentication —
+a shortcut through a *screen*, never through a *permission* — and the audit trail records
+`path: 'DIRECT'` so an approval with no second pair of eyes is distinguishable forever after.
+
+**Approval is per shop.** One shop's approval, rejection or suspension changes nothing for any
+other. Credentials issued to one shop never authenticate another.
+
+#### Rules that hold on both paths
+
+- A submission **creates no account**. There is no locked account for an unvetted applicant to
+  attack, which is better than an approval check on every route where one missed guard is a way in.
+- **Sign-in is blocked until that shop is `ACTIVE`** — enforced twice: nothing exists to sign in
+  with before approval, *and* `signIn` refuses when `merchants.status` is not `ACTIVE`. A shop
+  suspended mid-session has its sessions revoked on the next request, not at the next voluntary
+  sign-out.
+- The self-service route is **throttled per source** and its refusals count, so probing the
+  validator is not free. The caller's address is **salted and hashed, never stored**.
+- Registration refusals **name the wrong field**, unlike sign-in refusals, because there is no
+  account to probe for — except a document already registered to another shop, which is softened
+  so the route cannot be used to test licence numbers against Telga's merchant list.
+
+### 18.2 Device registration and activation
+
+Registering a **business** and provisioning a **machine** are different acts with different
+secrets. §18.1 is the first; this is the second.
+
+A device **never creates its own identity**. Registration is admin-initiated and device-completed,
+in two secrets that are deliberately not the same secret.
+
+| Step | Who acts | What happens |
+|---|---|---|
+| 1 | Shop owner | Submits a merchant application — §18.1, Path A or B. **No account, no merchant, and no device exist yet** |
+| 2 | Telga admin | Reviews and approves the application in the operations console |
+| 3 | Telga admin | Creates the device record, bound to that merchant. Its state is `PENDING` |
+| 4 | Telga admin | Issues a **one-time activation code**. Displayed once, never again |
+| 5 | A person | Carries the code to the shop — read down a phone line, or handed over with the hardware |
+| 6 | The device | On first open, asks for its device ID and the activation code, and **exchanges** them for a long-term device key |
+
+**Where step 6 happens:** `GET`/`POST /activate` on the merchant server, reachable with no
+session — necessarily, because a device with no key cannot sign in. Do **not** confuse it with
+`/enrol`, which re-keys a machine whose operator is *already signed in*; the two look similar and
+are opposites. The key is rendered, never redirected to, so it cannot reach a URL, a history
+entry or a log.
+
+**The activation code** (`services/api/src/admin/enrollment.ts`): cryptographically random,
+100 bits, base32 without `I`, `O`, `0` or `1` because those are the characters people mishear,
+grouped in fives so a reader does not lose their place. It expires in **one hour**, is stored only
+as a hash, and is **single use**.
+
+**The device key** (`services/api/src/admin/redeemEnrollment.ts`): 256 bits, generated at
+redemption, shown once to the device and never recoverable afterwards. It — not the activation
+code — authenticates every later request. The two are separate because the thing a person reads
+aloud must never be the thing that signs traffic for the life of the device.
+
+**Single use is structural, not a flag.** `device_enrollments` holds one secret hash per device;
+issuing writes the *code's* hash, redeeming replaces it with the *key's* hash. After redemption
+the code no longer verifies against anything, because what it was compared to is gone.
+
+**Refusals disclose nothing.** An unknown device and a wrong code get the **identical** answer, so
+activation cannot be used to discover which device IDs exist. Expiry is told apart, because an
+operator whose code has aged out needs to know to ask for another.
+
+#### Forbidden until explicitly decided otherwise
+
+- **Device-initiated automatic registration** — a device that provisions itself, with no admin
+  action and no human-carried code. Deferred by [[Decision Log]] **D113(b)**; no self-service
+  device provisioning is exposed in any UI, API, or CLI.
+
+  > **This is not contradicted by §18.1.** D138 opened self-service registration of a
+  > **business** — an application a human reads. It did not open self-service provisioning of a
+  > **device**, and the distinction is the whole safety of both: an application grants nothing
+  > until an admin approves it, whereas a device key authenticates every later request. A device
+  > that could provision itself would have to carry a secret to be trusted on, that secret would
+  > ship in the APK, and an APK is a public file.
+- **A permanent secret shipped in the APK.** An APK is a public file.
+- **Reusing an activation code** for a second device, or reissuing a device key to a device that
+  already holds one. Replacing a lost device is a **new** device record and a **new** code, so the
+  old key can be revoked independently.
+- **Logging either secret in plaintext**, at any level, anywhere.
+
+### 18.3 What belongs to a shop, and what belongs to a device
+
+| Boundary | Owned by | Consequence |
+|---|---|---|
+| Money | **The shop** | `balanceFor(merchantId)`. Every till in a shop draws on **one** float. A deposit at one till is immediately spendable at another, and **no device has a balance of its own** |
+| Authentication and audit | **The device** | Each device holds its own key and appears in the ledger on every sale it made. Stopping one device leaves the shop trading on the others |
+| Credentials | **The shop** | Operator ids, device ids and keys are issued per shop. Shop A's credentials never authenticate Shop B |
+
+Any specification that assumes per-device balances is describing a different product.
+
+### 18.4 Multi-tenancy at 1000+ shops — what is true, and what is not
+
+**True today**: one backend, one console, one database; every query scoped by a
+session-derived merchant id; 11 isolation cases plus URL, body and encoded-id tampering tested
+against a live server; the console lists merchants, devices, tenants and applications across all
+of them.
+
+**Not yet true, and must not be claimed**: per-shop database files. [[Decision Log]] **D103**
+chose one database file per shop and called it *"the irreversible choice — splitting later is a
+data migration and merging later is worse"*. **D113(a)** then deferred it for the training
+deployment and named the condition that ends the deferral:
+
+> *"It stops being defensible the moment a second real shop exists."*
+
+`admin/tenantRouting.ts` is written, checks four things on every open, and **has no callers** —
+deliberately, under D120's shared-database model. Wiring it would silently reinstate D103.
+
+> **Before a second real shop is onboarded**, the shared-versus-per-tenant storage question needs
+> a founder decision. It is the one architectural choice on this list that is expensive to
+> reverse, and self-service registration makes reaching that second shop faster.
+
 ## 19. Commercial model
 
 Commercial pricing and revenue-policy decisions are maintained outside this repository and remain
@@ -509,9 +677,9 @@ are all acceptable.
 ├── ASSUMPTIONS.md
 ├── SECURITY.md
 ├── docs/obsidian/
-├── apps/merchant-web-or-pos/
-├── apps/android/
-├── apps/operations-console/
+├── apps/merchant-pos/          # the server that renders the merchant screens
+├── apps/mobile/                # the ONE Telga Android app (Capacitor shell) — §18.0
+├── apps/operations-console/    # Telga staff console, same backend
 ├── services/api/
 ├── services/worker/
 ├── services/provider-adapters/
@@ -523,6 +691,12 @@ are all acceptable.
 ├── scripts/
 └── tests/
 ```
+
+The three `apps/` entries above are the **actual** directory names. An earlier draft of this
+tree listed `apps/merchant-web-or-pos/` and `apps/android/`, neither of which was ever built
+under those names — and the pairing invited exactly the misreading §18.0 corrects, that a phone
+app and a POS app are different things. Capacitor generates its native project into a child
+`android/`, so the shell lives at `apps/mobile/` rather than `apps/android/android/` (D106).
 
 Adapt to the existing stack; **do not create unnecessary technologies**. Provide scripts for
 format, lint, typecheck, unit/integration/E2E tests, build, migrations, seed, documentation

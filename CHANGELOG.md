@@ -6,6 +6,71 @@ All notable changes to Telga. Format follows [Keep a Changelog](https://keepacha
 > No live provider is connected, no live money is enabled, and 0 of 10 launch gates in
 > `docs/obsidian/07 Governance/Launch Gates.md` have been cleared.
 
+## 2026-09-09 — vendor registration from the app, and a suspension hole closed
+
+**Still TRAINING MODE — NO REAL VALUE.** No live provider, no live money, 0 of 10 launch gates.
+
+### Decided
+
+- **Self-service vendor registration is opened** (D138), reversing the *registration* half of
+  D113(b). The **device** half is untouched: a device still may not provision itself.
+  Two accepted decisions had been contradicting each other — `Admin Operations Console`
+  Decision 3 described an applicant registering from the app, D113(b) forbade it, the build
+  followed D113(b), and `CLAUDE.md` described no registration flow at all.
+
+### Added
+
+- **`Register as Telga member` in the Telga app** — `GET`/`POST /register` on the merchant server,
+  reachable with no session, in English and Amharic. A submission creates **one** application
+  row and nothing else: no merchant, no operator, no device, no credential, no session.
+- **Path B in the console** — *"Approve immediately — I have seen these documents"* on the
+  Register Telga User form. Admin creation is the approval; the audit trail records
+  `path: 'DIRECT'` so an approval with no second pair of eyes stays distinguishable.
+- **Migration 018** — `merchant_applications.submitted_via` (`ADMIN` / `SELF_SERVICE`) and a
+  `registration_attempts` throttle table storing a **salted hash** of the caller's address,
+  never the address.
+- **Feature flag `registration.self_service`**, gating `/register` as a tree. Its own flag, not
+  part of `airtime.vending`: closing the one anonymous write surface must be one switch.
+- **A `Source` column in the console's review queue**, showing **Unverified — from app** so a
+  reviewer cannot mistake a stranger's typing for a folder an admin held.
+- **22 tests** in `tests/admin/vendor-registration.test.ts`, over a real socket.
+
+### Fixed
+
+- **A suspended shop's operators could still sign in.** `signIn` read
+  `merchant_users.status` and never `merchants.status`, so suspending a merchant stopped it
+  selling — `createSale` already refused — while its operators kept signing in and holding live
+  sessions until they chose to sign out. `signIn` now refuses `MERCHANT_NOT_ACTIVE`, and
+  `authenticate` revokes a live session on the next request. Risk register **R40**.
+
+### Changed
+
+- **The application intake write is now one function.** `recordApplication` in
+  `@telga/persistence`; the console's ~70 lines of inline SQL were replaced by a call to it.
+  Two hand-written copies of an intake write is how the two drift.
+- **`CLAUDE.md` §18 restructured** — §18.0 one app / one backend / one console, §18.1 vendor
+  registration, §18.2 device registration (was §18.1), §18.3 shop-versus-device boundaries,
+  §18.4 the honest position on 1000+ tenants. §27's repository tree corrected to the real
+  directory names.
+
+### Documentation corrected
+
+- **`Phone and POS Install` claimed there is no Android application in this repository.**
+  Written 2026-08-30; D106 built one on 2026-08-31. Corrected.
+- **`Multi-Shop Onboarding`'s "no public route" caveat** superseded, and its "built but not
+  reachable" warning narrowed: intake now has a route, **redemption still does not** —
+  `redeemEnrollmentToken` is tested and has no HTTP caller, so first-run device pairing by
+  activation code is not yet wired.
+
+### Known limits, recorded rather than fixed
+
+- The registration throttle's salt is **per-process**, so a restart empties every bucket (A106).
+- Without `--trust-proxy`, every caller behind one edge shares a bucket (A106, R42).
+- **No written review procedure exists for unverified applications** (A107).
+- **D103 — per-shop databases versus one shared database — is still deferred**, and
+  self-service registration shortens the runway to the second real shop that ends the
+  deferral (§18.4).
+
 ## 2026-09-05 — deployment target decided, and a sizing claim corrected
 
 **Local development only.** Nothing has been provisioned, deployed, subscribed
