@@ -520,6 +520,15 @@ these may read as *"your account has been created"*.
 | `activate.done.warning` | Telga keeps only a scrambled copy and can never show this again. If it is lost, ask Telga for a new activation code. | ተልጋ የተመሰጠረ ቅጂ ብቻ ነው የሚይዘው፤ ዳግም ሊያሳይዎት አይችልም። ከጠፋ ከተልጋ አዲስ የማግበሪያ ኮድ ይጠይቁ። |
 | `login.activate_cta` | New machine? Activate it | አዲስ መሣሪያ? ያግብሩት |
 
+## Printing (D140)
+
+**DRAFT — REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.**
+
+| Key | English | Amharic |
+|---|---|---|
+| `receipt.print` | Print receipt | ደረሰኝ አትም |
+| `receipt.print.notice` | Printing uses this device’s own printer. Every slip is marked TRAINING — NO REAL VALUE. | ማተሚያው የዚህ መሣሪያ ነው። እያንዳንዱ ደረሰኝ «TRAINING — NO REAL VALUE» የሚል ምልክት አለው። |
+
 ## Related
 
 - [[English Strings]]

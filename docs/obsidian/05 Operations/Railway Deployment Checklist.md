@@ -463,6 +463,75 @@ does not survive the volume. Restore is proven in [[Backup and Restore Runbook]]
 Custom domains, `telga.et` DNS, the operations console, live provider traffic,
 live money, and any second replica. Each needs its own decision.
 
+## Serving the operations console (D141)
+
+> [!warning] Until this is configured, nobody can approve anything
+> The supervisor used to start the POS and the recovery worker and **nothing
+> else**. A shop could submit a registration on the live URL and there was no
+> way to approve it, because the console ran only on an operator's own laptop.
+
+The console is served **only when `TELGA_CONSOLE_HOST` is set**. Unset, this
+deployment behaves exactly as it did — the POS binds `$PORT` directly and no
+proxy exists. An admin panel is not something to switch on by accident.
+
+### What to set
+
+| Variable | Value | Why |
+|---|---|---|
+| `TELGA_CONSOLE_HOST` | A second domain attached to this Railway service, e.g. `admin.<your-domain>` | What the front proxy routes on |
+| `TELGA_CONSOLE_OWNER_EMAIL` | The first administrator's email | A fresh volume has no admin user and the console has no sign-up |
+| `TELGA_CONSOLE_OWNER_PASSWORD` | 12+ characters | Refused below twelve |
+| `TELGA_CONSOLE_OWNER_NAME` | Optional display name | Defaults to the email |
+
+### Then, in Railway
+
+1. Add a second domain to **this same service** — not a second service. The
+   console needs the same SQLite file, and a Railway volume mounts to one
+   service, so both processes must live in one container.
+2. Set the variables above and redeploy.
+3. The logs will say `console:  serving on Host "…"` and print the routing table.
+
+### First sign-in
+
+The owner is created on boot if it does not exist. Creating it is attempted on
+**every** boot and fails harmlessly after the first, because the email is
+unique — it can never overwrite an owner, reset a password or reinstate a
+suspended account. A non-zero result is therefore the normal case after the
+first deploy, and it is logged rather than treated as a failure.
+
+**A password alone opens nothing.** The console requires a second factor before
+any screen works, so enrol an authenticator immediately. **Change the password
+after first sign-in** — it has been sitting in a deployment variable, which is
+not where a credential should live permanently.
+
+### How the routing works, and why it is by Host
+
+One Railway service exposes one port, so both servers cannot bind it. A front
+proxy takes `$PORT`; the POS and the console bind loopback on internal ports and
+are unreachable except through it.
+
+Routing is on the `Host` header, **not** a path prefix. A prefix would mean
+rewriting every absolute link, form action and redirect in the console — 50-odd
+places — and one missed link is a silently half-working admin panel, which is
+worse than no admin panel. On its own hostname each app sees itself at the root,
+its cookies scope correctly, and its own allow-list keeps working unchanged.
+
+An unknown or absent `Host` goes to the **merchant app**, never the console. The
+console's own `--allowed-hosts` is the second check behind that, not the only
+one. Pinned by `tests/admin/console-routing.test.ts`, including the near-miss
+hostnames a careless comparison would hand the admin panel to.
+
+### The extra hop, and what it means for trust
+
+The proxy is a second hop in front of both apps, so loopback is added to each
+one's trusted-proxy set. The proxy is inside the container and is the only thing
+that can reach either port, and it forwards Railway's `X-Forwarded-*` headers
+**unchanged** — rewriting `X-Forwarded-For` would replace the client's address
+with the proxy's own, and the POS uses that value to throttle registration by
+source. The edge's range stays in the list, so "who may tell me the client's
+scheme" is still an explicit list with no trust-all entry (D45, D109).
+
+
 ## Related
 
 - [[Localhost Setup]]

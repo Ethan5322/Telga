@@ -376,6 +376,32 @@ status, support contact, daily report, tamper and damage record.
 The merchant independently sources and pays for compatible thermal paper.
 **Paper shortage is never a transaction failure.**
 
+### 18.5 Printing
+
+The slip screens carry a **Print receipt** button. What it does is hand the slip
+to the **device's own print stack** (`window.print()`), which reaches whatever
+that phone or POS is already paired with — a Bluetooth or wi-fi roll printer, or
+a PDF. The print stylesheet is what makes the output a receipt rather than a
+screenshot: everything but the slip is hidden, the slip is sized to the 58 mm or
+80 mm roll the shop chose, and the mark is forced to solid black because a
+thermal head is one bit per dot.
+
+**Telga speaks no printer protocol of its own.** There is no ESC/POS encoder and
+no vendor SDK, because the POS model is not chosen yet (`ASSUMPTIONS` A101). This
+route works on every device that can print at all, needs no permission, and
+cannot silently print the wrong thing — a human sees the print dialogue. When
+the hardware is decided, a native path can sit behind the same button.
+
+**Every printed slip carries `TRAINING — NO REAL VALUE`.** It is drawn inside
+`slipCard` itself, not passed in by a caller, so no screen can print a slip
+without it — a vending sale, a top-up, a data bundle, a reprint and a Telga Pay
+deposit all draw the same card.
+
+**Printing is never a transaction.** It moves no money, writes no row, and needs
+no CSRF token. A failed print is not a failed sale, and the Print button is
+deliberately a plain button while Reprint — which does append an audit line — is
+a form. The two must not look alike.
+
 ### 18.0 One app, one backend, one console
 
 Three facts that are repeatedly misread, stated once so they cannot be:

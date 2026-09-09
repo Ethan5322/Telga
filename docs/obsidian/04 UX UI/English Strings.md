@@ -519,6 +519,17 @@ different secret that no human ever reads.
 | `activate.done.warning` | Telga keeps only a scrambled copy and can never show this again. If it is lost, ask Telga for a new activation code. |
 | `login.activate_cta` | New machine? Activate it |
 
+## Printing (D140)
+
+The slip screens' print action. **It must not promise a printer that is not
+attached**: what Telga does is hand the slip to the device's own print stack,
+and whether paper comes out depends on what that device is paired with.
+
+| Key | English |
+|---|---|
+| `receipt.print` | Print receipt |
+| `receipt.print.notice` | Printing uses this device’s own printer. Every slip is marked TRAINING — NO REAL VALUE. |
+
 ## Wording rules
 
 1. Never promise speed. No "instant", "immediately", or "right away" about a provider outcome.

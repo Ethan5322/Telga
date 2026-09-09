@@ -166,6 +166,9 @@ Per-shop database files. Per-tenant routing being active. Production readiness a
 ### Recommendation
 
 **Decide the storage question before the second real shop is onboarded, not after.**
+The execution plan now exists: [[Per-Shop Storage Migration]] sets out the five
+pieces that must move together, the rollback point beyond which only a restore
+returns, and the one design question that has no obvious answer.
 
 [[Vendor Registration]] makes reaching that second shop considerably faster — a shop can now apply
 from the app without anybody at Telga typing anything. That is the point of it, and it is also

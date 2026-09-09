@@ -159,6 +159,7 @@ material, excluded on the same basis as the partnership folder.
 - [[Device Registration]] — how a device is activated: an admin-issued one-hour code exchanged for a device key
 - [[Vendor Registration]] — how a shop applies from the app, and why approval is never automatic
 - [[Platform Shape]] — one app, one backend, one console, and what is isolated per tenant
+- [[Per-Shop Storage Migration]] — the execution plan for D103, written before any of it is done
 - [[Device Binding]] — enrolment, revocation, and why this is training-grade
 - [[Threat Model]] — who would attack, and what actually stops them
 - [[Training Operations Runbook]] — provisioning, lockouts, lost devices
