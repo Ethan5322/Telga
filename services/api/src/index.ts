@@ -36,6 +36,7 @@ export * from './admin/issueCredentials';
 export * from './admin/recordDeposit';
 export * from './application/unlock';
 export * from './application/cardPurchase';
+export * from './application/cardSettlement';
 export * from './application/recovery/config';
 export * from './application/recovery/results';
 export * from './application/recovery/recoverInFlight';
