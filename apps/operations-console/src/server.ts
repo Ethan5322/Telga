@@ -51,8 +51,10 @@ import type { DocumentMediaType, MultipartFile } from '@telga/api';
 import type { AdminAuthContext, AdminPermission } from '@telga/domain';
 import { AdminAccessDeniedError, effectivePermissions, requireAdmin } from '@telga/domain';
 import {
+  ApplicationWriteError,
   clearAdminMfaSecret,
   listAdminUsers,
+  recordApplication,
   revokeAdminSession,
   revokeAllAdminSessions,
   saveAdminUser,
@@ -241,19 +243,58 @@ const cookie = (name: string, value: string, secure: boolean): string =>
  * Checked before the session, because a cross-site request that is going to be
  * refused should be refused without touching the database.
  */
+/**
+ * `[::1]` and `::1` are the same host written two ways.
+ *
+ * A URL brackets an IPv6 literal so the colons cannot be read as a port
+ * separator; an allow-list, a command-line flag and a loopback check all write
+ * it bare. Nothing else is touched — a name or an IPv4 address passes through
+ * unchanged.
+ */
+const unbracket = (host: string): string =>
+  host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+
 function originOk(request: IncomingMessage, allowedHosts: readonly string[]): boolean {
   const origin = request.headers['origin'];
   if (typeof origin !== 'string') return true; // Same-origin form posts may omit it.
   try {
-    const host = new URL(origin).host.split(':')[0] ?? '';
-    return allowedHosts.includes(host);
+    // `hostname`, not `host.split(':')[0]`.
+    //
+    // The old form split on the port separator, which an IPv6 address is full
+    // of: `http://[::1]:4800` has host `[::1]:4800`, and splitting it on `:`
+    // yields `"["`. Every request from an IPv6 loopback origin was therefore
+    // refused as cross-site — and since `cli.ts` accepts `::1` as a bind host,
+    // the console would serve a page it then refused every form post from.
+    //
+    // Reported from a browser on 2026-09-09: *"Refused: cross-site request"* on
+    // sign-in. `hostname` is the parsed host without the port, and it is
+    // correct for IPv6 (`::1`), IPv4 and names alike.
+    // Brackets stripped from both sides before comparing.
+    //
+    // `hostname` keeps the brackets an IPv6 literal is written with in a URL —
+    // `new URL('http://[::1]:4800').hostname` is `"[::1]"`, not `"::1"` — while
+    // an allow-list is written bare, the way `--allowed-hosts ::1` or an
+    // `isLoopback` check spells it. Comparing the two forms directly refuses a
+    // host that was explicitly allowed, which is the second half of the same
+    // bug: fixing the port-splitting alone still left IPv6 broken.
+    const host = unbracket(new URL(origin).hostname);
+    return allowedHosts.some((allowed) => unbracket(allowed) === host);
   } catch {
+    // An unparseable origin, including the literal `null` a browser sends from
+    // a sandboxed or redirected context. Refused: the allow-list is the policy
+    // (`09 Engineering/TLS and Proxy Configuration` — Telga answers only for
+    // the hosts it was told about), and a header that cannot be read is not a
+    // host that was allowed.
     return false;
   }
 }
 
 export function createConsoleServer(options: ConsoleOptions): Server {
-  const allowedHosts = options.allowedHosts ?? ['localhost', '127.0.0.1'];
+  // `::1` belongs here because `cli.ts`'s `isLoopback` already accepts it as a
+  // bind host. Without it the console would bind to IPv6 loopback and then
+  // refuse every form posted to it — the two definitions of "this machine" have
+  // to agree, or the console serves a page it will not accept input from.
+  const allowedHosts = options.allowedHosts ?? ['localhost', '127.0.0.1', '::1'];
   const secure = options.secureCookies ?? false;
   const ports = { db: options.db as never, now: options.now, newId: options.newId };
 
@@ -313,6 +354,28 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       recordAdminAction(options.db, options.newId, options.now, { ...input, correlationId });
 
     if (method !== 'GET' && !originOk(request, allowedHosts)) {
+      /**
+       * Say what was refused, to the operator's terminal.
+       *
+       * [[Decision Log]] **D116**: *"what found it was not a better theory but
+       * a better failure message."* Three rounds of diagnosis went into a
+       * browser reporting "cross-site request" with no way to tell which origin
+       * had been rejected or what the console was willing to accept — the same
+       * shape of blindness as `TELGA_DB_PATH is not set`, and fixed the same
+       * way.
+       *
+       * **To stderr, not to the page.** The origin is attacker-controlled, and
+       * the refusal screen is the wrong place to reflect input. The operator
+       * running the console sees this in the terminal they started it from,
+       * which is exactly who needs it.
+       */
+      const refused = request.headers['origin'];
+      process.stderr.write(
+        `[telga-console] refused a ${method} to ${path}: Origin ` +
+          `${typeof refused === 'string' ? JSON.stringify(refused) : '(absent)'} ` +
+          `is not one of [${allowedHosts.join(', ')}]. ` +
+          'Start the console with --allowed-hosts to add it.\n',
+      );
       respond(response, 403, document(deniedScreen(chromeFor(undefined, csrf), 'Refused: cross-site request.'), 'Refused'));
       return;
     }
@@ -725,97 +788,74 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       const applicationId = options.newId('app');
       const reference = newSubmissionReference();
 
-      // **One transaction, and the tests found out why.**
-      //
-      // The application row was written first and the documents after it, so a
-      // document that collided on the unique `(kind, reference)` index left the
-      // application behind: a shop in the review queue with no papers, created
-      // by the very check meant to refuse it. A duplicate TIN is exactly the
-      // case that index exists for — one person opening shops under several
-      // names — so it is the case least able to afford a half-written record.
-      options.db.prepare('BEGIN').run();
+      /**
+       * One transaction, through the **shared** recorder.
+       *
+       * This used to be ~70 lines of inline SQL here, and its own comment
+       * recorded what happened when the write was not atomic: the application
+       * row was written first and the documents after it, so a document that
+       * collided on the unique `(kind, reference)` index left the application
+       * behind — *a shop in the review queue with no papers, created by the
+       * very check meant to refuse it.*
+       *
+       * D138 added a second caller — the app's own *Register as Telga member* — and
+       * two hand-written copies of an intake write is how the two drift: one
+       * gains a validation the other does not, one wraps its documents in the
+       * transaction and the other does not, and the difference is found by a
+       * shop whose papers vanished. So the SQL moved to
+       * `@telga/persistence`'s `recordApplication` and both callers pass
+       * through it. The encryption still happens **inside** the transaction —
+       * that is what `resolve` is for.
+       */
+      const fileFor: Readonly<Record<string, string>> = {
+        TRADE_LICENCE: 'tradeLicenceFile',
+        TIN_CERTIFICATE: 'tinFile',
+        OWNER_PHOTO_ID: 'photoIdFile',
+      };
+
       try {
-        options.db
-          .prepare(
-            `INSERT INTO merchant_applications
-               (id, reference, status, legal_name, owner_name, phone, email,
-                address, locality, submitted_at, created_at, updated_at)
-             VALUES (?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            applicationId,
-            reference,
-            submission.legalName.trim(),
-            submission.ownerName.trim(),
-            submission.phone.trim(),
-            submission.email.trim().length > 0 ? submission.email.trim() : null,
-            submission.address.trim(),
-            submission.locality.trim(),
-            at,
-            at,
-            at,
-          );
-
-        // Which upload belongs to which document. The form names its file
-        // inputs after the reference field they accompany.
-        const fileFor: Readonly<Record<string, string>> = {
-          TRADE_LICENCE: 'tradeLicenceFile',
-          TIN_CERTIFICATE: 'tinFile',
-          OWNER_PHOTO_ID: 'photoIdFile',
-        };
-
-        for (const document of submission.documents) {
-          // Encrypted to the volume **inside** the transaction, so a database
-          // failure after this point leaves an unreferenced file rather than a
-          // row pointing at nothing. An orphan ciphertext nobody can open is a
-          // tidy-up; a row promising a passport that is not there is a gap in
-          // the evidence the founder is keeping these for.
-          const upload = uploads.find((file) => file.name === fileFor[document.kind]);
-          const stored =
-            upload !== undefined && documentVault !== undefined
-              ? documentVault.store({
-                  content: upload.content,
-                  mediaType: upload.mediaType,
-                })
-              : undefined;
-
-          options.db
-            .prepare(
-              `INSERT INTO merchant_application_documents
-                 (id, application_id, kind, reference, status, expires_at,
-                  document_uri, media_type, byte_size, created_at, updated_at)
-               VALUES (?, ?, ?, ?, 'SUPPLIED', ?, ?, ?, ?, ?, ?)`,
-            )
-            .run(
-              options.newId('doc'),
-              applicationId,
-              document.kind,
-              document.reference.trim(),
-              (document.expiresAt ?? '').length > 0 ? document.expiresAt : null,
-              stored?.documentUri ?? null,
-              stored?.mediaType ?? null,
-              stored?.bytes ?? null,
-              at,
-              at,
-            );
-        }
-        options.db.prepare('COMMIT').run();
+        recordApplication(options.db as never, {
+          id: applicationId,
+          reference,
+          // An admin recorded this from documents a shop brought in, so a
+          // reviewer may assume somebody saw the originals. A self-service
+          // submission carries `SELF_SERVICE` and no such assumption.
+          submittedVia: 'ADMIN',
+          legalName: submission.legalName,
+          ownerName: submission.ownerName,
+          phone: submission.phone,
+          email: submission.email,
+          address: submission.address,
+          locality: submission.locality,
+          at,
+          documents: submission.documents.map((document) => ({
+            id: options.newId('doc'),
+            kind: document.kind,
+            reference: document.reference,
+            ...((document.expiresAt ?? '').length > 0
+              ? { expiresAt: document.expiresAt as string }
+              : {}),
+            resolve: () => {
+              const upload = uploads.find((file) => file.name === fileFor[document.kind]);
+              if (upload === undefined || documentVault === undefined) return undefined;
+              return documentVault.store({
+                content: upload.content,
+                mediaType: upload.mediaType,
+              });
+            },
+          })),
+        });
       } catch (error) {
-        // Nothing is left behind: no application, no partial set of documents.
-        options.db.prepare('ROLLBACK').run();
         // The unique index on (kind, reference) is the one that fires here: a
         // licence or TIN already registered to another shop. That is a finding,
         // not a validation error — one person opening shops under several names
         // is exactly what it was added to catch.
-        const duplicate = /UNIQUE constraint failed/.test(
-          error instanceof Error ? error.message : '',
-        );
+        const refusal =
+          error instanceof ApplicationWriteError ? error.refusal : 'REGISTRATION_NOT_SAVED';
         screen(
           registerShopScreen({
             chrome: chromeFor(context, csrf),
-            error: duplicate
-              ? 'DOCUMENT_ALREADY_REGISTERED_TO_ANOTHER_SHOP'
-              : 'REGISTRATION_NOT_SAVED',
+            error: refusal,
             values: form,
           }),
           'Register Telga User',
@@ -834,6 +874,85 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         // audit screen into a holder of them.
         metadata: { reference, locality: submission.locality.trim() },
       });
+
+      /**
+       * **Path B**: admin creation is the approval. D138.
+       *
+       * Runs the same two steps the review screen runs — record the decision,
+       * then provision — rather than a second creation path. A shop created
+       * here and a shop approved from the queue must be the same shop, with the
+       * same audit trail and the same tenant row; two ways of making one would
+       * be two things to keep in step.
+       *
+       * `ADMIN_APPROVE_MERCHANT` is checked **now**, separately from the
+       * `ADMIN_REVIEW_APPLICATION` that let the form be posted. An admin who
+       * may record a registration but not approve one gets the application
+       * recorded and the approval refused — which is the correct outcome, and
+       * the reason this is not folded into the guard at the top.
+       */
+      const approveNow = (form['approveNow'] ?? '').length > 0;
+      if (approveNow) {
+        if (!guard('ADMIN_APPROVE_MERCHANT')) return;
+        const found = applicationById(applicationId);
+        if (found !== undefined) {
+          options.db
+            .prepare(
+              `UPDATE merchant_applications
+                  SET status = 'APPROVED', decision_reason = ?, reviewed_by = ?,
+                      reviewed_at = ?, updated_at = ?
+                WHERE id = ?`,
+            )
+            .run(
+              'Registered and approved at the counter by the recording admin.',
+              context.user.id,
+              at,
+              at,
+              applicationId,
+            );
+          record({
+            event: 'ADMIN_APPLICATION_DECIDED',
+            actorId: context.user.id,
+            actorRole: context.user.role,
+            entityType: 'MERCHANT_APPLICATION',
+            entityId: applicationId,
+            // `path: 'DIRECT'` is what distinguishes this in the trail from an
+            // approval that went through the queue. Both are approvals; only
+            // one had a second pair of eyes, and the trail must say which.
+            metadata: { outcome: 'APPROVE', status: 'APPROVED', path: 'DIRECT' },
+          });
+          try {
+            const result = provisionMerchant(
+              consoleProvisioningPorts({
+                db: options.db,
+                now: options.now,
+                schemaVersion: options.schemaVersion,
+              }),
+              { ...found, status: 'APPROVED' },
+            );
+            record({
+              event: 'ADMIN_MERCHANT_PROVISIONED',
+              actorId: context.user.id,
+              actorRole: context.user.role,
+              entityType: 'MERCHANT',
+              entityId: result.merchantId,
+              metadata: {
+                applicationId,
+                databaseName: result.databaseName,
+                schemaVersion: result.schemaVersion,
+              },
+            });
+          } catch {
+            // As on the review path: a refusal is not a crash. The approval
+            // stands and is auditable, and the application screen shows where
+            // provisioning stopped.
+            response.writeHead(303, {
+              location: `/applications/${encodeURIComponent(applicationId)}?error=PROVISIONING_FAILED`,
+            });
+            response.end();
+            return;
+          }
+        }
+      }
 
       response.writeHead(303, { location: `/applications/${encodeURIComponent(applicationId)}` });
       response.end();
@@ -1714,7 +1833,8 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       legal_name: string;
       locality: string;
       created_at: string;
-    }>(`SELECT id, reference, status, legal_name, locality, created_at
+      submitted_via: string;
+    }>(`SELECT id, reference, status, legal_name, locality, created_at, submitted_via
           FROM merchant_applications ORDER BY created_at DESC`).map((r) => ({
       id: r.id,
       reference: r.reference,
@@ -1722,6 +1842,7 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       legalName: r.legal_name,
       locality: r.locality,
       createdAt: r.created_at,
+      submittedVia: r.submitted_via,
     }));
   }
 

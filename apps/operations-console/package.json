@@ -15,7 +15,6 @@
   "dependencies": {
     "@telga/api": "*",
     "@telga/domain": "*",
-    "@telga/merchant-pos": "*",
     "@telga/persistence": "*"
   }
 }

@@ -26,10 +26,6 @@ import { createServer as createHttpsServer } from 'node:https';
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { hashAdminSecret } from '@telga/api';
-// Reused, not reimplemented. `parseTrustedEntry` is the parser that refuses a
-// zero-length prefix, which is what keeps D45's "there is no trust-all setting"
-// true for the console as well as the POS.
-import { parseTrustedEntry } from '@telga/merchant-pos';
 import { assertMigrationsApplied, saveAdminUser } from '@telga/persistence';
 import { createConsoleServer } from './server';
 
@@ -68,6 +64,54 @@ function parse(argv: readonly string[]): Map<string, string> {
 /** Loopback only, unless TLS is configured. */
 const isLoopback = (host: string): boolean =>
   host === '127.0.0.1' || host === '::1' || host === 'localhost';
+
+/**
+ * Is this a usable trusted-proxy range?
+ *
+ * [[Decision Log]] **D109** sets the rule and this enforces it: *"A zero-length
+ * prefix (`0.0.0.0/0`, `::/0`) is refused at startup"*, and **no platform range
+ * is hardcoded** — the operator observes their edge's address and configures it.
+ *
+ * ## Why this is not `parseTrustedEntry` from the POS
+ *
+ * It was, for an hour. Importing `@telga/merchant-pos` to reuse that parser
+ * pulled in the POS package index, which re-exports `./cli`, whose entry guard
+ * is `process.argv[1]?.endsWith('cli.js')` — and **this console's entry is also
+ * named `cli.js`**, so starting the console ran the POS's `main()` and printed
+ * `--merchant is required`. Reuse was the right instinct and the wrong import.
+ *
+ * The POS bug is real and is reported separately; patching a deployed component
+ * to make an admin tool convenient is the wrong order of operations.
+ *
+ * ## What this checks, and what it deliberately does not
+ *
+ * The console uses the range as a **declaration** that something in front is
+ * terminating TLS — it is what permits a non-loopback bind and what makes the
+ * session cookie `Secure`. It does not match forwarded headers against the
+ * range the way the POS does, because the console reads no `X-Forwarded-*`
+ * header at all. So this validates shape and refuses the one value that would
+ * mean "trust everything"; it is not, and does not claim to be, a full CIDR
+ * matcher.
+ */
+function usableTrustRange(entry: string): boolean {
+  const slash = entry.lastIndexOf('/');
+  if (slash === -1) return false;
+  const address = entry.slice(0, slash).trim();
+  const prefixText = entry.slice(slash + 1).trim();
+  if (address.length === 0 || !/^\d+$/.test(prefixText)) return false;
+
+  const prefix = Number(prefixText);
+  const isIpv6 = address.includes(':');
+  // A zero-length prefix matches every address. D45: there is no trust-all
+  // setting, and refusing it in the parser is where it cannot be forgotten.
+  if (prefix <= 0) return false;
+  if (prefix > (isIpv6 ? 128 : 32)) return false;
+
+  if (isIpv6) return /^[0-9a-fA-F:]+$/.test(address);
+  const octets = address.split('.');
+  if (octets.length !== 4) return false;
+  return octets.every((o) => /^\d{1,3}$/.test(o) && Number(o) <= 255);
+}
 
 export async function run(
   argv: readonly string[],
@@ -110,12 +154,11 @@ export async function run(
    *
    * **The rule is not relaxed, it is satisfied differently.** Binding beyond
    * loopback still requires proof that something in front is doing TLS, and
-   * `parseTrustedEntry` is what checks the claim: it refuses a zero-length
-   * prefix (`0.0.0.0/0`, `::/0`), so "trust everything" cannot be expressed
-   * here any more than it can in the POS. A malformed range is refused at
-   * start-up rather than silently matching nothing, because a range that
-   * matches nothing looks identical to a working deployment until the first
-   * sign-in fails.
+   * {@link usableTrustRange} checks the claim: it refuses a zero-length prefix
+   * (`0.0.0.0/0`, `::/0`), so "trust everything" cannot be expressed here any
+   * more than it can in the POS. A malformed range is refused at start-up
+   * rather than silently matching nothing, because a range that matches nothing
+   * looks identical to a working deployment until the first sign-in fails.
    */
   const trustProxyRaw = values.get('trust-proxy');
   const trustProxy =
@@ -127,7 +170,7 @@ export async function run(
           .filter((entry) => entry.length > 0);
 
   for (const entry of trustProxy) {
-    if (parseTrustedEntry(entry) === undefined) {
+    if (!usableTrustRange(entry)) {
       writeError(
         `Refusing: "${entry}" is not a usable --trust-proxy range. A zero-length prefix ` +
           'trusts every address and is refused; so is a range that parses to nothing. ' +
@@ -217,7 +260,9 @@ export async function run(
     return EXIT.ok;
   }
 
-  const allowedHosts = (allowedHostsRaw ?? 'localhost,127.0.0.1')
+  // `::1` included, matching `isLoopback` above. An operator who binds to IPv6
+  // loopback must be able to post a form to the page they were just served.
+  const allowedHosts = (allowedHostsRaw ?? 'localhost,127.0.0.1,::1')
     .split(',')
     .map((h) => h.trim())
     .filter((h) => h.length > 0);

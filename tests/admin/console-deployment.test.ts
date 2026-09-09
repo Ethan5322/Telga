@@ -207,3 +207,91 @@ describe('the health endpoint', () => {
     expect(reply.headers['allow']).toBe('GET');
   });
 });
+
+describe('the origin check accepts the machine it is running on', () => {
+  /**
+   * Reported from a browser, 2026-09-09: signing in answered *"Refused:
+   * cross-site request"*.
+   *
+   * The check read the host as `new URL(origin).host.split(':')[0]`, which
+   * splits on the port separator — and an IPv6 address is full of colons. For
+   * `http://[::1]:4800` that yielded `"["`, so **every** form posted from an
+   * IPv6 loopback origin was refused as cross-site. The console would serve a
+   * page and then reject everything submitted from it.
+   *
+   * Two things were wrong and both are fixed: the parsing (`hostname` instead
+   * of splitting `host`), and the default allow-list, which omitted `::1` even
+   * though `cli.ts` accepts `::1` as a bind host. The two definitions of "this
+   * machine" have to agree.
+   */
+  const post = (origin?: string): Promise<{ status: number }> =>
+    new Promise((resolve, reject) => {
+      const body = 'email=nobody@telga.local&password=irrelevant';
+      const headers: Record<string, string> = {
+        host: '127.0.0.1',
+        'content-type': 'application/x-www-form-urlencoded',
+        'content-length': String(Buffer.byteLength(body)),
+      };
+      if (origin !== undefined) headers['origin'] = origin;
+      const req = httpRequest(
+        { host: '127.0.0.1', port, path: '/login', method: 'POST', headers },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+        },
+      );
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+
+  const serve = async (): Promise<void> => {
+    served = new Database(dbPath);
+    served.pragma('foreign_keys = ON');
+    server = createConsoleServer({
+      db: served as never,
+      now: () => new Date().toISOString(),
+      newId: (p) => `${p}_1`,
+      schemaVersion: '017',
+      secureCookies: false,
+      // No `allowedHosts` — the default is what an operator running the console
+      // locally actually gets, and it is the default that was broken.
+    });
+    await new Promise<void>((resolve) => {
+      server?.listen(0, '127.0.0.1', () => {
+        const address = server?.address();
+        port = typeof address === 'object' && address !== null ? address.port : 0;
+        resolve();
+      });
+    });
+  };
+
+  it('accepts every way a browser can name this machine', async () => {
+    await serve();
+    for (const origin of [
+      'http://127.0.0.1:4800',
+      'http://localhost:4800',
+      'http://[::1]:4800',
+      'https://localhost:4800',
+    ]) {
+      const reply = await post(origin);
+      // 303 is the sign-in refusal redirect — the credentials are deliberately
+      // wrong. What matters is that it is **not** 403: the origin was accepted
+      // and the request reached the login logic.
+      expect(reply.status, `${origin} must not be refused as cross-site`).not.toBe(403);
+    }
+  });
+
+  it('still refuses a genuinely foreign origin', async () => {
+    await serve();
+    for (const origin of ['https://evil.example', 'http://192.168.1.50:4800', 'null']) {
+      const reply = await post(origin);
+      expect(reply.status, `${origin} must be refused`).toBe(403);
+    }
+  });
+
+  it('still allows a form post that omits Origin, as browsers may', async () => {
+    await serve();
+    expect((await post()).status).not.toBe(403);
+  });
+});

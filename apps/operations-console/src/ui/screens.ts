@@ -291,6 +291,13 @@ export interface ApplicationRow {
   readonly legalName: string;
   readonly locality: string;
   readonly createdAt: string;
+  /**
+   * Who typed it in — `ADMIN` or `SELF_SERVICE`. Migration 018.
+   *
+   * Optional so a caller that predates D138 still compiles; absent is treated
+   * as `ADMIN`, which is what every row written before the column existed was.
+   */
+  readonly submittedVia?: string;
 }
 
 export function applicationsScreen(
@@ -328,6 +335,8 @@ export function applicationsScreen(
               h('th', { scope: 'col' }, 'Reference'),
               h('th', { scope: 'col' }, 'Shop'),
               h('th', { scope: 'col' }, 'Locality'),
+              // The column that tells a reviewer what kind of work this row is.
+              h('th', { scope: 'col' }, 'Source'),
               h('th', { scope: 'col' }, 'Status'),
               h('th', { scope: 'col' }, 'Submitted'),
               h('th', { scope: 'col' }, ''),
@@ -342,7 +351,34 @@ export function applicationsScreen(
                 { 'data-testid': `application-${row.reference}`, 'data-status': row.status },
                 h('td', {}, row.reference),
                 h('td', {}, row.legalName),
-                h('td', {}, row.locality),
+                /**
+                 * Verified by a person, or typed by a stranger.
+                 *
+                 * Until D138 every application came from an admin holding the
+                 * papers, and a reviewer could assume somebody had seen them.
+                 * That assumption is no longer safe for every row, and a
+                 * reviewer who cannot tell the two apart will keep making it —
+                 * so the difference is a column, not a detail on another page.
+                 *
+                 * Stated as **Unverified** rather than "Self-service", because
+                 * what the reviewer needs to know is not where it came from but
+                 * what it is worth.
+                 */
+                h(
+                  'td',
+                  {},
+                  h(
+                    'span',
+                    {
+                      class:
+                        row.submittedVia === 'SELF_SERVICE'
+                          ? 'console__pill console__pill--caution'
+                          : 'console__pill',
+                      'data-testid': `application-source-${row.reference}`,
+                    },
+                    row.submittedVia === 'SELF_SERVICE' ? 'Unverified — from app' : 'Admin-recorded',
+                  ),
+                ),
                 h('td', {}, h('span', { class: 'console__pill' }, row.status)),
                 h('td', {}, row.createdAt.slice(0, 10)),
                 h(
@@ -501,6 +537,44 @@ export function registerShopScreen(props: RegisterShopFormProps): El {
       scan('tinFile', 'TIN certificate photograph'),
       field('photoId', 'ID or passport number'),
       scan('photoIdFile', 'ID or passport photograph'),
+
+      /**
+       * **Path B** — admin creation as its own approval. D138.
+       *
+       * The founder's rule: *"admin creation IS the approval"*. An admin who
+       * has the papers in front of them is the review, and making them approve
+       * their own submission a second time on the next screen is ceremony, not
+       * control.
+       *
+       * It is a **deliberate opt-in rather than the default**, because the two
+       * cases are genuinely different work. An admin at a counter with the
+       * originals ticks this. An admin typing up something posted in, or
+       * recording a walk-in for a colleague to check, leaves it clear and the
+       * application waits in the queue.
+       *
+       * Ticking it still requires `ADMIN_APPROVE_MERCHANT` on the route, which
+       * carries step-up re-authentication with it — so this is a shortcut
+       * through a screen, never through a permission.
+       */
+      h(
+        'div',
+        { class: 'console__field console__field--check' },
+        h('input', {
+          id: 'approveNow',
+          name: 'approveNow',
+          type: 'checkbox',
+          value: 'yes',
+          'data-testid': 'field-approveNow',
+        }),
+        h('label', { for: 'approveNow' }, 'Approve immediately — I have seen these documents'),
+        h(
+          'p',
+          { class: 'console__hint' },
+          'Creates the shop straight away instead of adding it to the review queue. ' +
+            'Leave unticked to have a colleague check it first. ' +
+            'Either way, sign-in parameters are issued separately.',
+        ),
+      ),
 
       h(
         'p',
