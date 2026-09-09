@@ -145,6 +145,41 @@ A **new** device record and a **new** activation code. Never a reissued key to
 the same record: the old key must stay independently revocable, so that stopping
 a stolen machine does not stop the replacement. See [[Training Operations Runbook]].
 
+## Telling one key from another, without seeing one — D145
+
+Telga cannot show a device key. It holds a scrypt hash and nothing else, so
+there is no value to mask and nothing to decrypt. What the console offers
+instead answers the question that request was really about.
+
+**A fingerprint.** Six characters in the device list, derived from the *stored
+hash* with a second one-way step on top. Safe to print, read down a phone line
+and write in a case note. Two devices with different fingerprints hold different
+keys; a device re-enrolled last week has a different fingerprint from the one in
+last month's notes. That comparison is most of what "see the key" was ever for.
+
+It uses the activation code's alphabet — no `I`, `O`, `0` or `1` — because a
+misread fingerprint produces a confident wrong answer. A device that has never
+activated shows `—`: it has no key, and printing a fingerprint for one would
+invent a fact.
+
+> [!note] A shop cannot compute their own fingerprint
+> It is derived from the hash, which includes the salt — not from the key. A
+> value a shop could compute from their key is a value an attacker holding one
+> phished key could use to test it against other devices.
+
+**A check.** *Check a device key* on the devices screen takes a key an operator
+has been read and answers `MATCH`, `NO_MATCH` or `NOT_ENROLLED`. The key is
+compared and discarded — never stored, never logged, never echoed back. The
+audit event records that a check happened, by whom, against which device, and
+what it said. Never the value.
+
+> [!tip] Recommendation
+> **Quote the fingerprint in support cases rather than the device id alone.** A
+> device id identifies the machine; the fingerprint identifies the *credential
+> it is currently holding*. A shop that has been re-enrolled since a case was
+> opened is the commonest reason a "correct" key stops working, and only the
+> fingerprint makes that visible.
+
 ## Related
 
 - [[Device Binding]] — what the key proves, and what it does not

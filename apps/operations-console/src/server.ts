@@ -24,7 +24,9 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import {
   adminLogin,
   authenticateAdmin,
+  deviceKeyFingerprint,
   hashAdminSecret,
+  verifyDeviceKey,
   newEnrollmentToken,
   beginMfaEnrolment,
   satisfyAdminMfa,
@@ -1506,6 +1508,64 @@ export function createConsoleServer(options: ConsoleOptions): Server {
      * between this and suspending a merchant, and it is the case R14 describes:
      * one machine lost or stolen, a shop still open.
      */
+    /**
+     * Check a device key a shop has read out.
+     *
+     * The founder asked to see device keys in the console. Telga cannot show
+     * one — a key is stored only as a scrypt hash (§18.2) — so this answers the
+     * question behind the request instead: *is the key this shop is holding the
+     * right one?*
+     *
+     * ## What it does not do
+     *
+     * Store, log or echo the submitted key. The answer is one of three words
+     * and the key is discarded. The audit event records **that** a check
+     * happened, by whom, against which device, and the outcome — never the
+     * value, because an audit trail carrying credentials turns every reader of
+     * the audit screen into a holder of them.
+     *
+     * ## Why an unknown device and a wrong key answer differently here
+     *
+     * The opposite choice to `/activate`, and deliberately. There, the caller is
+     * anonymous and telling them apart would build a device-id oracle. Here the
+     * caller is a signed-in administrator who can already list every device on
+     * the platform, so `NOT_ENROLLED` discloses nothing they cannot read on the
+     * previous screen — and it saves them checking a key against a device that
+     * was never activated.
+     */
+    if (path === '/devices/verify-key' && method === 'POST') {
+      if (!guard('ADMIN_VIEW_DEVICE')) return;
+      const form = await readForm(request);
+      const deviceId = (form['deviceId'] ?? '').trim();
+      const enrolment = options.db
+        .prepare('SELECT secret_hash, secret_salt FROM device_enrollments WHERE device_id = ?')
+        .get(deviceId) as { secret_hash: string; secret_salt: string } | undefined;
+
+      const result = await verifyDeviceKey(enrolment, form['deviceKey'] ?? '');
+
+      record({
+        event: 'ADMIN_DEVICE_KEY_CHECKED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'DEVICE',
+        entityId: deviceId,
+        // The outcome, never the key.
+        metadata: { result },
+      });
+
+      const said =
+        result === 'MATCH'
+          ? 'That is the correct key for this device.'
+          : result === 'NO_MATCH'
+            ? 'That is not the key for this device.'
+            : 'That device has never been activated, so it has no key yet.';
+      response.writeHead(303, {
+        location: `/devices?notice=${encodeURIComponent(said)}`,
+      });
+      response.end();
+      return;
+    }
+
     const stopMatch = /^\/devices\/([^/]+)\/stop$/.exec(path);
     if (stopMatch && method === 'POST') {
       if (!guard('ADMIN_REMOTE_STOP_SALES')) return;
@@ -1732,7 +1792,15 @@ export function createConsoleServer(options: ConsoleOptions): Server {
 
     if (path === '/devices' && method === 'GET') {
       if (!guard('ADMIN_VIEW_DEVICE')) return;
-      screen(devicesScreen(chromeFor(context, csrf), devices(), allowed), 'Devices');
+      screen(
+        devicesScreen(
+          chromeFor(context, csrf),
+          devices(),
+          allowed,
+          url.searchParams.get('notice') ?? undefined,
+        ),
+        'Devices',
+      );
       return;
     }
 
@@ -2313,9 +2381,10 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       device_type: string;
       enrollment_state: string | null;
       last_seen_at: string | null;
+      secret_hash: string | null;
     }>(
       `SELECT d.id, d.merchant_id, d.status, d.device_type,
-              e.enrollment_state, e.last_seen_at
+              e.enrollment_state, e.last_seen_at, e.secret_hash
          FROM devices d
          LEFT JOIN device_enrollments e ON e.device_id = d.id
         ORDER BY d.created_at DESC`,
@@ -2326,6 +2395,10 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       deviceType: r.device_type,
       enrollmentState: r.enrollment_state,
       lastSeenAt: r.last_seen_at,
+      // Derived here and never leaving this map: the hash is read from the row
+      // and turned into a fingerprint, so no caller downstream is ever handed
+      // the stored hash itself. Absent for a device that has never activated.
+      keyFingerprint: deviceKeyFingerprint(r.secret_hash),
     }));
   }
 

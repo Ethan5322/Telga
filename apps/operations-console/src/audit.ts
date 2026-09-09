@@ -93,6 +93,14 @@ export type AdminAuditEvent =
    * into a holder of them.
    */
   | 'ADMIN_OPERATOR_PIN_RESET'
+  /**
+   * An administrator checked a device key a shop read out to them.
+   *
+   * Records that the check happened and what it said — never the key. A device
+   * key cannot be displayed by Telga at all, so this is the only way a support
+   * call can confirm a shop holds the right one.
+   */
+  | 'ADMIN_DEVICE_KEY_CHECKED'
   | 'ADMIN_APPLICATION_PICKED_UP'
   | 'ADMIN_APPLICATION_DECIDED'
   | 'ADMIN_ENROLLMENT_TOKEN_ISSUED'

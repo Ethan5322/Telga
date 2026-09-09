@@ -1093,16 +1093,100 @@ export interface DeviceRow {
   readonly deviceType: string;
   readonly enrollmentState: string | null;
   readonly lastSeenAt: string | null;
+  /**
+   * A short public name for the key this device holds — never the key.
+   *
+   * The founder asked for a "masked device key". A key is stored only as a
+   * scrypt hash, so there is no value to mask; this is derived from that hash
+   * and answers the question the request was really about — *is this the same
+   * key as before?* See `admin/deviceKeyCheck.ts`.
+   *
+   * Absent for a device created but never activated: it has no key, and
+   * printing a fingerprint for one would be inventing a fact.
+   */
+  readonly keyFingerprint?: string;
 }
 
 export function devicesScreen(
   chrome: ConsoleChrome,
   rows: readonly DeviceRow[],
   allowed: Allowed,
+  /**
+   * The result of a key check, shown back to the operator.
+   *
+   * Added because the route redirected with a `notice` this screen did not
+   * render: an admin checked a key, was returned here, and saw nothing at all.
+   * A control that answers silently is a control nobody trusts.
+   */
+  notice?: string,
 ): El {
   return page(
     { ...chrome, section: 'devices' },
     'Devices',
+    notice !== undefined &&
+      h('p', { class: 'console__note', role: 'status', 'data-testid': 'devices-notice' }, notice),
+    /**
+     * Check a key a shop has read out.
+     *
+     * The founder asked to *see* a device key. Telga cannot: it holds a scrypt
+     * hash and nothing else. What an operations desk actually needs from that
+     * request is settled here — the shop reads their key, an admin types it,
+     * and Telga answers whether it is the right one. The key is compared and
+     * discarded; it is never stored, logged, or echoed back.
+     *
+     * `ADMIN_VIEW_DEVICE` rather than a stronger permission: this reveals
+     * nothing. A wrong guess learns only that the guess was wrong, which is
+     * what a wrong sign-in already tells anybody.
+     */
+    allowed.has('ADMIN_VIEW_DEVICE') &&
+      h(
+        'details',
+        { class: 'console__disclosure', 'data-testid': 'device-verify' },
+        h('summary', {}, 'Check a device key'),
+        h(
+          'p',
+          { class: 'console__hint' },
+          'Telga stores only a scrambled copy of a device key and can never display one. ' +
+            'Ask the shop to read theirs out and check it here. The Key column shows a short ' +
+            'name for each key, so two devices can be told apart without anyone reading a secret.',
+        ),
+        h(
+          'form',
+          { method: 'post', action: '/devices/verify-key', 'data-testid': 'device-verify-form' },
+          h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+          h(
+            'div',
+            { class: 'console__field' },
+            h('label', { for: 'verifyDeviceId' }, 'Device'),
+            h('input', {
+              id: 'verifyDeviceId',
+              name: 'deviceId',
+              type: 'text',
+              required: true,
+              'data-testid': 'device-verify-id',
+            }),
+          ),
+          h(
+            'div',
+            { class: 'console__field' },
+            h('label', { for: 'verifyKey' }, 'Key the shop read out'),
+            h('input', {
+              id: 'verifyKey',
+              name: 'deviceKey',
+              type: 'password',
+              required: true,
+              autocomplete: 'off',
+              'data-testid': 'device-verify-key',
+            }),
+          ),
+          h(
+            'button',
+            { type: 'submit', class: 'console__button', 'data-testid': 'device-verify-submit' },
+            'Check',
+          ),
+        ),
+      ),
+
     rows.length === 0
       ? h('p', { 'data-testid': 'devices-empty' }, 'No devices registered.')
       : h(
@@ -1119,6 +1203,7 @@ export function devicesScreen(
               h('th', { scope: 'col' }, 'Type'),
               h('th', { scope: 'col' }, 'Status'),
               h('th', { scope: 'col' }, 'Enrolment'),
+              h('th', { scope: 'col' }, 'Key'),
               h('th', { scope: 'col' }, 'Last seen'),
               h('th', { scope: 'col' }, ''),
             ),
@@ -1135,6 +1220,13 @@ export function devicesScreen(
                 h('td', {}, row.deviceType),
                 h('td', {}, h('span', { class: 'console__pill' }, row.status)),
                 h('td', {}, row.enrollmentState ?? '—'),
+                // The fingerprint, never the key. Monospaced because it is read
+                // aloud and compared character by character.
+                h(
+                  'td',
+                  { class: 'console__mono', 'data-testid': `device-key-fp-${row.id}` },
+                  row.keyFingerprint ?? '—',
+                ),
                 h('td', {}, row.lastSeenAt?.slice(0, 16).replace('T', ' ') ?? 'never'),
                 h(
                   'td',
