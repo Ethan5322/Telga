@@ -209,9 +209,11 @@ describe('migration 008', () => {
       //         tenant_registry, merchant_applications
       //   015 → merchant_application_documents
       //   016 → funding_submissions
+      //   018 → registration_attempts
       //
-      // 015 also adds `merchant_users.must_change_pin` and 016 adds
-      // `device_enrollments.deposit_lookup`. Both are columns and so do not
+      // 015 also adds `merchant_users.must_change_pin`, 016 adds
+      // `device_enrollments.deposit_lookup`, and 018 adds
+      // `merchant_applications.submitted_via`. All are columns and so do not
       // appear here. That columns are invisible to this guard is why
       // migration-015.test.ts asserts its one directly, against a database
       // populated before the migration ran.
@@ -224,6 +226,7 @@ describe('migration 008', () => {
         'merchant_application_documents',
         'merchant_applications',
         'provider_health_events',
+        'registration_attempts',
         'settings',
         'shifts',
         'tenant_registry',

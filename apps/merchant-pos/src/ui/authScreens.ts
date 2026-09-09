@@ -133,6 +133,10 @@ const REFUSAL_TEXT: Readonly<Record<string, string>> = Object.freeze({
   USER_LOCKED_OUT:
     'This operator is locked out after repeated failed attempts. Wait, or ask Telga to unlock it.',
   USER_SUSPENDED: 'This operator cannot sign in. Contact Telga.',
+  // The shop, not the person. Says so, because the two need different calls:
+  // one operator is reinstated by Telga, a suspended shop is a conversation
+  // about the shop.
+  MERCHANT_NOT_ACTIVE: 'This shop is not active. Contact Telga.',
   RATE_LIMITED: 'Too many sign-in attempts. Wait a moment and try again.',
   DEVICE_NOT_ENROLLED: 'This device is not enrolled for Telga training. Contact Telga.',
   DEVICE_REVOKED: 'This device has been withdrawn. Contact Telga.',
@@ -251,6 +255,47 @@ export function loginScreen(props: LoginProps): El {
         'Issued by Telga when this device was enrolled.',
       ),
       h('button', { type: 'submit', 'data-testid': 'login-submit' }, t(locale, 'screen.login')),
+    ),
+    /**
+     * The app's **second** option on open — D138.
+     *
+     * The founder's requirement is that Telga opens on two choices, Login and
+     * Register as Telga member. This is that second choice, and it sits below the
+     * form rather than beside it because the overwhelming majority of opens are
+     * a shop signing in to trade, not a new shop applying.
+     *
+     * It says *"Do not have a Telga account?"* rather than "Sign up", because
+     * what is on the other side is an application a person reads, not an
+     * account that appears.
+     */
+    h(
+      'p',
+      { class: 'login__register' },
+      h(
+        'a',
+        { href: '/register', 'data-testid': 'login-register-cta' },
+        t(locale, 'login.register_cta'),
+      ),
+    ),
+    /**
+     * The way in for a machine that has never been activated.
+     *
+     * A brand-new device has no key, so it cannot sign in, so it can never
+     * reach an authenticated screen — and until D138 wired `/activate` there
+     * was nowhere for it to go at all. This link is the only signposted route
+     * to it, which is why it lives on the one screen such a device *can* see.
+     *
+     * Below registration, because it is rarer still: a shop registers once and
+     * activates once per machine, but signs in every day.
+     */
+    h(
+      'p',
+      { class: 'login__activate' },
+      h(
+        'a',
+        { href: '/activate', 'data-testid': 'login-activate-cta' },
+        t(locale, 'login.activate_cta'),
+      ),
     ),
     // Back to the chooser, so a wrong app is one tap to undo.
     h(

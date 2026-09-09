@@ -92,7 +92,22 @@ export type FeatureFlag =
    * Distinct from `funding.submission`, which is a real deposit against a real
    * bank reference. This one credits a training ledger and nothing else.
    */
-  | 'deposits.training';
+  | 'deposits.training'
+  /**
+   * A shop registering itself from the Telga app — Decision Log **D138**.
+   *
+   * Gates the *Register as vendor* route and nothing else. It does **not**
+   * approve anything, create an account, or make a device trustworthy: what it
+   * turns on is the ability to put an unverified application into a queue a
+   * human then reads. Approval stays where it was, in the console, behind
+   * `ADMIN_REVIEW_APPLICATION`.
+   *
+   * It is its own flag rather than part of `airtime.vending` because it is the
+   * **only** surface on this platform that an unauthenticated stranger may
+   * write through. If that ever needs closing — a flood, an abuse report, a
+   * regulator's question — it must be one switch, not a deployment.
+   */
+  | 'registration.self_service';
 
 /**
  * What is on.
@@ -153,6 +168,16 @@ export const FEATURE_FLAGS: Readonly<Record<FeatureFlag, boolean>> = Object.free
   // imports no HTTP client and no provider. Its **screen** lived under `/pay`
   // and is therefore unreachable while `card.simulated` is off — see D112.
   'deposits.training': true,
+
+  // **On by founder decision D138**, reversing the registration half of
+  // D113(b). The founder specified the flow on 2026-09-09: the app opens on
+  // Login and Register as vendor, a shop submits, an admin reviews, and only
+  // approval issues credentials.
+  //
+  // D113(b)'s **device** half is untouched and stays forbidden — a device may
+  // not provision itself. Registering a *business* and provisioning a *machine*
+  // are different acts with different secrets, and only the first is open here.
+  'registration.self_service': true,
 });
 
 /** Flags that stay off until the CLAUDE.md §8 launch gates are documented. */
@@ -263,6 +288,11 @@ const FEATURE_ROUTES: readonly (readonly [string, FeatureFlag])[] = Object.freez
   // deposit off would depend on Telga Pay being off, which is a different
   // decision that could later be reversed.
   ['/api/training/pay/deposits', 'deposits.training'],
+
+  // Self-service registration. Gated as a tree so a later `/register/status`
+  // is refused by this entry on the day it is written rather than the day
+  // somebody remembers to guard it.
+  ['/register', 'registration.self_service'],
 ] as const);
 
 /**

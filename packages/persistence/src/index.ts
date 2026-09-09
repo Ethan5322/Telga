@@ -41,6 +41,20 @@ export * as settingsRepo from './repositories/settings';
 export type { SettingKey, SettingRow } from './repositories/settings';
 export * as shopbookRepo from './repositories/shopbook';
 export * as adminRepo from './repositories/admin';
+export * as applicationsRepo from './repositories/applications';
+export {
+  recordApplication,
+  countRegistrationAttemptsSince,
+  recordRegistrationAttempt,
+  pruneRegistrationAttempts,
+  ApplicationWriteError,
+} from './repositories/applications';
+export type {
+  ApplicationInput,
+  ApplicationDocumentInput,
+  ApplicationWriteRefusal,
+  SubmissionChannel,
+} from './repositories/applications';
 export {
   clearAdminMfaSecret,
   findAdminSession,

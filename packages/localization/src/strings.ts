@@ -442,6 +442,61 @@ export const EN = Object.freeze({
   'settings.signout.hint':
     'Signing out here clears the device, the device key and the operator. An idle timeout asks only for the PIN.',
   'receipt.training_notice': 'TRAINING — NO REAL VALUE',
+
+  // --- Register as Telga member (D138) --------------------------------------------
+  //
+  // Wording rule for this whole block: nothing may read as a sign-up. The
+  // applicant is asking to be considered, and every string says so — because
+  // the alternative is a shop that believes it has an account and discovers
+  // days later that it has a queue position.
+  'screen.register': 'Register as Telga member',
+  'register.heading': 'Register your shop with Telga',
+  'register.intro':
+    'Fill this in and Telga will review it. Approval is not automatic, and no account is created yet. If your shop is approved, Telga will contact you with your sign-in details.',
+  'register.legal_name': 'Business name',
+  'register.legal_name.hint': 'Exactly as it appears on your trade licence.',
+  'register.owner_name': 'Owner full name',
+  'register.phone': 'Phone number',
+  'register.phone.hint': 'Telga will call this number about your application.',
+  'register.email': 'Email (optional)',
+  'register.email.hint': 'Leave blank if you do not use email.',
+  'register.address': 'Shop address',
+  'register.locality': 'Town or sub-city',
+  'register.documents': 'Your documents',
+  'register.documents.hint':
+    'Enter the number printed on each document. Do not send photographs here — Telga will check the originals with you.',
+  'register.trade_licence': 'Trade licence number',
+  'register.trade_licence_expiry': 'Trade licence expiry date',
+  'register.tin': 'TIN',
+  'register.photo_id': 'Owner ID number',
+  'register.photo_id.hint': 'National ID, passport or driving licence.',
+  'register.submit': 'Send for review',
+  'register.have_account': 'Already registered? Sign in',
+  'register.submitted.heading': 'Sent to Telga for review',
+  'register.submitted.reference': 'Your reference number — write it down:',
+  'register.submitted.next':
+    'A member of Telga staff will check your details and contact you on the number you gave. Keep your original documents ready.',
+  'register.submitted.no_account':
+    'There is nothing to sign in to yet. Your sign-in details are issued only if your shop is approved.',
+  'login.register_cta': 'Register as Telga member',
+  // --- Activate this device (D138) ------------------------------------------
+  //
+  // The code a person carried to the shop, exchanged for the key the machine
+  // keeps. CLAUDE.md §18.2. Nothing here may suggest the code itself is what
+  // signs the device in afterwards — it is not, and it dies on use.
+  'screen.activate': 'Activate this device',
+  'activate.heading': 'Activate this machine',
+  'activate.intro':
+    'Telga gives each machine an activation code, valid for one hour and usable once. Enter it with the device ID Telga gave you.',
+  'activate.device': 'Device ID',
+  'activate.code': 'Activation code',
+  'activate.code.hint': 'Groups of five letters and numbers. Case does not matter.',
+  'activate.submit': 'Activate',
+  'activate.done.heading': 'This machine is activated',
+  'activate.done.key': 'Device key — shown once. Write it down now:',
+  'activate.done.warning':
+    'Telga keeps only a scrambled copy and can never show this again. If it is lost, ask Telga for a new activation code.',
+  'login.activate_cta': 'New machine? Activate it',
 });
 
 export type MessageKey = keyof typeof EN;
@@ -829,6 +884,56 @@ export const AM: Readonly<Partial<Record<MessageKey, string>>> = Object.freeze({
   'settings.signout.hint':
     'እዚህ መውጣት መሣሪያውን፣ የመሣሪያ ቁልፉንና ኦፕሬተሩን ያጸዳል። የእንቅስቃሴ-አልባ ጊዜ ማብቃት ፒኑን ብቻ ይጠይቃል።',
   'receipt.training_notice': 'ልምምድ — እውነተኛ ዋጋ የለውም',
+
+  // --- Register as Telga member (D138) --------------------------------------------
+  // DRAFT, like every Amharic value in this file. REQUIRES NATIVE AMHARIC
+  // REVIEW BEFORE PRODUCTION. The wording rule above applies here too: none of
+  // these may read as "your account has been created".
+  'screen.register': 'እንደ ተልጋ አባል ይመዝገቡ',
+  'register.heading': 'ሱቅዎን በተልጋ ያስመዝግቡ',
+  'register.intro':
+    'ይህንን ይሙሉ፤ ተልጋ ይመረምረዋል። ፈቃድ በራሱ አይሰጥም፤ እስካሁን ምንም መለያ አልተፈጠረም። ሱቅዎ ከተፈቀደ ተልጋ የመግቢያ መረጃዎን ይልክልዎታል።',
+  'register.legal_name': 'የንግድ ስም',
+  'register.legal_name.hint': 'በንግድ ፈቃድዎ ላይ እንደተጻፈው በትክክል።',
+  'register.owner_name': 'የባለቤቱ ሙሉ ስም',
+  'register.phone': 'የስልክ ቁጥር',
+  'register.phone.hint': 'ተልጋ ስለ ማመልከቻዎ በዚህ ቁጥር ይደውላል።',
+  'register.email': 'ኢሜይል (አማራጭ)',
+  'register.email.hint': 'ኢሜይል ካልተጠቀሙ ባዶ ይተዉት።',
+  'register.address': 'የሱቅ አድራሻ',
+  'register.locality': 'ከተማ ወይም ክፍለ ከተማ',
+  'register.documents': 'ሰነዶችዎ',
+  'register.documents.hint':
+    'በእያንዳንዱ ሰነድ ላይ የተጻፈውን ቁጥር ያስገቡ። እዚህ ፎቶ አይላኩ — ተልጋ ዋናዎቹን ሰነዶች ከእርስዎ ጋር ያረጋግጣል።',
+  'register.trade_licence': 'የንግድ ፈቃድ ቁጥር',
+  'register.trade_licence_expiry': 'የንግድ ፈቃድ የሚያበቃበት ቀን',
+  'register.tin': 'የግብር መለያ ቁጥር (TIN)',
+  'register.photo_id': 'የባለቤቱ መታወቂያ ቁጥር',
+  'register.photo_id.hint': 'ብሔራዊ መታወቂያ፣ ፓስፖርት ወይም የመንጃ ፈቃድ።',
+  'register.submit': 'ለምርመራ ላክ',
+  'register.have_account': 'ቀድሞ ተመዝግበዋል? ይግቡ',
+  'register.submitted.heading': 'ለተልጋ ምርመራ ተልኳል',
+  'register.submitted.reference': 'የማጣቀሻ ቁጥርዎ — ይመዝግቡት፦',
+  'register.submitted.next':
+    'የተልጋ ሠራተኛ መረጃዎን አረጋግጦ በሰጡት ቁጥር ይደውልልዎታል። ዋና ሰነዶችዎን ዝግጁ ያድርጉ።',
+  'register.submitted.no_account':
+    'እስካሁን የሚገቡበት መለያ የለም። የመግቢያ መረጃዎ የሚሰጠው ሱቅዎ ሲፈቀድ ብቻ ነው።',
+  'login.register_cta': 'እንደ ተልጋ አባል ይመዝገቡ',
+  // --- Activate this device (D138) ------------------------------------------
+  // DRAFT. REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.
+  'screen.activate': 'ይህን መሣሪያ ያግብሩ',
+  'activate.heading': 'ይህን መሣሪያ ያግብሩ',
+  'activate.intro':
+    'ተልጋ ለእያንዳንዱ መሣሪያ የማግበሪያ ኮድ ይሰጣል፤ ለአንድ ሰዓት ብቻ የሚሠራ እና አንድ ጊዜ የሚያገለግል። ተልጋ ከሰጠዎት የመሣሪያ መለያ ጋር ያስገቡት።',
+  'activate.device': 'የመሣሪያ መለያ',
+  'activate.code': 'የማግበሪያ ኮድ',
+  'activate.code.hint': 'በአምስት ፊደላትና ቁጥሮች ተከፍሎ። ትልቅ ወይም ትንሽ ፊደል ችግር የለውም።',
+  'activate.submit': 'አግብር',
+  'activate.done.heading': 'ይህ መሣሪያ ተግብሯል',
+  'activate.done.key': 'የመሣሪያ ቁልፍ — አንድ ጊዜ ብቻ ይታያል። አሁን ይመዝግቡት፦',
+  'activate.done.warning':
+    'ተልጋ የተመሰጠረ ቅጂ ብቻ ነው የሚይዘው፤ ዳግም ሊያሳይዎት አይችልም። ከጠፋ ከተልጋ አዲስ የማግበሪያ ኮድ ይጠይቁ።',
+  'login.activate_cta': 'አዲስ መሣሪያ? ያግብሩት',
 });
 
 export const TABLES: Readonly<Record<Locale, Readonly<Partial<Record<MessageKey, string>>>>> =

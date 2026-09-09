@@ -29,6 +29,7 @@ import { m014AdminIdentityAndTenants } from './014_admin_identity_and_tenants';
 import { m015ApplicationDocumentsAndPinChange } from './015_application_documents_and_pin_change';
 import { m016FundingSubmissions } from './016_funding_submissions';
 import { m017AdminEmailOtp } from './017_admin_email_otp';
+import { m018SelfServiceRegistration } from './018_self_service_registration';
 
 export interface Migration {
   /** Sort key. Zero-padded so lexical order is execution order. */
@@ -56,6 +57,7 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
   m015ApplicationDocumentsAndPinChange,
   m016FundingSubmissions,
   m017AdminEmailOtp,
+  m018SelfServiceRegistration,
 ]);
 
 export {
@@ -76,5 +78,6 @@ export {
   m015ApplicationDocumentsAndPinChange,
   m016FundingSubmissions,
   m017AdminEmailOtp,
+  m018SelfServiceRegistration,
 };
 

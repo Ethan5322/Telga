@@ -67,6 +67,7 @@ import * as identity from '../repositories/identity';
 import * as pendingOrders from '../repositories/pendingOrders';
 import * as settings from '../repositories/settings';
 import * as shopbook from '../repositories/shopbook';
+import * as applications from '../repositories/applications';
 import type { PendingOrderInput } from '../repositories/pendingOrders';
 
 export class SqliteLedgerDriver implements LedgerDriver {
@@ -520,6 +521,31 @@ export class SqliteLedgerDriver implements LedgerDriver {
   /** How many `PIN_AUTH` failures a subject has recorded since `since`. */
   countFailuresSince(scope: AttemptScope, subject: string, since: Timestamp): number {
     return identity.countFailuresSince(this.handle(), scope, subject, since);
+  }
+
+  // --- merchant applications -------------------------------------------------
+  //
+  // The app's *Register as vendor* route needs to write an application and to
+  // count what a caller has tried recently, and it holds a driver rather than a
+  // connection. These delegate exactly as every other repository call does —
+  // the alternative was handing the POS server a raw `Db`, which would give the
+  // one process an unauthenticated stranger can reach the widest possible
+  // access to the database.
+
+  recordApplication(input: applications.ApplicationInput): void {
+    applications.recordApplication(this.handle(), input);
+  }
+
+  countRegistrationAttemptsSince(source: string, since: string): number {
+    return applications.countRegistrationAttemptsSince(this.handle(), source, since);
+  }
+
+  recordRegistrationAttempt(source: string, outcome: 'RECORDED' | 'REFUSED', at: string): void {
+    applications.recordRegistrationAttempt(this.handle(), source, outcome, at);
+  }
+
+  pruneRegistrationAttempts(before: string): number {
+    return applications.pruneRegistrationAttempts(this.handle(), before);
   }
 
   // --- voucher pending orders ------------------------------------------------

@@ -31,6 +31,11 @@ export * from './ui/cardScreens';
 export * from './ui/content';
 export * from './ui/telgaPay';
 export * from './ui/authScreens';
+export * from './ui/registrationScreens';
+export * from './ui/activationScreens';
+// The throttle behind `POST /register`. Exported so its rules can be tested
+// directly rather than only inferred from HTTP status codes — D138.
+export * from './registration';
 export { htmlDocument, CLIENT_SCRIPT } from './ui/document';
 export * from './transport/config';
 export * from './transport/tls';

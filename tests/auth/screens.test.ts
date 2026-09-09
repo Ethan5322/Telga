@@ -156,15 +156,25 @@ describe('the login screen', () => {
   it('reaches every field and the submit button by keyboard, in order', () => {
     const el = loginScreen({ chrome: authChrome() });
     const order = focusOrder(el).map((e) => e.attrs['data-testid'] ?? e.tag);
-    // The four fields, the submit, and then the way back to the app chooser —
-    // last, so tabbing through the form never lands on "leave" before "sign
-    // in".
+    // The four fields, the submit, and only then the two ways out — so tabbing
+    // through the form never lands on "leave" before "sign in".
+    //
+    // `login-register-cta` and `login-activate-cta` joined this list with D138.
+    // Both sit **after** the submit button deliberately, in order of how often
+    // they are used: a shop signs in every day, registers once, and activates
+    // once per machine. Putting either ahead of the PIN field would put the
+    // rarest action in the way of the commonest one.
+    //
+    // `login-activate-cta` is on this screen because a device that has never
+    // activated has no key, cannot sign in, and so can reach no other screen.
     expect(order).toEqual([
       'login-user',
       'login-pin',
       'login-device',
       'login-device-secret',
       'login-submit',
+      'login-register-cta',
+      'login-activate-cta',
       'login-back-to-launcher',
     ]);
   });

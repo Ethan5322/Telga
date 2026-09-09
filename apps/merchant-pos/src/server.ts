@@ -75,13 +75,16 @@ import {
   createSimulatedProcessor,
 } from '@telga/provider-mock-airtime';
 import {
+  newSubmissionReference,
   parseCookies,
+  redeemEnrollmentToken,
   readSettings,
   recipientRejection,
+  submissionRejection,
   takeCardPayment,
   unlockWithPin,
 } from '@telga/api';
-import { maskRecipient } from '@telga/persistence';
+import { ApplicationWriteError, maskRecipient } from '@telga/persistence';
 import type { Locale } from '@telga/localization';
 import { isLocale, t } from '@telga/localization';
 import { toTransactionViewModel, succeed, succeedList } from '@telga/pos-view-model';
@@ -166,6 +169,9 @@ import {
   resolveScheme,
 } from './transport/proxy';
 import type { ConnectionFacts, RequestScheme } from './transport/proxy';
+import { registrationSubmittedScreen, vendorRegistrationScreen } from './ui/registrationScreens';
+import { deviceActivatedScreen, deviceActivationScreen } from './ui/activationScreens';
+import { checkRegistrationThrottle, registrationSource } from './registration';
 import { newNonce, securityHeaders } from './transport/headers';
 
 export interface PosServerOptions {
@@ -2249,6 +2255,344 @@ async function route(
           // sign-in form.
           app: url.searchParams.get('app') === 'pay' ? 'pay' : url.searchParams.get('app') === 'vending' ? 'vending' : undefined,
         }),
+        locale,
+        nonce,
+      ),
+      transport,
+      scheme,
+      nonce,
+    );
+    return;
+  }
+
+  /**
+   * *Register as Telga member* — the app's second option on open. D138.
+   *
+   * ## Why this is served here and not by the operations console
+   *
+   * The console is Telga staff only, bound to loopback or sitting behind a
+   * trusted proxy, and no shop can reach it — that is the point of it. The app
+   * reaches **this** server, so the applicant-facing half of registration has
+   * to live here. The reviewing half stays in the console, where it belongs.
+   *
+   * ## What it may do
+   *
+   * Write one row to `merchant_applications` as `SUBMITTED` / `SELF_SERVICE`,
+   * and nothing else. No merchant, no operator, no device, no credential, no
+   * session. Approval remains a console act behind `ADMIN_REVIEW_APPLICATION`,
+   * and issuing credentials remains a separate act after that.
+   */
+  /**
+   * Activate this machine — the code exchange from `CLAUDE.md` §18.2.
+   *
+   * ## The gap this closes
+   *
+   * `redeemEnrollmentToken` was written and tested on 2026-09-08 and **had no
+   * HTTP caller**. The console could issue a one-hour activation code and there
+   * was nowhere on earth to type one, so device keys still came from a CLI run
+   * by an administrator — which is the step [[Device Binding]] says the code
+   * exchange exists to remove, because it put a long-term credential through
+   * handwriting.
+   *
+   * ## Why it is not `/enrol`
+   *
+   * `/enrol` mints a key for an operator who is **already signed in**. A device
+   * that has never activated has no key, so it cannot sign in, so it can never
+   * reach that route. The two look similar and are opposites: one re-keys a
+   * known machine, this one admits an unknown one holding a code a human
+   * carried.
+   *
+   * ## Why it is anonymous, and what bounds it
+   *
+   * It has to be — see above. What bounds it is the same throttle the
+   * registration route uses, on its own budget: an activation code is 100 bits
+   * from an alphabet that excludes look-alike characters, so guessing it is not
+   * the threat; **enumerating device ids** is, and an unknown device and a wrong
+   * code already answer identically to prevent that. The throttle is belt and
+   * braces on a route that writes a credential.
+   */
+  if (path === '/activate' && method === 'GET') {
+    respondHtml(
+      response,
+      200,
+      htmlDocumentAuth(
+        options,
+        deviceActivationScreen({
+          chrome: authChrome(options, locale),
+          refusal: url.searchParams.get('error') ?? undefined,
+        }),
+        locale,
+        nonce,
+      ),
+      transport,
+      scheme,
+      nonce,
+    );
+    return;
+  }
+
+  if (path === '/activate' && method === 'POST') {
+    const at = options.api.now();
+    const source = registrationSource(transport, facts, options.api.recipientSalt);
+    const throttlePorts = {
+      countRegistrationAttemptsSince: (src: string, since: string): number =>
+        options.api.driver.countRegistrationAttemptsSince(`activate:${src}`, since),
+      recordRegistrationAttempt: (
+        src: string,
+        outcome: 'RECORDED' | 'REFUSED',
+        when: string,
+      ): void => options.api.driver.recordRegistrationAttempt(`activate:${src}`, outcome, when),
+      pruneRegistrationAttempts: (before: string): number =>
+        options.api.driver.pruneRegistrationAttempts(before),
+    };
+    // Prefixed, so activation attempts and registration attempts do not spend
+    // each other's budget. A shop activating a second till must not be refused
+    // because somebody else registered from the same café wi-fi.
+    if (!checkRegistrationThrottle(throttlePorts, source, at).allowed) {
+      throttlePorts.recordRegistrationAttempt(source, 'REFUSED', at);
+      response.writeHead(303, { location: '/activate?error=ACTIVATION_TOO_MANY' });
+      response.end();
+      return;
+    }
+
+    const form = await readFormBody(request, limit);
+    if (form === 'TOO_LARGE') {
+      throttlePorts.recordRegistrationAttempt(source, 'REFUSED', at);
+      response.writeHead(303, { location: '/activate?error=REQUEST_TOO_LARGE' });
+      response.end();
+      return;
+    }
+
+    const result = await redeemEnrollmentToken(options.api, {
+      deviceId: (form['deviceId'] ?? '') as DeviceId,
+      token: form['token'] ?? '',
+      correlationId: options.api.newId('corr'),
+    });
+
+    if (result.kind === 'REFUSED') {
+      throttlePorts.recordRegistrationAttempt(source, 'REFUSED', at);
+      // Re-rendered with the device id kept, so a mistyped code does not cost
+      // the id as well. The code itself is never echoed back.
+      respondHtml(
+        response,
+        403,
+        htmlDocumentAuth(
+          options,
+          deviceActivationScreen({
+            chrome: authChrome(options, locale),
+            refusal: result.reason,
+            deviceId: form['deviceId'],
+          }),
+          locale,
+          nonce,
+        ),
+        transport,
+        scheme,
+        nonce,
+      );
+      return;
+    }
+
+    throttlePorts.recordRegistrationAttempt(source, 'RECORDED', at);
+
+    // Rendered, never redirected: a device key must not reach a URL, a history
+    // entry or a server log. This is the only moment it exists in readable form.
+    respondHtml(
+      response,
+      201,
+      htmlDocumentAuth(
+        options,
+        deviceActivatedScreen({
+          chrome: authChrome(options, locale),
+          deviceId: result.deviceId,
+          deviceSecret: result.deviceSecret,
+        }),
+        locale,
+        nonce,
+      ),
+      transport,
+      scheme,
+      nonce,
+    );
+    return;
+  }
+
+  if (path === '/register' && method === 'GET') {
+    respondHtml(
+      response,
+      200,
+      htmlDocumentAuth(
+        options,
+        vendorRegistrationScreen({
+          chrome: authChrome(options, locale),
+          refusal: url.searchParams.get('error') ?? undefined,
+        }),
+        locale,
+        nonce,
+      ),
+      transport,
+      scheme,
+      nonce,
+    );
+    return;
+  }
+
+  if (path === '/register' && method === 'POST') {
+    /**
+     * The throttle, before the body is read.
+     *
+     * Deliberately ahead of parsing: a caller who has exhausted the window must
+     * not be able to make this process parse a form for them. The bucket is a
+     * salted hash of the caller's address — `registration.ts` explains why the
+     * address itself is never stored.
+     *
+     * **The salt is per-process** (`recipientSalt` is a fresh `randomUUID()` at
+     * start-up), so a restart empties every bucket. That is a real limit and it
+     * fails in the safe direction: a restart forgets who was throttled rather
+     * than throttling somebody who was not. A durable salt is a deployment
+     * decision, not a code one.
+     */
+    const at = options.api.now();
+    const source = registrationSource(transport, facts, options.api.recipientSalt);
+    const throttlePorts = {
+      countRegistrationAttemptsSince: (src: string, since: string): number =>
+        options.api.driver.countRegistrationAttemptsSince(src, since),
+      recordRegistrationAttempt: (
+        src: string,
+        outcome: 'RECORDED' | 'REFUSED',
+        when: string,
+      ): void => options.api.driver.recordRegistrationAttempt(src, outcome, when),
+      pruneRegistrationAttempts: (before: string): number =>
+        options.api.driver.pruneRegistrationAttempts(before),
+    };
+    const verdict = checkRegistrationThrottle(throttlePorts, source, at);
+    if (!verdict.allowed) {
+      // Counted as well as refused. A refusal that did not count would let a
+      // caller sit at the limit for ever at no cost to themselves.
+      throttlePorts.recordRegistrationAttempt(source, 'REFUSED', at);
+      response.writeHead(303, { location: '/register?error=TOO_MANY_ATTEMPTS' });
+      response.end();
+      return;
+    }
+
+    const form = await readFormBody(request, limit);
+    if (form === 'TOO_LARGE') {
+      throttlePorts.recordRegistrationAttempt(source, 'REFUSED', at);
+      response.writeHead(303, { location: '/register?error=REQUEST_TOO_LARGE' });
+      response.end();
+      return;
+    }
+
+    // The same shape the console builds, checked by the same function. Two
+    // hand-written validators is how a rule ends up applying on one path and
+    // not on the other.
+    const licenceExpiry = form['tradeLicenceExpiry'] ?? '';
+    const submission = {
+      legalName: form['legalName'] ?? '',
+      ownerName: form['ownerName'] ?? '',
+      phone: form['phone'] ?? '',
+      email: form['email'] ?? '',
+      address: form['address'] ?? '',
+      locality: form['locality'] ?? '',
+      entityType: 'SOLE_TRADER' as const,
+      documents: [
+        {
+          kind: 'TRADE_LICENCE' as const,
+          reference: form['tradeLicence'] ?? '',
+          // A bare date from a `type="date"` input, widened to a timestamp so a
+          // licence expiring today has not expired yet.
+          expiresAt: licenceExpiry.length > 0 ? licenceExpiry + 'T23:59:59.999Z' : '',
+        },
+        { kind: 'TIN_CERTIFICATE' as const, reference: form['tin'] ?? '' },
+        { kind: 'OWNER_PHOTO_ID' as const, reference: form['photoId'] ?? '' },
+      ],
+    };
+
+    const rejection = submissionRejection(submission, at);
+    if (rejection !== undefined) {
+      throttlePorts.recordRegistrationAttempt(source, 'REFUSED', at);
+      // Re-rendered rather than redirected, so the shopkeeper's typing survives
+      // one wrong field. A phone form that empties itself is abandoned.
+      respondHtml(
+        response,
+        400,
+        htmlDocumentAuth(
+          options,
+          vendorRegistrationScreen({
+            chrome: authChrome(options, locale),
+            refusal: rejection,
+            values: form,
+          }),
+          locale,
+          nonce,
+        ),
+        transport,
+        scheme,
+        nonce,
+      );
+      return;
+    }
+
+    const applicationId = options.api.newId('app');
+    const reference = newSubmissionReference();
+    try {
+      options.api.driver.recordApplication({
+        id: applicationId,
+        reference,
+        // The whole reason migration 018 added this column: a reviewer must be
+        // able to tell a folder an admin held from a form a stranger typed.
+        submittedVia: 'SELF_SERVICE',
+        legalName: submission.legalName,
+        ownerName: submission.ownerName,
+        phone: submission.phone,
+        email: submission.email,
+        address: submission.address,
+        locality: submission.locality,
+        at,
+        documents: submission.documents.map((document) => ({
+          id: options.api.newId('doc'),
+          kind: document.kind,
+          reference: document.reference,
+          ...(document.expiresAt !== undefined && document.expiresAt !== ''
+            ? { expiresAt: document.expiresAt }
+            : {}),
+        })),
+      });
+    } catch (error) {
+      throttlePorts.recordRegistrationAttempt(source, 'REFUSED', at);
+      const refusal =
+        error instanceof ApplicationWriteError ? error.refusal : 'REGISTRATION_NOT_SAVED';
+      respondHtml(
+        response,
+        409,
+        htmlDocumentAuth(
+          options,
+          vendorRegistrationScreen({
+            chrome: authChrome(options, locale),
+            refusal,
+            values: form,
+          }),
+          locale,
+          nonce,
+        ),
+        transport,
+        scheme,
+        nonce,
+      );
+      return;
+    }
+
+    throttlePorts.recordRegistrationAttempt(source, 'RECORDED', at);
+
+    // Rendered, not redirected. The reference is the only thing the applicant
+    // ever gets back, and a redirect would put it in a URL — browser history on
+    // a shared counter phone, and a referrer on the way to anywhere else.
+    respondHtml(
+      response,
+      201,
+      htmlDocumentAuth(
+        options,
+        registrationSubmittedScreen({ chrome: authChrome(options, locale), reference }),
         locale,
         nonce,
       ),

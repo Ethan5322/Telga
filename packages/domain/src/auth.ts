@@ -298,7 +298,22 @@ export interface LockoutPolicy {
  * a real counter behaves and are NOT YET CONFIRMED.
  */
 export const TRAINING_LOCKOUT_POLICY: LockoutPolicy = Object.freeze({
-  maxFailedAttempts: 5,
+  /**
+   * **Four wrong PINs, then a five-minute hold** — founder instruction,
+   * 2026-09-09, tightened from five.
+   *
+   * The number is a trade between two real costs at a counter. Too high and a
+   * stolen device gives an attacker room to guess a six-digit PIN; too low and
+   * a shopkeeper who fat-fingers their own PIN twice in a queue is locked out
+   * of their own till with customers waiting. Four leaves an honest operator
+   * three recoveries from a genuine slip and still ends a guessing run quickly.
+   *
+   * Five minutes is deliberately short. A lockout that needs a phone call to
+   * Telga to clear turns every mistyped PIN into a support case; one that
+   * expires on its own costs an attacker real time and costs an honest operator
+   * a pause.
+   */
+  maxFailedAttempts: 4,
   lockoutMs: 5 * 60_000,
   maxAttemptsPerWindow: 10,
   rateWindowMs: 60_000,
