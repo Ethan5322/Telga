@@ -103,6 +103,44 @@ const CLIENT_SCRIPT = `
     });
   });
 
+  // --- printing ------------------------------------------------------------
+  //
+  // A button marked data-print hands the slip to the device's own print stack.
+  //
+  // **What this is, stated plainly:** window.print(). On an Android phone or
+  // a smart-POS running the Telga shell, that opens the system print dialogue,
+  // which reaches whatever the device already knows how to print to — a
+  // Bluetooth or wi-fi roll printer paired at the OS level, Google Cloud Print
+  // successors, or a PDF. It is **not** an ESC/POS driver, and Telga speaks no
+  // printer protocol of its own.
+  //
+  // **Why that is the right first implementation** and not a shortcut: the
+  // alternative is a vendor SDK per POS model, and the model is not chosen yet
+  // (ASSUMPTIONS A101). This route works on every device that can print at all,
+  // needs no permission, and cannot silently print the wrong thing — a human
+  // sees the dialogue. When the hardware is decided, a native path can sit
+  // behind the same button.
+  //
+  // **The print stylesheet is what makes the output a receipt** rather than a
+  // screenshot of a web page: the print stylesheet hides everything except the slip element,
+  // sizes it to the 58 mm or 80 mm roll the shop chose, and forces the mark to
+  // solid black because a thermal head is one bit per dot.
+  //
+  // Enhancement only. With scripting off the button is still there and still
+  // does nothing harmful; the operator uses the browser's own print command,
+  // and the same stylesheet applies. Printing is never a transaction: it moves
+  // no money, writes no row, and a failed print is not a failed sale.
+  Array.prototype.forEach.call(document.querySelectorAll('[data-print]'), function (btn) {
+    btn.addEventListener('click', function () {
+      try {
+        window.print();
+      } catch (e) {
+        // A device with no print stack at all. Nothing to recover: the slip is
+        // on screen, which is what the operator reads the code from anyway.
+      }
+    });
+  });
+
   // --- the success cue -----------------------------------------------------
   //
   // A short tone when a sale completes, so an operator facing a customer

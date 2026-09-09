@@ -497,6 +497,17 @@ export const EN = Object.freeze({
   'activate.done.warning':
     'Telga keeps only a scrambled copy and can never show this again. If it is lost, ask Telga for a new activation code.',
   'login.activate_cta': 'New machine? Activate it',
+  // --- printing (D140) -------------------------------------------------------
+  //
+  // The notice replaces `voucher.result.no_printer` on the slip screens, which
+  // said no printer was configured. That was true and is not any more.
+  //
+  // It must not promise a printer that is not attached: what Telga does is hand
+  // the slip to the device's own print stack, and whether anything comes out is
+  // a matter of what that device is paired with.
+  'receipt.print': 'Print receipt',
+  'receipt.print.notice':
+    'Printing uses this device\u2019s own printer. Every slip is marked TRAINING \u2014 NO REAL VALUE.',
 });
 
 export type MessageKey = keyof typeof EN;
@@ -934,6 +945,11 @@ export const AM: Readonly<Partial<Record<MessageKey, string>>> = Object.freeze({
   'activate.done.warning':
     'ተልጋ የተመሰጠረ ቅጂ ብቻ ነው የሚይዘው፤ ዳግም ሊያሳይዎት አይችልም። ከጠፋ ከተልጋ አዲስ የማግበሪያ ኮድ ይጠይቁ።',
   'login.activate_cta': 'አዲስ መሣሪያ? ያግብሩት',
+  // --- printing (D140) -------------------------------------------------------
+  // DRAFT. REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.
+  'receipt.print': 'ደረሰኝ አትም',
+  'receipt.print.notice':
+    'ማተሚያው የዚህ መሣሪያ ነው። እያንዳንዱ ደረሰኝ «TRAINING — NO REAL VALUE» የሚል ምልክት አለው።',
 });
 
 export const TABLES: Readonly<Record<Locale, Readonly<Partial<Record<MessageKey, string>>>>> =

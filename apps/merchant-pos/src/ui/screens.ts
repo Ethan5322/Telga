@@ -826,10 +826,31 @@ export function slipScreen(props: SlipProps): El {
           }
         : undefined,
     }),
-    h('p', { class: 'slip__notice', 'data-testid': 'no-printer-notice' }, t(locale, 'voucher.result.no_printer')),
+    h('p', { class: 'slip__notice', 'data-testid': 'printer-notice' }, t(locale, 'receipt.print.notice')),
     h(
       'div',
       { class: 'voucher__actions slip__actions' },
+      /**
+       * Print.
+       *
+       * First in the row, and the primary action: the operator is holding a
+       * customer's money and the next thing that has to happen is paper.
+       *
+       * A plain button rather than a form, because printing is **not** a
+       * transaction. It moves no money, writes no row and needs no CSRF token —
+       * a reprint does, and is a different control further down this row, which
+       * is exactly why the two must not look alike.
+       */
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'voucher__button voucher__button--print',
+          'data-print': 'slip',
+          'data-testid': 'slip-print',
+        },
+        t(locale, 'receipt.print'),
+      ),
       // Close returns to the main screen, which is where an operator wants to
       // be once the paper is in the customer's hand. History is one tap away
       // from there; being stranded is not.
