@@ -114,6 +114,14 @@ export type AuthFailureCode =
   | 'DEVICE_NOT_ASSIGNED_TO_MERCHANT'
   | 'USER_NOT_FOUND'
   | 'USER_SUSPENDED'
+  /**
+   * The **shop** is suspended or closed, whatever the operator's own status.
+   *
+   * Distinct from `USER_SUSPENDED` because the remedies differ: one operator is
+   * unsuspended by Telga staff, a suspended shop is reinstated. Merging them
+   * would tell an operator to ask about the wrong thing.
+   */
+  | 'MERCHANT_NOT_ACTIVE'
   | 'USER_LOCKED_OUT'
   | 'PERMISSION_DENIED'
   | 'MERCHANT_SCOPE_MISMATCH'

@@ -217,6 +217,37 @@ export async function login(
 
   const merchantId = user.merchant_id as MerchantId;
 
+  /**
+   * Is the **shop** still active?
+   *
+   * Added 2026-09-09 with D138. `createSale` has always refused a merchant
+   * whose status is not `ACTIVE`, so a suspended shop could not sell — but
+   * nothing stopped its operators **signing in**, browsing history and holding
+   * a live session, because sign-in read the operator's status and never the
+   * shop's.
+   *
+   * That is the gap the console's own device-stop route was careful about: it
+   * revokes sessions precisely because *"a stopped device that kept a live
+   * session would still be usable, which is the opposite of stopped."* The same
+   * reasoning applies one level up, and suspending a merchant did not do it.
+   *
+   * Checked **after** the operator's own status and **before** the device, so
+   * that a suspended shop still costs an attacker a device check and a scrypt
+   * derivation before anything is disclosed — and so the audit trail names the
+   * operator who tried.
+   */
+  const merchant = deps.driver.findMerchant(merchantId);
+  if (!merchant || merchant.status !== 'ACTIVE') {
+    audit(deps, 'AUTH_LOGIN_FAILED', {
+      userId: request.userId,
+      role: user.role,
+      merchantId,
+      correlationId,
+      detail: 'MERCHANT_NOT_ACTIVE',
+    });
+    return failure('MERCHANT_NOT_ACTIVE');
+  }
+
   // The device is checked before the PIN: an unenrolled device is refused
   // without spending a scrypt derivation on it.
   const enrollmentRow = deps.driver.findDeviceEnrollment(request.deviceId);
@@ -450,6 +481,21 @@ export function authenticate(
   if (isLockedOut((user.locked_until ?? undefined) as Timestamp | undefined, now)) {
     return failure('USER_LOCKED_OUT');
   }
+  /**
+   * A shop suspended **mid-session** stops working now, not at next sign-in.
+   *
+   * Checked on every authenticated request rather than only at the door, for
+   * the same reason the device is: suspension that waited for a voluntary
+   * sign-out would leave every till in the shop trading until somebody chose to
+   * close it. The session is revoked outright, so the operator is sent to sign
+   * in and refused there too, rather than being asked again each request.
+   */
+  const merchant = deps.driver.findMerchant(session.merchant_id as MerchantId);
+  if (!merchant || merchant.status !== 'ACTIVE') {
+    deps.driver.revokeSession(session.id, 'MERCHANT_NOT_ACTIVE', now);
+    return failure('MERCHANT_NOT_ACTIVE');
+  }
+
   // A user moved to another merchant invalidates the session outright rather
   // than silently carrying the old scope.
   if (user.merchant_id !== session.merchant_id) {
