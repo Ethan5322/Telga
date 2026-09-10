@@ -88,6 +88,7 @@ Faults found and fixed during development and pilot. Newest first.
 | 2026-09-09 | `migration-008.test.ts` failed after migration 018 was added | Low | **Resolved — the test was right** — see below |
 | 2026-09-09 | Console sign-in refused as cross-site **again**, from a browser | **High** | **Resolved — different cause from the first one** — see below |
 | 2026-09-09 | `TRAINING_TRANSFER_POLICY` imported from the wrong package | Low | **Resolved** — see below |
+| 2026-09-09 | **A newly registered shop could never sign in** | **High** | **Resolved** — see below |
 | 2026-08-19 | [[Source Specification Clipped In PDF]] | Low | Resolved — assumptions recorded |
 
 ### 2026-09-09 — every console sign-in refused as cross-site
@@ -319,6 +320,59 @@ widening a two-file edit for no extra safety.
 
 **How to read a failure:** *"did I mean to change that?"* — never *"how do I make
 this pass?"* A dropped column is the one that loses data.
+
+### 2026-09-09 — a newly registered shop could never sign in
+
+**The worst bug of the day, and one this session introduced.** Nobody reported
+it: an end-to-end test found it before the founder's acceptance round did.
+
+#### What it was
+
+`provisioningPorts.ts` creates a merchant as **`ONBOARDING`** — correct, and
+deliberate: the shop exists and has no operator, no device and no key, so it
+cannot trade. **Nothing then moved it to `ACTIVE`.**
+
+Earlier the same day, `signIn` gained a check refusing any merchant whose status
+is not `ACTIVE` — closing a real hole where a *suspended* shop's operators kept
+signing in (R40). The two together meant:
+
+> register → approve → issue sign-in parameters → **first sign-in refused**
+
+with a message about the shop not being active, for a shop that had just been
+created. The founder's entire acceptance plan runs through that path.
+
+#### Why nothing caught it
+
+**Every unit passed.** Provisioning did the right thing. The sign-in check did
+the right thing. `issueCredentials` did the right thing. The bug lived in the
+*seam* between them, and no unit test can see a seam.
+
+That is the whole argument for `tests/e2e/shop-onboarding-chain.test.ts`, which
+walks register → approve → issue → status rather than testing each link. It is
+the third seam failure in this repository — after the console refusing its own
+sign-in form and `/deposits` answering 404 because a port was never supplied —
+and the first one caught before a person hit it.
+
+#### The fix
+
+A shop becomes `ACTIVE` when its **credentials are issued**, inside the same
+transaction.
+
+**Not at approval**, which would make a shop active while it still has nothing
+to sign in with. Issuing credentials is where it gets an operator, a device and
+a key — which is exactly what "able to trade" means.
+
+`WHERE status = 'ONBOARDING'` guards it, so re-issuing credentials to a
+**suspended** shop cannot quietly reinstate it. Reinstating is a deliberate act
+with its own control and its own audit event.
+
+> [!tip] Recommendation
+> **A status column that is written in one place and read in another needs a
+> test that walks between them.** This is the same shape as R40, one level
+> along: there, a status was written and never read; here, a status was read and
+> never written. The standing recommendation to *"audit the other status
+> columns"* — `devices.status`, `tenant_registry.status`, the merchant
+> lifecycle — is now overdue, and this is the second bug from that family.
 
 ## Related
 

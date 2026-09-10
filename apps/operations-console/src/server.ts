@@ -1399,6 +1399,39 @@ export function createConsoleServer(options: ConsoleOptions): Server {
           },
           { merchantId: merchantId as never },
         );
+
+        /**
+         * The shop starts trading here.
+         *
+         * `provisioningPorts.ts` creates the merchant as **ONBOARDING** — the
+         * shop exists and cannot yet sell — and until now *nothing moved it
+         * on*. Combined with the sign-in check added the same day (a merchant
+         * that is not ACTIVE is refused), a freshly registered shop could
+         * **never sign in**: register, approve, issue parameters, and the first
+         * sign-in is refused with no explanation the operator could act on.
+         *
+         * Found by `tests/e2e/shop-onboarding-chain.test.ts`, which walks the
+         * whole chain rather than each link. Every unit along it passed.
+         *
+         * **Issuing credentials is the right moment**, not approval: this is
+         * where the shop gets an operator, a device and a key, which is
+         * precisely what it needs to trade. A shop made ACTIVE at approval
+         * would be a shop with nothing to sign in with.
+         *
+         * **Inside the same transaction**, so a shop is never left holding
+         * credentials it cannot use, nor marked active with none.
+         *
+         * `WHERE status = 'ONBOARDING'` so re-issuing credentials to a
+         * **suspended** shop does not quietly reinstate it — reinstating is a
+         * deliberate act with its own control and its own audit event.
+         */
+        options.db
+          .prepare(
+            `UPDATE merchants SET status = 'ACTIVE', updated_at = ?
+              WHERE id = ? AND status = 'ONBOARDING'`,
+          )
+          .run(options.now(), merchantId);
+
         options.db.prepare('COMMIT').run();
       } catch {
         options.db.prepare('ROLLBACK').run();
