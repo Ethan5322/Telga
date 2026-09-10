@@ -39,7 +39,11 @@ import {
   runMigrations,
   saveAdminUser,
 } from '@telga/persistence';
-import { hashAdminSecret } from '@telga/api';
+import { changePin, hashAdminSecret, login } from '@telga/api';
+// The training auth policy already used by every other auth test. Imported
+// rather than restated, so a change to session or lockout policy reaches this
+// chain too.
+import { TRAINING_AUTH_CONFIG } from '../ui/helpers';
 import { fromBirr, postingId } from '@telga/domain';
 import { createConsoleServer } from '@telga/operations-console';
 
@@ -450,5 +454,138 @@ describe('shops registering at the same time', () => {
       ?.prepare(`SELECT COUNT(*) AS n FROM merchant_applications WHERE legal_name = 'Shop 5'`)
       .get() as { n: number };
     expect(survived.n).toBe(1);
+  });
+});
+
+describe('the shop signs in with what the console issued, and changes its PIN', () => {
+  it('walks credentials → sign-in → PIN change → sign-in again', async () => {
+    // The links the founder asked to be sure of, driven against the same
+    // database the console wrote to. Nothing here is seeded by the test: the
+    // operator, the device, the key and the PIN all come out of the console's
+    // own hand-over screen, which is the only place they ever exist in
+    // readable form.
+    const cookie = await signInToConsole();
+    const { merchantId } = await registerAndApprove(cookie, '9');
+
+    const issued = await send(
+      consolePort,
+      `/merchants/${encodeURIComponent(merchantId)}/credentials`,
+      { method: 'POST', cookie, form: { csrfToken: csrfFrom(cookie) } },
+    );
+    expect(issued.status).toBe(200);
+
+    // Scraped from the hand-over screen, exactly as an admin reads them off it.
+    const parameter = (id: string): string =>
+      (new RegExp(`data-testid="${id}"[^>]*>([^<]*)`).exec(issued.body) ?? ['', ''])[1].trim();
+
+    const operatorId = parameter('handover-operator');
+    const deviceId = parameter('handover-device');
+    const deviceKey = parameter('handover-key');
+    const temporaryPin = parameter('handover-pin');
+
+    // If the screen ever stops rendering one of these, this test must fail
+    // loudly rather than silently sign in with an empty string.
+    for (const [name, value] of Object.entries({ operatorId, deviceId, deviceKey, temporaryPin })) {
+      expect(value, `the hand-over screen must show ${name}`).not.toBe('');
+    }
+
+    const deps = {
+      driver: driver as never,
+      authConfig: TRAINING_AUTH_CONFIG,
+      now: () => NOW as never,
+      newId: (prefix: string) => `${prefix}_${String((ids += 1))}`,
+    };
+
+    // --- 1. the shop signs in --------------------------------------------
+    const first = await login(deps as never, {
+      userId: operatorId as never,
+      pin: temporaryPin,
+      deviceId: deviceId as never,
+      deviceSecret: deviceKey,
+    }, `corr_${String((ids += 1))}`);
+    // This is the assertion that would have failed before the ONBOARDING fix:
+    // the shop was created, the credentials were correct, and sign-in was
+    // refused because nothing had ever set the merchant ACTIVE.
+    expect(first.ok, 'a newly registered shop must be able to sign in').toBe(true);
+
+    // --- 2. it must change the PIN ---------------------------------------
+    const user = db
+      ?.prepare('SELECT must_change_pin FROM merchant_users WHERE id = ?')
+      .get(operatorId) as { must_change_pin: number };
+    // A PIN Telga staff read aloud belongs to everyone who heard it.
+    expect(user.must_change_pin).toBe(1);
+
+    const context = (first as { context: unknown }).context;
+    const changed = await changePin(
+      { ...deps, mode: 'TRAINING' } as never,
+      context as never,
+      { currentPin: temporaryPin, newPin: '907413', correlationId: 'corr_pin' } as never,
+    );
+    expect(changed.kind, 'the shop must be able to set its own PIN').toBe('CHANGED');
+
+    // The flag clears in the same statement that writes the new hash, so a
+    // shop is never left being asked to change a PIN it has already changed.
+    const after = db
+      ?.prepare('SELECT must_change_pin FROM merchant_users WHERE id = ?')
+      .get(operatorId) as { must_change_pin: number };
+    expect(after.must_change_pin).toBe(0);
+
+    // --- 3. the old PIN stops working, the new one works ------------------
+    const withOld = await login(deps as never, {
+      userId: operatorId as never,
+      pin: temporaryPin,
+      deviceId: deviceId as never,
+      deviceSecret: deviceKey,
+    }, `corr_${String((ids += 1))}`);
+    expect(withOld.ok, 'the temporary PIN must stop working').toBe(false);
+
+    const withNew = await login(deps as never, {
+      userId: operatorId as never,
+      pin: '907413',
+      deviceId: deviceId as never,
+      deviceSecret: deviceKey,
+    }, `corr_${String((ids += 1))}`);
+    expect(withNew.ok, 'the shop’s own PIN must work').toBe(true);
+  });
+
+  it('refuses the shop once Telga suspends it, on the same live chain', async () => {
+    // The other half of R40/R45. A test that only proved sign-in *works* would
+    // not have caught the bug that made every new shop unable to — and one that
+    // only proved suspension blocks would not have caught it either. Both
+    // directions, on a shop this test actually created.
+    const cookie = await signInToConsole();
+    const { merchantId } = await registerAndApprove(cookie, '8');
+    const issued = await send(
+      consolePort,
+      `/merchants/${encodeURIComponent(merchantId)}/credentials`,
+      { method: 'POST', cookie, form: { csrfToken: csrfFrom(cookie) } },
+    );
+    const parameter = (id: string): string =>
+      (new RegExp(`data-testid="${id}"[^>]*>([^<]*)`).exec(issued.body) ?? ['', ''])[1].trim();
+
+    const credentials = {
+      userId: parameter('handover-operator') as never,
+      pin: parameter('handover-pin'),
+      deviceId: parameter('handover-device') as never,
+      deviceSecret: parameter('handover-key'),
+    };
+    const deps = {
+      driver: driver as never,
+      authConfig: TRAINING_AUTH_CONFIG,
+      now: () => NOW as never,
+      newId: (prefix: string) => `${prefix}_${String((ids += 1))}`,
+    };
+
+    expect((await login(deps as never, credentials, `corr_${String((ids += 1))}`)).ok, 'before suspension').toBe(true);
+
+    const suspend = await send(consolePort, `/merchants/${encodeURIComponent(merchantId)}/suspend`, {
+      method: 'POST',
+      cookie,
+      form: { csrfToken: csrfFrom(cookie), reason: 'testing the chain' },
+    });
+    expect(suspend.status).toBe(303);
+
+    // Refused now. R40 was exactly this being allowed.
+    expect((await login(deps as never, credentials, `corr_${String((ids += 1))}`)).ok, 'after suspension').toBe(false);
   });
 });
