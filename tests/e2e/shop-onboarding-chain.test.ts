@@ -46,6 +46,11 @@ import { changePin, hashAdminSecret, login } from '@telga/api';
 import { TRAINING_AUTH_CONFIG } from '../ui/helpers';
 import { fromBirr, postingId } from '@telga/domain';
 import { createConsoleServer } from '@telga/operations-console';
+import { createPosServer } from '@telga/merchant-pos';
+import { MOCK_BEHAVIOURS, MockAirtimeProvider } from '@telga/provider-mock-airtime';
+// `simulatedCatalog` is an api helper; the branded-id constructors are domain.
+import { simulatedCatalog } from '@telga/api';
+import { productId, providerId } from '@telga/domain';
 
 const NOW = '2026-09-09T12:00:00.000Z';
 
@@ -57,6 +62,8 @@ let consolePort = 0;
 let ids = 0;
 
 afterEach(() => {
+  pos?.close();
+  pos = undefined;
   console_?.close();
   console_ = undefined;
   driver?.close();
@@ -119,6 +126,56 @@ beforeEach(async () => {
     });
   });
 });
+
+let pos: Server | undefined;
+let posPort = 0;
+
+/**
+ * The merchant app, over the **same database** the console wrote to.
+ *
+ * Started per test rather than in `beforeEach`, because most tests here never
+ * touch it and a listener nobody uses is a socket left open.
+ *
+ * This is the point of the whole file: the parameters an admin reads off the
+ * console's hand-over screen have to work in the **real login form** on the
+ * real server, not merely in `login()`. Between those two lies the form, the
+ * route, the origin check, the cookie policy and the session — every one of
+ * which has broken at least once in this repository.
+ */
+async function startPos(): Promise<number> {
+  const provider = new MockAirtimeProvider({
+    providerId: providerId('provider_simulated'),
+    behaviour: 'SUCCESS',
+  });
+  pos = createPosServer({
+    api: {
+      driver: driver as never,
+      provider,
+      providerId: providerId('provider_simulated'),
+      catalog: simulatedCatalog([
+        { id: productId('product_airtime_10'), label: 'Airtime 10', available: true },
+      ]),
+      mode: 'TRAINING',
+      recipientSalt: 'chain-test-salt',
+      now: () => NOW,
+      newId: (prefix: string) => `${prefix}_${String((ids += 1))}`,
+      authConfig: TRAINING_AUTH_CONFIG,
+      statusCheckIntervalMs: 2000,
+      maxClientPolls: 10,
+      voucherCatalog: { find: () => undefined },
+    } as never,
+    environment: 'test',
+    catalog: [],
+    simulatedBehaviours: [...MOCK_BEHAVIOURS],
+  });
+  return new Promise((resolve) => {
+    pos?.listen(0, '127.0.0.1', () => {
+      const address = pos?.address();
+      posPort = typeof address === 'object' && address !== null ? address.port : 0;
+      resolve(posPort);
+    });
+  });
+}
 
 interface Reply {
   readonly status: number;
@@ -587,5 +644,97 @@ describe('the shop signs in with what the console issued, and changes its PIN', 
 
     // Refused now. R40 was exactly this being allowed.
     expect((await login(deps as never, credentials, `corr_${String((ids += 1))}`)).ok, 'after suspension').toBe(false);
+  });
+});
+
+describe('the device accepts what the console handed over', () => {
+  it('shows a field for every parameter on the sign-in form', async () => {
+    // Four parameters are issued. If the form asked for three, an admin would
+    // read out something the shop has nowhere to type.
+    await startPos();
+    const screen = await send(posPort, '/login');
+    expect(screen.status).toBe(200);
+    for (const field of ['login-user', 'login-pin', 'login-device', 'login-device-secret']) {
+      expect(screen.body, `the sign-in form must have ${field}`).toContain(field);
+    }
+  });
+
+  it('signs a brand-new shop in through the real form and route', async () => {
+    // The end of the chain, over a socket. `login()` passing proves the rules;
+    // this proves the *form* a shop actually fills in reaches them — through
+    // the origin check, the route, the cookie policy and the session.
+    const cookie = await signInToConsole();
+    const { merchantId } = await registerAndApprove(cookie, '7');
+    const issued = await send(
+      consolePort,
+      `/merchants/${encodeURIComponent(merchantId)}/credentials`,
+      { method: 'POST', cookie, form: { csrfToken: csrfFrom(cookie) } },
+    );
+    const parameter = (id: string): string =>
+      (new RegExp(`data-testid="${id}"[^>]*>([^<]*)`).exec(issued.body) ?? ['', ''])[1].trim();
+
+    await startPos();
+    const reply = await send(posPort, '/login', {
+      method: 'POST',
+      form: {
+        // The exact four an admin reads off the hand-over screen.
+        userId: parameter('handover-operator'),
+        pin: parameter('handover-pin'),
+        deviceId: parameter('handover-device'),
+        deviceSecret: parameter('handover-key'),
+      },
+    });
+
+    // A refusal comes back as a redirect carrying `?error=`; a success carries
+    // a session cookie. Checking the cookie rather than only the status is what
+    // stops this passing on a redirect that refused.
+    const cookies = (reply.headers['set-cookie'] as string[] | undefined) ?? [];
+    expect(
+      String(reply.headers['location'] ?? ''),
+      'sign-in must not be refused',
+    ).not.toContain('error');
+    expect(
+      cookies.join(';'),
+      'a successful sign-in must set a session cookie',
+    ).toContain('telga_session');
+  });
+
+  it('refuses the same parameters once the shop is suspended', async () => {
+    // Through the form, not the function. The suspension path and the POS
+    // transport are separate pieces of code and this is the only place they
+    // meet.
+    const cookie = await signInToConsole();
+    const { merchantId } = await registerAndApprove(cookie, '6');
+    const issued = await send(
+      consolePort,
+      `/merchants/${encodeURIComponent(merchantId)}/credentials`,
+      { method: 'POST', cookie, form: { csrfToken: csrfFrom(cookie) } },
+    );
+    const parameter = (id: string): string =>
+      (new RegExp(`data-testid="${id}"[^>]*>([^<]*)`).exec(issued.body) ?? ['', ''])[1].trim();
+    const form = {
+      userId: parameter('handover-operator'),
+      pin: parameter('handover-pin'),
+      deviceId: parameter('handover-device'),
+      deviceSecret: parameter('handover-key'),
+    };
+
+    await startPos();
+    const before = await send(posPort, '/login', { method: 'POST', form });
+    expect(
+      ((before.headers['set-cookie'] as string[] | undefined) ?? []).join(';'),
+    ).toContain('telga_session');
+
+    await send(consolePort, `/merchants/${encodeURIComponent(merchantId)}/suspend`, {
+      method: 'POST',
+      cookie,
+      form: { csrfToken: csrfFrom(cookie), reason: 'chain test' },
+    });
+
+    const after = await send(posPort, '/login', { method: 'POST', form });
+    expect(
+      String(after.headers['location'] ?? ''),
+      'a suspended shop must be refused at the form',
+    ).toContain('error');
   });
 });

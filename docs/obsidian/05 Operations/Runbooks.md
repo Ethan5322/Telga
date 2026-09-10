@@ -161,12 +161,17 @@ merchant underneath the live session, and asserts the next request is refused.
 
 **Recorded as** [[Risk Register]] **R40** and [[Decision Log]] **D138**.
 
-> [!tip] Recommendation
+> [!tip] Recommendation — **carried out 2026-09-10**
 > **Audit the other status columns the same way.** This bug's shape is *"a status is written in
 > one place and read in another, and one reader was missed."* The same shape is available for
 > `devices.status`, `tenant_registry.status` and the merchant lifecycle states. A test that
 > suspends each entity and asserts every entry point refuses would catch the class, not just
-> this instance. Not done — it is a piece of work, not a patch.
+> this instance.
+>
+> **Done:** `tests/auth/status-gates.test.ts` maps every status column to every door it is read
+> at, and the map is in the file header so a new `CHECK` value forces somebody to say what it
+> means. It found a third instance immediately — **R46**, a remotely stopped device that can
+> still sign in — which is what the recommendation was for.
 
 ### 2026-09-09 — `migration-008.test.ts` failed after migration 018 was added
 
