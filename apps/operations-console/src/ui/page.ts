@@ -120,6 +120,9 @@ export const NAV: readonly NavEntry[] = Object.freeze([
   // §17.2. The desk that answers "paid but no airtime" — and the one place
   // Telga staff may see an individual transaction (D144's exception, R44).
   { id: 'complaints', href: '/complaints', label: 'Support' },
+  // §17.1. What makes a LEGITIMATE complaint verdict actionable: without this
+  // a reviewer can decide a shop is owed money and has no way to return it.
+  { id: 'reversals', href: '/reversals', label: 'Reversals' },
   { id: 'provider-health', href: '/provider-health', label: 'Provider health' },
   { id: 'tenants', href: '/tenants', label: 'Tenants' },
   { id: 'admins', href: '/admins', label: 'Administrators' },

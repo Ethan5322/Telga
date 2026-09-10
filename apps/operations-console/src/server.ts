@@ -65,6 +65,7 @@ import {
   clearAdminMfaSecret,
   listAdminUsers,
   recordApplication,
+  decideReversalRequest,
   recordComplaintVerdict,
   revokeAdminSession,
   revokeAllAdminSessions,
@@ -74,6 +75,7 @@ import {
   activityScreen,
   complaintDetailScreen,
   complaintsScreen,
+  reversalsScreen,
   issuedPinScreen,
   operatorsScreen,
   providerHealthScreen,
@@ -2601,6 +2603,115 @@ export function createConsoleServer(options: ConsoleOptions): Server {
               : verdict === 'UNCERTAIN'
                 ? 'Recorded as uncertain. Escalate to the provider and tell the shop the next deadline.'
                 : 'Recorded. Tell the shop the value was delivered.',
+          ),
+      });
+      response.end();
+      return;
+    }
+
+    // --- reversal requests — §17.1 ------------------------------------------
+
+    if (path === '/reversals' && method === 'GET') {
+      if (!guard('ADMIN_VIEW_MERCHANT')) return;
+      const waiting = rows<{
+        id: string; transaction_id: string; merchant_id: string; requested_by: string;
+        reason: string; amount_minor: number; redemption: string; status: string;
+        created_at: string; state: string | null;
+      }>(
+        `SELECT r.id, r.transaction_id, r.merchant_id, r.requested_by, r.reason,
+                r.amount_minor, r.redemption, r.status, r.created_at, t.state
+           FROM reversal_requests r
+           LEFT JOIN transactions t ON t.id = r.transaction_id
+          WHERE r.status IN ('REQUESTED','NEEDS_APPROVAL')
+          ORDER BY r.created_at`,
+      );
+      screen(
+        reversalsScreen({
+          chrome: chromeFor(context, csrf),
+          allowed,
+          notice: url.searchParams.get('notice') ?? undefined,
+          rows: waiting.map((r) => ({
+            id: r.id,
+            transactionId: r.transaction_id,
+            merchantId: r.merchant_id,
+            requestedBy: r.requested_by,
+            reason: r.reason,
+            amountMinor: r.amount_minor,
+            redemption: r.redemption,
+            status: r.status,
+            createdAt: r.created_at,
+            transactionState: r.state,
+          })),
+        }),
+        'Reversal requests',
+      );
+      return;
+    }
+
+    /**
+     * Decide a reversal request.
+     *
+     * ## What approving does here, and what it deliberately does not
+     *
+     * It records the **decision** and moves the request to `APPROVED`. It does
+     * **not** post the ledger entry: settling a reversal is `completeReversal`
+     * in the api package, which requires a supervisor role, writes the balanced
+     * adjustment and moves the transaction to `REVERSED`.
+     *
+     * Splitting them is not indecision. A decision that is recorded and a
+     * movement that is posted are different acts with different failure modes,
+     * and §13 invariant 8 requires the authorisation to be visible separately
+     * from the entry it authorised. A future step wires the settlement to this
+     * approval; until it does, the queue shows what has been approved and not
+     * yet settled, which is a state an operations desk can act on — rather than
+     * a button that silently half-worked.
+     */
+    const reversalDecide = /^\/reversals\/([^/]+)\/(approve|refuse)$/.exec(path);
+    if (reversalDecide && method === 'POST') {
+      if (!guard('ADMIN_APPROVE_FUNDING')) return;
+      const id = decodeURIComponent(reversalDecide[1]);
+      const approving = reversalDecide[2] === 'approve';
+      const form = await readForm(request);
+      const reason = (form['reason'] ?? '').trim();
+
+      if (reason.length === 0) {
+        // A decision about somebody's money with no reason is not a decision
+        // anybody can be asked about later.
+        response.writeHead(303, { location: '/reversals?notice=A%20reason%20is%20required.' });
+        response.end();
+        return;
+      }
+
+      const changed = decideReversalRequest(options.db as never, {
+        id,
+        status: approving ? 'APPROVED' : 'REFUSED',
+        decidedBy: context.user.id,
+        reason,
+        at: options.now(),
+      });
+
+      if (changed === 0) {
+        response.writeHead(303, { location: '/reversals?notice=Already%20decided.' });
+        response.end();
+        return;
+      }
+
+      record({
+        event: approving ? 'ADMIN_REVERSAL_APPROVED' : 'ADMIN_REVERSAL_REFUSED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'TRANSACTION',
+        entityId: id,
+        metadata: { outcome: approving ? 'APPROVED' : 'REFUSED' },
+      });
+
+      response.writeHead(303, {
+        location:
+          '/reversals?notice=' +
+          encodeURIComponent(
+            approving
+              ? 'Approved. The adjustment is authorised and posts on settlement — the shop’s balance has not moved yet.'
+              : 'Refused. Tell the shop why.',
           ),
       });
       response.end();

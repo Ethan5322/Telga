@@ -629,3 +629,109 @@ describe('support and disputes — §17.2, and the answer to R44', () => {
     expect(decodeURIComponent(String(second.headers['location']))).toContain('Already decided');
   });
 });
+
+
+describe('reversal requests — §17.1', () => {
+  const askForReversal = (status = 'NEEDS_APPROVAL'): void => {
+    db?.prepare(
+      `INSERT INTO reversal_requests
+         (id, transaction_id, merchant_id, requested_by, device_id, reason, amount_minor,
+          redemption, status, correlation_id, created_at, updated_at)
+       VALUES ('rev_1', 'txn_ok', 'merchant_a', 'operator_a', 'device_a',
+               'Customer returned the token unused', 5000, 'UNKNOWN', ?, 'corr', ?, ?)`,
+    ).run(status, NOW, NOW);
+  };
+
+  it('lists what shops have asked for, oldest first', async () => {
+    const cookie = await signIn();
+    askForReversal();
+    const reply = await send('/reversals', { cookie });
+    expect(reply.status).toBe(200);
+    expect(reply.body).toContain('reversal-rev_1');
+    expect(reply.body).toContain('Customer returned the token unused');
+  });
+
+  it('says plainly that redemption cannot be read', async () => {
+    // Every request in this build carries UNKNOWN: there is no provider API to
+    // ask and no redemption column. A supervisor approving one is deciding on
+    // the merchant's word, and must know that is what they are doing.
+    const cookie = await signIn();
+    askForReversal();
+    const reply = await send('/reversals', { cookie });
+    expect(reply.body).toContain('Cannot be read');
+  });
+
+  it('shows the sale’s current state next to the request', async () => {
+    // A reversal asked on a SUCCESSFUL sale and one asked on a PENDING sale are
+    // different decisions, and the queue must not make them look alike.
+    const cookie = await signIn();
+    askForReversal();
+    const reply = await send('/reversals', { cookie });
+    expect(reply.body).toContain('SUCCESSFUL');
+  });
+
+  it('refuses a decision with no reason', async () => {
+    const cookie = await signIn();
+    askForReversal();
+    const reply = await send('/reversals/rev_1/approve', {
+      method: 'POST',
+      cookie,
+      form: { reason: '' },
+    });
+    expect(decodeURIComponent(String(reply.headers['location']))).toContain('reason is required');
+    const row = db?.prepare(`SELECT status FROM reversal_requests WHERE id = 'rev_1'`).get() as {
+      status: string;
+    };
+    expect(row.status).toBe('NEEDS_APPROVAL');
+  });
+
+  it('records an approval, its author, and moves no money yet', async () => {
+    // §13 invariant 8: the authorisation is recorded separately from the entry
+    // it authorises. Approving must not silently post a balance change.
+    const cookie = await signIn();
+    askForReversal();
+    const ledgerRows = (): number =>
+      (db?.prepare('SELECT COUNT(*) AS n FROM ledger_entries').get() as { n: number }).n;
+    const before = ledgerRows();
+
+    const reply = await send('/reversals/rev_1/approve', {
+      method: 'POST',
+      cookie,
+      form: { reason: 'Token confirmed unused with the customer' },
+    });
+    expect(reply.status).toBe(303);
+
+    const row = db
+      ?.prepare(`SELECT status, decided_by, decision_reason FROM reversal_requests WHERE id = 'rev_1'`)
+      .get() as { status: string; decided_by: string; decision_reason: string };
+    expect(row.status).toBe('APPROVED');
+    expect(row.decided_by).toBe('adm_1');
+    expect(row.decision_reason).toContain('unused');
+
+    expect(ledgerRows()).toBe(before);
+    // And the operator is told, rather than assuming the shop has been paid.
+    expect(decodeURIComponent(String(reply.headers['location']))).toContain('has not moved yet');
+  });
+
+  it('does not decide the same request twice', async () => {
+    const cookie = await signIn();
+    askForReversal();
+    const form = { reason: 'checked' };
+    await send('/reversals/rev_1/approve', { method: 'POST', cookie, form });
+    const second = await send('/reversals/rev_1/refuse', { method: 'POST', cookie, form });
+    expect(decodeURIComponent(String(second.headers['location']))).toContain('Already decided');
+  });
+
+  it('drops a decided request out of the queue', async () => {
+    const cookie = await signIn();
+    askForReversal();
+    await send('/reversals/rev_1/refuse', {
+      method: 'POST',
+      cookie,
+      form: { reason: 'Token was redeemed' },
+    });
+    const reply = await send('/reversals', { cookie });
+    expect(reply.body).not.toContain('reversal-rev_1');
+    expect(reply.body).toContain('reversals-empty');
+  });
+});

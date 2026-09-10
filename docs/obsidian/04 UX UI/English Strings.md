@@ -550,6 +550,25 @@ is an answer.
 | `complaint.sent.reference` | Your case number — quote it when you call: |
 | `complaint.sent.next` | Telga is checking the sale and the provider. You will be told the outcome. Keep serving customers as normal. |
 
+## Asking for a reversal (D151)
+
+**Wording rule, the same as a complaint's: never promise the money back.**
+§17.1 makes a merchant's reversal a *request*, completed by a supervisor. A
+screen that says *"your money will be returned"* has decided that for them.
+
+| Key | English |
+|---|---|
+| `reverse.title` | Ask Telga to reverse a sale |
+| `reverse.intro` | If a customer handed back a token they could not use, ask Telga to return the money. Telga checks the sale first — the money is not returned until somebody has looked. |
+| `reverse.transaction` | Transaction number |
+| `reverse.reason` | Why it should be reversed |
+| `reverse.reason.hint` | For example: customer returned the token unused. |
+| `reverse.submit` | Send request |
+| `reverse.sent.heading` | Request sent to Telga |
+| `reverse.sent.reference` | Your request number: |
+| `reverse.sent.next` | Telga will check whether the value reached the customer. Nothing is returned to your balance until that check is done. |
+| `reverse.pending.notice` | A request for this sale is already with Telga. Do not send another. |
+
 ## Wording rules
 
 1. Never promise speed. No "instant", "immediately", or "right away" about a provider outcome.

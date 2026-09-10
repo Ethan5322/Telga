@@ -546,6 +546,23 @@ these may read as *"your account has been created"*.
 | `complaint.sent.reference` | Your case number — quote it when you call: | የጉዳይዎ ቁጥር — ሲደውሉ ይጥቀሱት፦ |
 | `complaint.sent.next` | Telga is checking the sale and the provider. You will be told the outcome. Keep serving customers as normal. | ተልጋ ሽያጩንና አቅራቢውን እያጣራ ነው። ውጤቱ ይነገርዎታል። እንደተለመደው ደንበኞችን ማገልገልዎን ይቀጥሉ። |
 
+## Asking for a reversal (D151)
+
+**DRAFT — REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.**
+
+| Key | English | Amharic |
+|---|---|---|
+| `reverse.title` | Ask Telga to reverse a sale | ተልጋ ሽያጭ እንዲመልስ ይጠይቁ |
+| `reverse.intro` | If a customer handed back a token they could not use, ask Telga to return the money. Telga checks the sale first — the money is not returned until somebody has looked. | ደንበኛ መጠቀም ያልቻለውን ቶከን ከመለሰ፣ ተልጋ ገንዘቡን እንዲመልስ ይጠይቁ። ተልጋ መጀመሪያ ሽያጩን ያረጋግጣል — ሰው እስኪያየው ድረስ ገንዘቡ አይመለስም። |
+| `reverse.transaction` | Transaction number | የግብይት ቁጥር |
+| `reverse.reason` | Why it should be reversed | ለምን መመለስ እንዳለበት |
+| `reverse.reason.hint` | For example: customer returned the token unused. | ለምሳሌ፦ ደንበኛው ቶከኑን ሳይጠቀም መልሷል። |
+| `reverse.submit` | Send request | ጥያቄ ላክ |
+| `reverse.sent.heading` | Request sent to Telga | ጥያቄው ወደ ተልጋ ተልኳል |
+| `reverse.sent.reference` | Your request number: | የጥያቄዎ ቁጥር፦ |
+| `reverse.sent.next` | Telga will check whether the value reached the customer. Nothing is returned to your balance until that check is done. | ተልጋ ዋጋው ደንበኛው ጋር መድረሱን ያረጋግጣል። ያ እስኪጠናቀቅ ድረስ ወደ ቀሪ ሂሳብዎ ምንም አይመለስም። |
+| `reverse.pending.notice` | A request for this sale is already with Telga. Do not send another. | ለዚህ ሽያጭ ጥያቄ አስቀድሞ ወደ ተልጋ ተልኳል። ሌላ አይላኩ። |
+
 ## Related
 
 - [[English Strings]]

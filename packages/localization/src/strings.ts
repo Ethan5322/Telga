@@ -534,6 +534,31 @@ export const EN = Object.freeze({
     'Your case number — quote it when you call:',
   'complaint.sent.next':
     'Telga is checking the sale and the provider. You will be told the outcome. Keep serving customers as normal.',
+  // --- Asking for a reversal (D151) -------------------------------------------
+  //
+  // Wording rule, the same as a complaint's: **never promise the money back.**
+  // §17.1 makes a merchant's reversal a *request*; a supervisor completes it.
+  // A screen that says "your money will be returned" has decided that for them.
+  'reverse.title':
+    'Ask Telga to reverse a sale',
+  'reverse.intro':
+    'If a customer handed back a token they could not use, ask Telga to return the money. Telga checks the sale first — the money is not returned until somebody has looked.',
+  'reverse.transaction':
+    'Transaction number',
+  'reverse.reason':
+    'Why it should be reversed',
+  'reverse.reason.hint':
+    'For example: customer returned the token unused.',
+  'reverse.submit':
+    'Send request',
+  'reverse.sent.heading':
+    'Request sent to Telga',
+  'reverse.sent.reference':
+    'Your request number:',
+  'reverse.sent.next':
+    'Telga will check whether the value reached the customer. Nothing is returned to your balance until that check is done.',
+  'reverse.pending.notice':
+    'A request for this sale is already with Telga. Do not send another.',
 });
 
 export type MessageKey = keyof typeof EN;
@@ -998,6 +1023,28 @@ export const AM: Readonly<Partial<Record<MessageKey, string>>> = Object.freeze({
     'የጉዳይዎ ቁጥር — ሲደውሉ ይጥቀሱት፦',
   'complaint.sent.next':
     'ተልጋ ሽያጩንና አቅራቢውን እያጣራ ነው። ውጤቱ ይነገርዎታል። እንደተለመደው ደንበኞችን ማገልገልዎን ይቀጥሉ።',
+  // --- Asking for a reversal (D151) -------------------------------------------
+  // DRAFT. REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.
+  'reverse.title':
+    'ተልጋ ሽያጭ እንዲመልስ ይጠይቁ',
+  'reverse.intro':
+    'ደንበኛ መጠቀም ያልቻለውን ቶከን ከመለሰ፣ ተልጋ ገንዘቡን እንዲመልስ ይጠይቁ። ተልጋ መጀመሪያ ሽያጩን ያረጋግጣል — ሰው እስኪያየው ድረስ ገንዘቡ አይመለስም።',
+  'reverse.transaction':
+    'የግብይት ቁጥር',
+  'reverse.reason':
+    'ለምን መመለስ እንዳለበት',
+  'reverse.reason.hint':
+    'ለምሳሌ፦ ደንበኛው ቶከኑን ሳይጠቀም መልሷል።',
+  'reverse.submit':
+    'ጥያቄ ላክ',
+  'reverse.sent.heading':
+    'ጥያቄው ወደ ተልጋ ተልኳል',
+  'reverse.sent.reference':
+    'የጥያቄዎ ቁጥር፦',
+  'reverse.sent.next':
+    'ተልጋ ዋጋው ደንበኛው ጋር መድረሱን ያረጋግጣል። ያ እስኪጠናቀቅ ድረስ ወደ ቀሪ ሂሳብዎ ምንም አይመለስም።',
+  'reverse.pending.notice':
+    'ለዚህ ሽያጭ ጥያቄ አስቀድሞ ወደ ተልጋ ተልኳል። ሌላ አይላኩ።',
 });
 
 export const TABLES: Readonly<Record<Locale, Readonly<Partial<Record<MessageKey, string>>>>> =

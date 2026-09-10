@@ -708,3 +708,169 @@ export function complaintDetailScreen(props: ComplaintDetailProps): El {
         ),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Reversal requests — §17.1
+// ---------------------------------------------------------------------------
+
+export interface ReversalRow {
+  readonly id: string;
+  readonly transactionId: string;
+  readonly merchantId: string;
+  readonly requestedBy: string;
+  readonly reason: string;
+  readonly amountMinor: number;
+  readonly redemption: string;
+  readonly status: string;
+  readonly createdAt: string;
+  /** The sale's state right now, read when the queue is rendered. */
+  readonly transactionState: string | null;
+}
+
+export interface ReversalsProps {
+  readonly chrome: ConsoleChrome;
+  readonly rows: readonly ReversalRow[];
+  readonly allowed: Allowed;
+  readonly notice?: string;
+}
+
+/**
+ * What shops have asked Telga to return.
+ *
+ * Oldest first: a shop waiting on money it believes it is owed is the case that
+ * degrades fastest, and a newest-first queue buries it.
+ *
+ * ## Why every row says "cannot be read"
+ *
+ * `redemption` is `UNKNOWN` for every request this build produces, because
+ * there is no provider API to ask and no redemption column in the schema. That
+ * is shown rather than hidden: a supervisor approving one is deciding **on the
+ * merchant's word**, and should know that is what they are doing.
+ */
+export function reversalsScreen(props: ReversalsProps): El {
+  const { chrome, allowed } = props;
+  return page(
+    { ...chrome, section: 'reversals' },
+    'Reversal requests',
+    props.notice !== undefined &&
+      h('p', { class: 'console__note', role: 'status', 'data-testid': 'reversals-notice' }, props.notice),
+    h(
+      'p',
+      { class: 'console__note' },
+      'A shop has asked for money back on a sale. Approving posts an adjustment to their balance — ' +
+        '§13: a correction is an authorised entry, never a silent edit.',
+    ),
+    props.rows.length === 0
+      ? h('p', { 'data-testid': 'reversals-empty' }, 'No reversal requests waiting.')
+      : h(
+          'table',
+          { class: 'console__table', 'data-testid': 'reversals-table' },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              h('th', { scope: 'col' }, 'Asked'),
+              h('th', { scope: 'col' }, 'Shop'),
+              h('th', { scope: 'col' }, 'Sale'),
+              h('th', { scope: 'col' }, 'Amount'),
+              h('th', { scope: 'col' }, 'Token used?'),
+              h('th', { scope: 'col' }, 'Why'),
+              h('th', { scope: 'col' }, ''),
+            ),
+          ),
+          h(
+            'tbody',
+            {},
+            ...props.rows.map((row) =>
+              h(
+                'tr',
+                { 'data-testid': `reversal-${row.id}`, 'data-status': row.status },
+                h('td', {}, row.createdAt.slice(0, 16).replace('T', ' ')),
+                h('td', {}, row.merchantId),
+                h(
+                  'td',
+                  { class: 'console__mono' },
+                  `${row.transactionId}${row.transactionState === null ? '' : ` (${row.transactionState})`}`,
+                ),
+                h('td', {}, money(row.amountMinor)),
+                h(
+                  'td',
+                  {},
+                  h(
+                    'span',
+                    {
+                      class: 'console__pill',
+                      'data-tone': row.redemption === 'UNKNOWN' ? 'warn' : 'plain',
+                      'data-testid': `reversal-redemption-${row.id}`,
+                    },
+                    row.redemption === 'UNKNOWN' ? 'Cannot be read' : row.redemption,
+                  ),
+                ),
+                h('td', {}, row.reason.length > 60 ? `${row.reason.slice(0, 60)}…` : row.reason),
+                h(
+                  'td',
+                  { class: 'console__actions' },
+                  allowed.has('ADMIN_APPROVE_FUNDING')
+                    ? h(
+                        'form',
+                        {
+                          method: 'post',
+                          action: `/reversals/${encodeURIComponent(row.id)}/approve`,
+                          'data-testid': `reversal-approve-form-${row.id}`,
+                        },
+                        h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                        h('input', {
+                          type: 'text',
+                          name: 'reason',
+                          required: true,
+                          placeholder: 'Why you are approving',
+                          'data-testid': `reversal-approve-reason-${row.id}`,
+                        }),
+                        h(
+                          'button',
+                          {
+                            type: 'submit',
+                            class: 'console__button',
+                            // Approving moves a merchant's balance. An
+                            // accidental click is money posted against a sale
+                            // nobody checked.
+                            'data-confirm':
+                              'Approve this reversal? It posts an adjustment to the shop’s balance.',
+                            'data-testid': `reversal-approve-${row.id}`,
+                          },
+                          'Approve',
+                        ),
+                      )
+                    : '',
+                  allowed.has('ADMIN_APPROVE_FUNDING')
+                    ? h(
+                        'form',
+                        {
+                          method: 'post',
+                          action: `/reversals/${encodeURIComponent(row.id)}/refuse`,
+                          'data-testid': `reversal-refuse-form-${row.id}`,
+                        },
+                        h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                        h('input', {
+                          type: 'text',
+                          name: 'reason',
+                          required: true,
+                          placeholder: 'Why you are refusing',
+                          'data-testid': `reversal-refuse-reason-${row.id}`,
+                        }),
+                        h(
+                          'button',
+                          { type: 'submit', class: 'console__button', 'data-testid': `reversal-refuse-${row.id}` },
+                          'Refuse',
+                        ),
+                      )
+                    : '',
+                ),
+              ),
+            ),
+          ),
+        ),
+  );
+}

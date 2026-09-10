@@ -118,6 +118,15 @@ export type AdminAuditEvent =
    */
   | 'ADMIN_CASE_TRANSACTION_VIEWED'
   | 'ADMIN_COMPLAINT_DECIDED'
+  /**
+   * A supervisor decided a merchant's reversal request — §17.1.
+   *
+   * The **authorisation**, recorded separately from the ledger entry it
+   * authorises. §13 invariant 8: a correction is an authorised adjustment, and
+   * the authorisation has to be visible on its own.
+   */
+  | 'ADMIN_REVERSAL_APPROVED'
+  | 'ADMIN_REVERSAL_REFUSED'
   | 'ADMIN_APPLICATION_PICKED_UP'
   | 'ADMIN_APPLICATION_DECIDED'
   | 'ADMIN_ENROLLMENT_TOKEN_ISSUED'

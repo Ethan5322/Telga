@@ -86,6 +86,7 @@ import {
 } from '@telga/api';
 import { ApplicationWriteError, maskRecipient } from '@telga/persistence';
 import type { Locale } from '@telga/localization';
+import { TRAINING_REVERSAL_POLICY, decideReversal } from '@telga/domain';
 import { isLocale, t } from '@telga/localization';
 import { toTransactionViewModel, succeed, succeedList } from '@telga/pos-view-model';
 import type { BalanceDto, RemoteData, TransactionDto, TransactionViewModel } from '@telga/pos-view-model';
@@ -172,6 +173,7 @@ import type { ConnectionFacts, RequestScheme } from './transport/proxy';
 import { registrationSubmittedScreen, vendorRegistrationScreen } from './ui/registrationScreens';
 import { deviceActivatedScreen, deviceActivationScreen } from './ui/activationScreens';
 import { complaintScreen, complaintSentScreen } from './ui/complaintScreens';
+import { reversalScreen, reversalSentScreen } from './ui/reversalScreens';
 import { checkRegistrationThrottle, registrationSource } from './registration';
 import { newNonce, securityHeaders } from './transport/headers';
 
@@ -1764,6 +1766,38 @@ export async function renderScreen(
    * merchant comes from the session rather than the form. A complaint form that
    * took a merchant id would let anybody open a case against any shop.
    */
+  /**
+   * Ask Telga to reverse a sale — §17.1.
+   *
+   * Authenticated, and the merchant comes from the session. A reversal route
+   * that took a merchant id from the form would let anybody file against any
+   * shop.
+   */
+  if (path === '/reverse') {
+    const sent = query.get('sent');
+    if (sent !== null && sent.length > 0) {
+      return {
+        status: 200,
+        html: htmlDocument(renderToHtml(reversalSentScreen({ chrome, reference: sent })), chrome, nonce),
+      };
+    }
+    return {
+      status: 200,
+      html: htmlDocument(
+        renderToHtml(
+          reversalScreen({
+            chrome,
+            csrfToken: request.csrfToken ?? '',
+            refusal: query.get('error') ?? undefined,
+            transactionId: query.get('transaction') ?? undefined,
+          }),
+        ),
+        chrome,
+        nonce,
+      ),
+    };
+  }
+
   if (path === '/complaint') {
     const sent = query.get('sent');
     if (sent !== null && sent.length > 0) {
@@ -3014,6 +3048,105 @@ async function route(
       location: '/shift/end?ended=1',
       ...securityHeaders({ config: transport, scheme, sessionSensitive: true }),
     });
+    response.end();
+    return;
+  }
+
+  if (path === '/reverse' && method === 'POST') {
+    const form = await readFormBody(request, limit);
+    if (form === 'TOO_LARGE') {
+      response.writeHead(303, { location: '/reverse?error=NOT_SAVED' });
+      response.end();
+      return;
+    }
+
+    const transactionId = (form['transactionId'] ?? '').trim();
+    const reason = (form['reason'] ?? '').trim();
+    if (transactionId.length === 0) {
+      response.writeHead(303, { location: '/reverse?error=TRANSACTION_REQUIRED' });
+      response.end();
+      return;
+    }
+    if (reason.length === 0) {
+      response.writeHead(303, {
+        location: `/reverse?error=REASON_REQUIRED&transaction=${encodeURIComponent(transactionId)}`,
+      });
+      response.end();
+      return;
+    }
+
+    // Scoped to the session's merchant. A shop may only ask about a sale it
+    // made, and the refusal for another shop's transaction is identical to the
+    // one for a transaction that does not exist.
+    const found = options.api.driver.findTransaction(
+      transactionId as never,
+      context.merchantId as never,
+    );
+    if (found === undefined) {
+      response.writeHead(303, { location: '/reverse?error=TRANSACTION_NOT_FOUND' });
+      response.end();
+      return;
+    }
+
+    const open = options.api.driver.findOpenReversalRequest(transactionId);
+
+    /**
+     * Redemption is `UNKNOWN`, and that is not a placeholder.
+     *
+     * There is no provider API to ask and no redemption column in the schema,
+     * so this build genuinely cannot tell whether a token was used. Passing
+     * `UNKNOWN` routes every request to `ACCEPTED_NEEDS_APPROVAL` — a human
+     * decides — which is what §17 requires of an unknown outcome. Inventing
+     * `UNREDEEMED` here would auto-settle reversals on no evidence at all.
+     */
+    const decision = decideReversal(
+      {
+        state: found.state,
+        amountMinor: found.amount_minor,
+        soldAt: found.created_at,
+        now: options.api.now(),
+        redemption: 'UNKNOWN',
+        alreadyRequested: open !== undefined,
+      },
+      TRAINING_REVERSAL_POLICY,
+    );
+
+    if (decision.outcome === 'REFUSED') {
+      response.writeHead(303, {
+        location: `/reverse?error=${encodeURIComponent(decision.refusal ?? 'NOT_SAVED')}&transaction=${encodeURIComponent(transactionId)}`,
+      });
+      response.end();
+      return;
+    }
+
+    const reference = newSubmissionReference();
+    try {
+      options.api.driver.saveReversalRequest({
+        id: options.api.newId('rev'),
+        transactionId,
+        merchantId: context.merchantId,
+        // Who at the counter asked. A reversal is a claim about what happened
+        // in a shop, and the person making it is part of the record.
+        requestedBy: context.userId,
+        deviceId: context.deviceId,
+        reason,
+        amountMinor: found.amount_minor,
+        redemption: 'UNKNOWN',
+        status: decision.outcome === 'ACCEPTED_NEEDS_APPROVAL' ? 'NEEDS_APPROVAL' : 'REQUESTED',
+        correlationId: reference,
+        at: options.api.now(),
+      });
+    } catch {
+      // The partial unique index fires here: a second open request for the same
+      // sale. Filing twice does not make it move faster.
+      response.writeHead(303, {
+        location: `/reverse?error=REVERSAL_ALREADY_REQUESTED&transaction=${encodeURIComponent(transactionId)}`,
+      });
+      response.end();
+      return;
+    }
+
+    response.writeHead(303, { location: `/reverse?sent=${encodeURIComponent(reference)}` });
     response.end();
     return;
   }

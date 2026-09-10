@@ -118,6 +118,18 @@ export const listReversalQueue = (db: Db): readonly ReversalRequestRow[] =>
  * `decided_by` and `decided_at` move together with the status, in one
  * statement: a decided request with no decider is a decision nobody can be
  * asked about.
+ *
+ * ## Only an undecided request
+ *
+ * `REQUESTED` and `NEEDS_APPROVAL` only. `APPROVED` was in this list and should
+ * not have been: it let an approved reversal be flipped to `REFUSED` afterwards
+ * by anybody with the permission, leaving two decisions in the trail and no
+ * indication which one governed the money. A test caught it.
+ *
+ * Settlement moving `APPROVED` to `SETTLED` is a **different act** and needs
+ * its own path — that is exactly why widening this one to cover it was wrong.
+ * Returns the number of rows changed, so `0` means "already decided" rather
+ * than an error a caller has to interpret.
  */
 export function decideReversalRequest(
   db: Db,
@@ -133,7 +145,7 @@ export function decideReversalRequest(
     .prepare(
       `UPDATE reversal_requests
           SET status = ?, decided_by = ?, decided_at = ?, decision_reason = ?, updated_at = ?
-        WHERE id = ? AND status IN ('REQUESTED','NEEDS_APPROVAL','APPROVED')`,
+        WHERE id = ? AND status IN ('REQUESTED','NEEDS_APPROVAL')`,
     )
     .run(input.status, input.decidedBy, input.at, input.reason, input.at, input.id);
   return result.changes;
