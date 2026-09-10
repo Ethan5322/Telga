@@ -65,12 +65,15 @@ import {
   clearAdminMfaSecret,
   listAdminUsers,
   recordApplication,
+  recordComplaintVerdict,
   revokeAdminSession,
   revokeAllAdminSessions,
   saveAdminUser,
 } from '@telga/persistence';
 import {
   activityScreen,
+  complaintDetailScreen,
+  complaintsScreen,
   issuedPinScreen,
   operatorsScreen,
   providerHealthScreen,
@@ -2381,6 +2384,226 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         }),
         'Provider health',
       );
+      return;
+    }
+
+    // --- support and disputes — §17.2, and the answer to R44 ---------------
+
+    if (path === '/complaints' && method === 'GET') {
+      if (!guard('ADMIN_VIEW_SUPPORT_CASE')) return;
+      const open = rows<{
+        id: string;
+        support_case_id: string;
+        merchant_id: string;
+        description: string;
+        verdict: string | null;
+        created_at: string;
+        reference: string | null;
+        transaction_id: string | null;
+      }>(
+        `SELECT r.id, r.support_case_id, r.merchant_id, r.description, r.verdict, r.created_at,
+                c.reference, c.transaction_id
+           FROM complaint_reviews r
+           JOIN support_cases c ON c.id = r.support_case_id
+          WHERE r.verdict IS NULL
+          ORDER BY r.created_at`,
+      );
+      screen(
+        complaintsScreen({
+          chrome: chromeFor(context, csrf),
+          notice: url.searchParams.get('notice') ?? undefined,
+          rows: open.map((r) => ({
+            id: r.id,
+            caseId: r.support_case_id,
+            reference: r.reference ?? r.support_case_id,
+            merchantId: r.merchant_id,
+            transactionId: r.transaction_id,
+            description: r.description,
+            verdict: r.verdict,
+            createdAt: r.created_at,
+          })),
+        }),
+        'Support and disputes',
+      );
+      return;
+    }
+
+    const complaintMatch = /^\/complaints\/([^/]+)$/.exec(path);
+    if (complaintMatch && method === 'GET') {
+      if (!guard('ADMIN_VIEW_SUPPORT_CASE')) return;
+      const id = decodeURIComponent(complaintMatch[1]);
+      const found = options.db
+        .prepare(
+          `SELECT r.id, r.support_case_id, r.merchant_id, r.description, r.verdict, r.created_at,
+                  c.reference, c.transaction_id
+             FROM complaint_reviews r
+             JOIN support_cases c ON c.id = r.support_case_id
+            WHERE r.id = ?`,
+        )
+        .get(id) as
+        | {
+            id: string; support_case_id: string; merchant_id: string; description: string;
+            verdict: string | null; created_at: string; reference: string | null;
+            transaction_id: string | null;
+          }
+        | undefined;
+
+      if (found === undefined) {
+        respond(response, 404, document(deniedScreen(chromeFor(context, csrf), 'No such complaint.'), 'Not found'));
+        return;
+      }
+
+      /**
+       * The one place Telga staff may see an individual transaction.
+       *
+       * **D144's exception, and the answer to R44.** Staff see aggregates and
+       * never a shop's individual sales — except inside an open case the
+       * merchant themselves opened, about one sale they themselves named.
+       * §17 requires checking the state of *that* transaction, and a reviewer
+       * who cannot see it cannot answer within the 24 hours §17 commits to.
+       *
+       * Scoped three ways: to this case, to the one transaction the case names,
+       * and to the merchant that opened it. There is no way to reach a second
+       * sale from here.
+       *
+       * **Audited.** Reading a merchant's transaction is a thing somebody did,
+       * and the trail records which case it was done under.
+       */
+      let transaction;
+      if (found.transaction_id !== null) {
+        const tx = options.db
+          .prepare(
+            `SELECT id, state, amount_minor, recipient_masked, provider_reference, created_at
+               FROM transactions WHERE id = ? AND merchant_id = ?`,
+          )
+          .get(found.transaction_id, found.merchant_id) as
+          | {
+              id: string; state: string; amount_minor: number; recipient_masked: string;
+              provider_reference: string | null; created_at: string;
+            }
+          | undefined;
+
+        if (tx !== undefined) {
+          record({
+            event: 'ADMIN_CASE_TRANSACTION_VIEWED',
+            actorId: context.user.id,
+            actorRole: context.user.role,
+            entityType: 'TRANSACTION',
+            entityId: tx.id,
+            merchantId: found.merchant_id,
+            // The case it was read under. Never the recipient.
+            metadata: { caseReference: found.reference ?? found.support_case_id },
+          });
+          transaction = {
+            id: tx.id,
+            state: tx.state,
+            amountMinor: tx.amount_minor,
+            recipientMasked: tx.recipient_masked,
+            providerReference: tx.provider_reference,
+            createdAt: tx.created_at,
+          };
+        }
+      }
+
+      screen(
+        complaintDetailScreen({
+          chrome: chromeFor(context, csrf),
+          complaint: {
+            id: found.id,
+            caseId: found.support_case_id,
+            reference: found.reference ?? found.support_case_id,
+            merchantId: found.merchant_id,
+            transactionId: found.transaction_id,
+            description: found.description,
+            verdict: found.verdict,
+            createdAt: found.created_at,
+          },
+          transaction,
+        }),
+        'Complaint',
+      );
+      return;
+    }
+
+    const decideComplaint = /^\/complaints\/([^/]+)\/decide$/.exec(path);
+    if (decideComplaint && method === 'POST') {
+      if (!guard('ADMIN_MANAGE_SUPPORT_CASE')) return;
+      const id = decodeURIComponent(decideComplaint[1]);
+      const form = await readForm(request);
+      const verdict = form['verdict'] ?? '';
+      const reason = (form['reason'] ?? '').trim();
+
+      if (!['LEGITIMATE', 'SCAM', 'UNCERTAIN'].includes(verdict) || reason.length === 0) {
+        // A verdict without a reason is not a review — the same rule the
+        // application decide form applies.
+        response.writeHead(303, {
+          location: `/complaints/${encodeURIComponent(id)}?error=REASON_REQUIRED`,
+        });
+        response.end();
+        return;
+      }
+
+      const at = options.now();
+      const found = options.db
+        .prepare(
+          `SELECT r.merchant_id, c.transaction_id
+             FROM complaint_reviews r JOIN support_cases c ON c.id = r.support_case_id
+            WHERE r.id = ?`,
+        )
+        .get(id) as { merchant_id: string; transaction_id: string | null } | undefined;
+
+      // The evidence as it stood when the verdict was recorded. Stored with the
+      // verdict rather than re-read later, because a case must stay reviewable
+      // against what was actually known at the time.
+      const telgaState =
+        found?.transaction_id == null
+          ? null
+          : (
+              options.db
+                .prepare('SELECT state FROM transactions WHERE id = ?')
+                .get(found.transaction_id) as { state: string } | undefined
+            )?.state ?? null;
+
+      const changed = recordComplaintVerdict(options.db as never, {
+        id,
+        telgaState,
+        // Not read from a provider: this build has no provider API to ask, and
+        // recording a value nobody looked up would be inventing evidence.
+        providerState: null,
+        redemption: null,
+        verdict: verdict as 'LEGITIMATE' | 'SCAM' | 'UNCERTAIN',
+        reviewedBy: context.user.id,
+        reason,
+        at,
+      });
+
+      if (changed === 0) {
+        response.writeHead(303, { location: '/complaints?notice=Already%20decided.' });
+        response.end();
+        return;
+      }
+
+      record({
+        event: 'ADMIN_COMPLAINT_DECIDED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'SUPPORT_CASE',
+        entityId: id,
+        metadata: { verdict, telgaState: telgaState ?? 'unknown' },
+      });
+
+      response.writeHead(303, {
+        location:
+          '/complaints?notice=' +
+          encodeURIComponent(
+            verdict === 'LEGITIMATE'
+              ? 'Recorded as legitimate. Reverse the sale to return the money — a verdict does not move it.'
+              : verdict === 'UNCERTAIN'
+                ? 'Recorded as uncertain. Escalate to the provider and tell the shop the next deadline.'
+                : 'Recorded. Tell the shop the value was delivered.',
+          ),
+      });
+      response.end();
       return;
     }
 

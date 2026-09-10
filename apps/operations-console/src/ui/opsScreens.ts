@@ -508,3 +508,203 @@ export function providerHealthScreen(props: ProviderHealthProps): El {
 
 /** Re-exported so the server can render nav-aware screens without another import. */
 export { NAV };
+
+// ---------------------------------------------------------------------------
+// Support and disputes — §17.2, and the answer to R44
+// ---------------------------------------------------------------------------
+
+export interface ComplaintRow {
+  readonly id: string;
+  readonly caseId: string;
+  readonly reference: string;
+  readonly merchantId: string;
+  readonly transactionId: string | null;
+  readonly description: string;
+  readonly verdict: string | null;
+  readonly createdAt: string;
+}
+
+export interface ComplaintsProps {
+  readonly chrome: ConsoleChrome;
+  readonly rows: readonly ComplaintRow[];
+  readonly notice?: string;
+}
+
+/**
+ * Cases waiting for somebody, oldest first.
+ *
+ * Oldest first because §17 commits Telga to *"a final answer within 24 hours"*
+ * — a queue sorted newest-first buries the case closest to breaching that.
+ */
+export function complaintsScreen(props: ComplaintsProps): El {
+  const { chrome } = props;
+  return page(
+    { ...chrome, section: 'complaints' },
+    'Support and disputes',
+    props.notice !== undefined &&
+      h('p', { class: 'console__note', role: 'status', 'data-testid': 'complaints-notice' }, props.notice),
+    h(
+      'p',
+      { class: 'console__note' },
+      'A merchant has reported a problem with a sale. §17: give a preliminary status immediately, ' +
+        'and a final answer within 24 hours. Never refund an unknown outcome.',
+    ),
+    props.rows.length === 0
+      ? h('p', { 'data-testid': 'complaints-empty' }, 'No open complaints.')
+      : h(
+          'table',
+          { class: 'console__table', 'data-testid': 'complaints-table' },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              h('th', { scope: 'col' }, 'Case'),
+              h('th', { scope: 'col' }, 'Shop'),
+              h('th', { scope: 'col' }, 'Reported'),
+              h('th', { scope: 'col' }, 'What the shop said'),
+              h('th', { scope: 'col' }, ''),
+            ),
+          ),
+          h(
+            'tbody',
+            {},
+            ...props.rows.map((row) =>
+              h(
+                'tr',
+                { 'data-testid': `complaint-${row.id}` },
+                h('td', { class: 'console__mono' }, row.reference),
+                h('td', {}, row.merchantId),
+                h('td', {}, row.createdAt.slice(0, 16).replace('T', ' ')),
+                // Truncated in the list; the whole thing is on the case.
+                h('td', {}, row.description.length > 80 ? `${row.description.slice(0, 80)}…` : row.description),
+                h(
+                  'td',
+                  {},
+                  h(
+                    'a',
+                    { href: `/complaints/${encodeURIComponent(row.id)}`, 'data-testid': `complaint-open-${row.id}` },
+                    'Review',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+  );
+}
+
+export interface ComplaintDetailProps {
+  readonly chrome: ConsoleChrome;
+  readonly complaint: ComplaintRow;
+  /**
+   * The sale itself — **the exception to D144**.
+   *
+   * Telga staff see aggregates, never a shop's individual transactions. A case
+   * a merchant opened about one specific sale is the one place that must not
+   * hold: §17 requires checking the state of *that transaction*, and a reviewer
+   * who cannot see it cannot answer. Scoped to the one sale named on the case,
+   * and the view is audited.
+   */
+  readonly transaction?: {
+    readonly id: string;
+    readonly state: string;
+    readonly amountMinor: number;
+    readonly recipientMasked: string;
+    readonly providerReference: string | null;
+    readonly createdAt: string;
+  };
+}
+
+export function complaintDetailScreen(props: ComplaintDetailProps): El {
+  const { chrome, complaint } = props;
+  const field = (label: string, value: string, id: string): El =>
+    h(
+      'div',
+      { class: 'console__detail-row' },
+      h('span', { class: 'console__detail-label' }, label),
+      h('span', { class: 'console__detail-value', 'data-testid': id }, value),
+    );
+
+  return page(
+    { ...chrome, section: 'complaints' },
+    'Complaint',
+    h('p', {}, h('a', { href: '/complaints', 'data-testid': 'complaint-back' }, 'Back to complaints')),
+
+    h(
+      'section',
+      { class: 'console__detail', 'data-testid': 'complaint-detail' },
+      field('Case', complaint.reference, 'complaint-detail-reference'),
+      field('Shop', complaint.merchantId, 'complaint-detail-merchant'),
+      field('Reported', complaint.createdAt, 'complaint-detail-created'),
+    ),
+    h('h2', {}, 'What the shop said'),
+    h('blockquote', { 'data-testid': 'complaint-detail-description' }, complaint.description),
+
+    h('h2', {}, 'The sale'),
+    props.transaction === undefined
+      ? h(
+          'p',
+          { 'data-testid': 'complaint-no-transaction' },
+          'This case names no transaction, so there is nothing to check against.',
+        )
+      : h(
+          'section',
+          { class: 'console__detail', 'data-testid': 'complaint-transaction' },
+          field('Transaction', props.transaction.id, 'complaint-tx-id'),
+          field('State in Telga', props.transaction.state, 'complaint-tx-state'),
+          field('Amount', money(props.transaction.amountMinor), 'complaint-tx-amount'),
+          // Masked, even here. A case is a reason to see this sale, not a
+          // reason to see a customer's number.
+          field('Recipient', props.transaction.recipientMasked, 'complaint-tx-recipient'),
+          field('Provider reference', props.transaction.providerReference ?? '—', 'complaint-tx-ref'),
+        ),
+
+    complaint.verdict !== null
+      ? h(
+          'p',
+          { class: 'console__pill', 'data-testid': 'complaint-verdict', 'data-verdict': complaint.verdict },
+          `Decided: ${complaint.verdict}`,
+        )
+      : h(
+          'form',
+          { method: 'post', action: `/complaints/${encodeURIComponent(complaint.id)}/decide`, 'data-testid': 'complaint-decide-form' },
+          h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+          h('h2', {}, 'Verdict'),
+          h(
+            'div',
+            { class: 'console__field' },
+            h('label', { for: 'verdict' }, 'Outcome'),
+            h(
+              'select',
+              { id: 'verdict', name: 'verdict', required: true, 'data-testid': 'complaint-verdict-select' },
+              h('option', { value: '' }, 'Choose…'),
+              h('option', { value: 'LEGITIMATE' }, 'Legitimate — provider did not deliver'),
+              h('option', { value: 'SCAM' }, 'Not legitimate — value was delivered'),
+              h('option', { value: 'UNCERTAIN' }, 'Uncertain — escalate to the provider'),
+            ),
+          ),
+          h(
+            'div',
+            { class: 'console__field' },
+            h('label', { for: 'reason' }, 'Reason'),
+            h('input', {
+              id: 'reason',
+              name: 'reason',
+              type: 'text',
+              required: true,
+              'data-testid': 'complaint-reason',
+            }),
+            // A verdict without a reason is not a review — the same rule the
+            // application decide form applies.
+            h('p', { class: 'console__hint' }, 'A verdict without a reason is not a review.'),
+          ),
+          h(
+            'button',
+            { type: 'submit', class: 'console__button', 'data-testid': 'complaint-decide' },
+            'Record verdict',
+          ),
+        ),
+  );
+}

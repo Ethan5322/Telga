@@ -171,6 +171,7 @@ import {
 import type { ConnectionFacts, RequestScheme } from './transport/proxy';
 import { registrationSubmittedScreen, vendorRegistrationScreen } from './ui/registrationScreens';
 import { deviceActivatedScreen, deviceActivationScreen } from './ui/activationScreens';
+import { complaintScreen, complaintSentScreen } from './ui/complaintScreens';
 import { checkRegistrationThrottle, registrationSource } from './registration';
 import { newNonce, securityHeaders } from './transport/headers';
 
@@ -1756,6 +1757,42 @@ export async function renderScreen(
     };
   }
 
+  /**
+   * Report a problem with a sale — §17.2.
+   *
+   * Authenticated: only the shop that made the sale may report it, and the
+   * merchant comes from the session rather than the form. A complaint form that
+   * took a merchant id would let anybody open a case against any shop.
+   */
+  if (path === '/complaint') {
+    const sent = query.get('sent');
+    if (sent !== null && sent.length > 0) {
+      return {
+        status: 200,
+        html: htmlDocument(
+          renderToHtml(complaintSentScreen({ chrome, reference: sent })),
+          chrome,
+          nonce,
+        ),
+      };
+    }
+    return {
+      status: 200,
+      html: htmlDocument(
+        renderToHtml(
+          complaintScreen({
+            chrome,
+            csrfToken: request.csrfToken ?? '',
+            refusal: query.get('error') ?? undefined,
+            transactionId: query.get('transaction') ?? undefined,
+          }),
+        ),
+        chrome,
+        nonce,
+      ),
+    };
+  }
+
   if (path === '/enrol') {
     return {
       status: 200,
@@ -2977,6 +3014,100 @@ async function route(
       location: '/shift/end?ended=1',
       ...securityHeaders({ config: transport, scheme, sessionSensitive: true }),
     });
+    response.end();
+    return;
+  }
+
+  if (path === '/complaint' && method === 'POST') {
+    const form = await readFormBody(request, limit);
+    if (form === 'TOO_LARGE') {
+      response.writeHead(303, { location: '/complaint?error=NOT_SAVED' });
+      response.end();
+      return;
+    }
+
+    const transactionId = (form['transactionId'] ?? '').trim();
+    const description = (form['description'] ?? '').trim();
+    if (transactionId.length === 0) {
+      response.writeHead(303, { location: '/complaint?error=TRANSACTION_REQUIRED' });
+      response.end();
+      return;
+    }
+    if (description.length === 0) {
+      response.writeHead(303, {
+        location: `/complaint?error=DESCRIPTION_REQUIRED&transaction=${encodeURIComponent(transactionId)}`,
+      });
+      response.end();
+      return;
+    }
+
+    /**
+     * Scoped to the session's merchant, never the form's.
+     *
+     * `findTransaction` takes the merchant id from `context`, so a shop can
+     * only report a sale **it made**. A complaint route that trusted a merchant
+     * id from the body would let anybody open a case against any shop — and
+     * would leak, by its answer, whether a given transaction id exists.
+     */
+    const found = options.api.driver.findTransaction(
+      transactionId as never,
+      context.merchantId as never,
+    );
+    if (found === undefined) {
+      response.writeHead(303, { location: '/complaint?error=TRANSACTION_NOT_FOUND' });
+      response.end();
+      return;
+    }
+
+    // One open case per sale. Reporting twice does not make it move faster, and
+    // two cases is two people investigating separately.
+    const existing = options.api.driver.findSupportCaseByTransaction(
+      transactionId as never,
+      context.merchantId as never,
+    );
+    if (existing !== undefined) {
+      response.writeHead(303, {
+        location: `/complaint?error=ALREADY_REPORTED&transaction=${encodeURIComponent(transactionId)}`,
+      });
+      response.end();
+      return;
+    }
+
+    const at = options.api.now();
+    const caseId = options.api.newId('case');
+    const reference = newSubmissionReference();
+
+    try {
+      options.api.driver.transaction((): void => {
+        options.api.driver.createSupportCase({
+          id: caseId,
+          merchantId: context.merchantId as never,
+          transactionId: transactionId as never,
+          reason: 'MERCHANT_REPORTED',
+          reference,
+          correlationId: options.api.newId('corr'),
+          at: at as never,
+        });
+        // The case and the shop's own words land together. A case with no
+        // description is a case nobody can review.
+        options.api.driver.saveComplaintReview({
+          id: options.api.newId('cr'),
+          supportCaseId: caseId,
+          merchantId: context.merchantId,
+          description,
+          at,
+        });
+      });
+    } catch {
+      response.writeHead(303, { location: '/complaint?error=NOT_SAVED' });
+      response.end();
+      return;
+    }
+
+    // Redirected rather than rendered, unlike a device key or a PIN: a case
+    // reference is not a secret. It is precisely the thing a shop reads out on
+    // the phone, so a URL is the right place for it and the back button works.
+    response.writeHead(303, { location: `/complaint?sent=${encodeURIComponent(reference)}` });
     response.end();
     return;
   }

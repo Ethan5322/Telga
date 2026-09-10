@@ -508,6 +508,32 @@ export const EN = Object.freeze({
   'receipt.print': 'Print receipt',
   'receipt.print.notice':
     'Printing uses this device\u2019s own printer. Every slip is marked TRAINING \u2014 NO REAL VALUE.',
+  // --- Reporting a problem with a sale (D150) --------------------------------
+  //
+  // Wording rule: **never promise a refund.** §17 is explicit that an unknown
+  // outcome is never auto-refunded, and a form saying "we will return your
+  // money" has decided the case before anybody has looked at it. What is
+  // promised is an answer.
+  'complaint.title':
+    'Report a problem',
+  'complaint.intro':
+    'Tell Telga what went wrong with a sale. Give the transaction number from the receipt and describe the problem in your own words.',
+  'complaint.transaction':
+    'Transaction number',
+  'complaint.transaction.hint':
+    'Printed on the receipt. Ask the customer for their copy if you do not have yours.',
+  'complaint.description':
+    'What went wrong',
+  'complaint.submit':
+    'Send to Telga',
+  'complaint.promise':
+    'Telga will check this and give you an answer. If the money is protected while it is checked, Telga will say so — nothing is refunded until the outcome is known.',
+  'complaint.sent.heading':
+    'Sent to Telga',
+  'complaint.sent.reference':
+    'Your case number — quote it when you call:',
+  'complaint.sent.next':
+    'Telga is checking the sale and the provider. You will be told the outcome. Keep serving customers as normal.',
 });
 
 export type MessageKey = keyof typeof EN;
@@ -950,6 +976,28 @@ export const AM: Readonly<Partial<Record<MessageKey, string>>> = Object.freeze({
   'receipt.print': 'ደረሰኝ አትም',
   'receipt.print.notice':
     'ማተሚያው የዚህ መሣሪያ ነው። እያንዳንዱ ደረሰኝ «TRAINING — NO REAL VALUE» የሚል ምልክት አለው።',
+  // --- Reporting a problem with a sale (D150) --------------------------------
+  // DRAFT. REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.
+  'complaint.title':
+    'ችግር ያሳውቁ',
+  'complaint.intro':
+    'በሽያጭ ላይ ምን እንደተፈጠረ ለተልጋ ይንገሩ። ከደረሰኙ ላይ የግብይት ቁጥሩን ያስገቡና ችግሩን በራስዎ ቃል ይግለጹ።',
+  'complaint.transaction':
+    'የግብይት ቁጥር',
+  'complaint.transaction.hint':
+    'በደረሰኙ ላይ ተጽፏል። የእርስዎ ከሌለ የደንበኛውን ቅጂ ይጠይቁ።',
+  'complaint.description':
+    'ምን ተፈጠረ',
+  'complaint.submit':
+    'ወደ ተልጋ ላክ',
+  'complaint.promise':
+    'ተልጋ ይህንን አረጋግጦ መልስ ይሰጥዎታል። በሚጣራበት ጊዜ ገንዘቡ የተጠበቀ ከሆነ ተልጋ ይነግርዎታል — ውጤቱ እስኪታወቅ ድረስ ምንም አይመለስም።',
+  'complaint.sent.heading':
+    'ወደ ተልጋ ተልኳል',
+  'complaint.sent.reference':
+    'የጉዳይዎ ቁጥር — ሲደውሉ ይጥቀሱት፦',
+  'complaint.sent.next':
+    'ተልጋ ሽያጩንና አቅራቢውን እያጣራ ነው። ውጤቱ ይነገርዎታል። እንደተለመደው ደንበኞችን ማገልገልዎን ይቀጥሉ።',
 });
 
 export const TABLES: Readonly<Record<Locale, Readonly<Partial<Record<MessageKey, string>>>>> =

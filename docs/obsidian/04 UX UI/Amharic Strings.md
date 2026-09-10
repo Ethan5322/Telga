@@ -529,6 +529,23 @@ these may read as *"your account has been created"*.
 | `receipt.print` | Print receipt | ደረሰኝ አትም |
 | `receipt.print.notice` | Printing uses this device’s own printer. Every slip is marked TRAINING — NO REAL VALUE. | ማተሚያው የዚህ መሣሪያ ነው። እያንዳንዱ ደረሰኝ «TRAINING — NO REAL VALUE» የሚል ምልክት አለው። |
 
+## Reporting a problem with a sale (D150)
+
+**DRAFT — REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION.**
+
+| Key | English | Amharic |
+|---|---|---|
+| `complaint.title` | Report a problem | ችግር ያሳውቁ |
+| `complaint.intro` | Tell Telga what went wrong with a sale. Give the transaction number from the receipt and describe the problem in your own words. | በሽያጭ ላይ ምን እንደተፈጠረ ለተልጋ ይንገሩ። ከደረሰኙ ላይ የግብይት ቁጥሩን ያስገቡና ችግሩን በራስዎ ቃል ይግለጹ። |
+| `complaint.transaction` | Transaction number | የግብይት ቁጥር |
+| `complaint.transaction.hint` | Printed on the receipt. Ask the customer for their copy if you do not have yours. | በደረሰኙ ላይ ተጽፏል። የእርስዎ ከሌለ የደንበኛውን ቅጂ ይጠይቁ። |
+| `complaint.description` | What went wrong | ምን ተፈጠረ |
+| `complaint.submit` | Send to Telga | ወደ ተልጋ ላክ |
+| `complaint.promise` | Telga will check this and give you an answer. If the money is protected while it is checked, Telga will say so — nothing is refunded until the outcome is known. | ተልጋ ይህንን አረጋግጦ መልስ ይሰጥዎታል። በሚጣራበት ጊዜ ገንዘቡ የተጠበቀ ከሆነ ተልጋ ይነግርዎታል — ውጤቱ እስኪታወቅ ድረስ ምንም አይመለስም። |
+| `complaint.sent.heading` | Sent to Telga | ወደ ተልጋ ተልኳል |
+| `complaint.sent.reference` | Your case number — quote it when you call: | የጉዳይዎ ቁጥር — ሲደውሉ ይጥቀሱት፦ |
+| `complaint.sent.next` | Telga is checking the sale and the provider. You will be told the outcome. Keep serving customers as normal. | ተልጋ ሽያጩንና አቅራቢውን እያጣራ ነው። ውጤቱ ይነገርዎታል። እንደተለመደው ደንበኞችን ማገልገልዎን ይቀጥሉ። |
+
 ## Related
 
 - [[English Strings]]

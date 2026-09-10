@@ -117,6 +117,9 @@ export const NAV: readonly NavEntry[] = Object.freeze([
   // "Transactions" would promise line items this console does not show.
   { id: 'activity', href: '/activity', label: 'Shop activity' },
   { id: 'operators', href: '/operators', label: 'Operators' },
+  // §17.2. The desk that answers "paid but no airtime" — and the one place
+  // Telga staff may see an individual transaction (D144's exception, R44).
+  { id: 'complaints', href: '/complaints', label: 'Support' },
   { id: 'provider-health', href: '/provider-health', label: 'Provider health' },
   { id: 'tenants', href: '/tenants', label: 'Tenants' },
   { id: 'admins', href: '/admins', label: 'Administrators' },

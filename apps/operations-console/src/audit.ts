@@ -109,6 +109,15 @@ export type AdminAuditEvent =
    * call can confirm a shop holds the right one.
    */
   | 'ADMIN_DEVICE_KEY_CHECKED'
+  /**
+   * A merchant's individual transaction was read, inside an open case.
+   *
+   * D144 limits Telga staff to aggregates. This is the exception, and it exists
+   * because §17 cannot be answered without it — so every use is recorded, with
+   * the case reference it was read under. Never the recipient.
+   */
+  | 'ADMIN_CASE_TRANSACTION_VIEWED'
+  | 'ADMIN_COMPLAINT_DECIDED'
   | 'ADMIN_APPLICATION_PICKED_UP'
   | 'ADMIN_APPLICATION_DECIDED'
   | 'ADMIN_ENROLLMENT_TOKEN_ISSUED'

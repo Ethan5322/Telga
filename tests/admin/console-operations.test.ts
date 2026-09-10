@@ -512,3 +512,120 @@ describe('the review screen shows the paperwork', () => {
     expect(reply.body).toContain('no scan attached');
   });
 });
+
+
+describe('support and disputes — §17.2, and the answer to R44', () => {
+  const openCase = (): void => {
+    db?.prepare(
+      `INSERT INTO support_cases
+         (id, merchant_id, transaction_id, reason, status, reference, correlation_id, created_at, updated_at)
+       VALUES ('case_1', 'merchant_a', 'txn_pending', 'MERCHANT_REPORTED', 'OPEN', 'TLG-CASE-0001', 'corr', ?, ?)`,
+    ).run(NOW, NOW);
+    db?.prepare(
+      `INSERT INTO complaint_reviews
+         (id, support_case_id, merchant_id, description, created_at, updated_at)
+       VALUES ('cr_1', 'case_1', 'merchant_a', 'Customer says airtime never arrived.', ?, ?)`,
+    ).run(NOW, NOW);
+  };
+
+  it('lists open complaints oldest first', async () => {
+    // §17 commits Telga to a final answer within 24 hours. A queue sorted
+    // newest-first buries the case closest to breaching that.
+    const cookie = await signIn();
+    openCase();
+    const reply = await send('/complaints', { cookie });
+    expect(reply.status).toBe(200);
+    expect(reply.body).toContain('complaint-cr_1');
+    expect(reply.body).toContain('TLG-CASE-0001');
+  });
+
+  it('shows the named transaction — the one exception to D144', async () => {
+    // Staff see aggregates and never individual sales, except inside a case the
+    // merchant opened about a sale they named. Without this, §17 cannot be
+    // answered at all (R44).
+    const cookie = await signIn();
+    openCase();
+    const reply = await send('/complaints/cr_1', { cookie });
+    expect(reply.status).toBe(200);
+    expect(reply.body).toContain('complaint-transaction');
+    expect(reply.body).toContain('txn_pending');
+    expect(reply.body).toContain('PENDING');
+  });
+
+  it('records who looked, under which case, and never the recipient', async () => {
+    const cookie = await signIn();
+    openCase();
+    await send('/complaints/cr_1', { cookie });
+    const audit = db
+      ?.prepare(`SELECT metadata FROM audit_events WHERE event_type = 'ADMIN_CASE_TRANSACTION_VIEWED'`)
+      .get() as { metadata: string | null } | undefined;
+    expect(audit).toBeDefined();
+    expect(String(audit?.metadata)).toContain('TLG-CASE-0001');
+    // The mask is on the screen; nothing about the customer reaches the trail.
+    expect(String(audit?.metadata)).not.toContain('09****');
+  });
+
+  it('still masks the recipient on the case screen', async () => {
+    // A case is a reason to see this sale, not a reason to see a customer.
+    const cookie = await signIn();
+    openCase();
+    const reply = await send('/complaints/cr_1', { cookie });
+    expect(reply.body).toContain('09****5678');
+    expect(reply.body).not.toContain('hash_of_full_number');
+  });
+
+  it('refuses a verdict with no reason', async () => {
+    const cookie = await signIn();
+    openCase();
+    const reply = await send('/complaints/cr_1/decide', {
+      method: 'POST',
+      cookie,
+      form: { verdict: 'LEGITIMATE', reason: '' },
+    });
+    expect(String(reply.headers['location'])).toContain('REASON_REQUIRED');
+    const row = db?.prepare(`SELECT verdict FROM complaint_reviews WHERE id = 'cr_1'`).get() as {
+      verdict: string | null;
+    };
+    expect(row.verdict).toBeNull();
+  });
+
+  it('records a verdict with the evidence as it stood, and moves no money', async () => {
+    // A verdict is a decision, not a payment. §17: never auto-refund an
+    // unknown outcome — and never auto-refund a known one either. Reversing is
+    // a separate, authorised act.
+    const cookie = await signIn();
+    openCase();
+    const ledgerRows = (): number =>
+      (db?.prepare('SELECT COUNT(*) AS n FROM ledger_entries').get() as { n: number }).n;
+    const before = ledgerRows();
+
+    const reply = await send('/complaints/cr_1/decide', {
+      method: 'POST',
+      cookie,
+      form: { verdict: 'LEGITIMATE', reason: 'Provider confirmed non-delivery' },
+    });
+    expect(reply.status).toBe(303);
+
+    const row = db
+      ?.prepare(`SELECT verdict, telga_state, verdict_reason, reviewed_by FROM complaint_reviews WHERE id = 'cr_1'`)
+      .get() as { verdict: string; telga_state: string | null; verdict_reason: string; reviewed_by: string };
+    expect(row.verdict).toBe('LEGITIMATE');
+    // The transaction's state at the moment of the verdict, stored with it, so
+    // the case stays reviewable against what was actually known.
+    expect(row.telga_state).toBe('PENDING');
+    expect(row.verdict_reason).toContain('non-delivery');
+
+    expect(ledgerRows()).toBe(before);
+    // And the operator is told that a verdict is not a refund.
+    expect(decodeURIComponent(String(reply.headers['location']))).toContain('does not move it');
+  });
+
+  it('does not decide the same case twice', async () => {
+    const cookie = await signIn();
+    openCase();
+    const form = { verdict: 'SCAM', reason: 'Token was redeemed' };
+    await send('/complaints/cr_1/decide', { method: 'POST', cookie, form });
+    const second = await send('/complaints/cr_1/decide', { method: 'POST', cookie, form });
+    expect(decodeURIComponent(String(second.headers['location']))).toContain('Already decided');
+  });
+});

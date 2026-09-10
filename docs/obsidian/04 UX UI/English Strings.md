@@ -530,6 +530,26 @@ and whether paper comes out depends on what that device is paired with.
 | `receipt.print` | Print receipt |
 | `receipt.print.notice` | Printing uses this device’s own printer. Every slip is marked TRAINING — NO REAL VALUE. |
 
+## Reporting a problem with a sale (D150)
+
+**Wording rule: never promise a refund.** §17 is explicit that an unknown
+outcome is never auto-refunded, and a form that says *"we will return your
+money"* has decided the case before anybody has looked at it. What is promised
+is an answer.
+
+| Key | English |
+|---|---|
+| `complaint.title` | Report a problem |
+| `complaint.intro` | Tell Telga what went wrong with a sale. Give the transaction number from the receipt and describe the problem in your own words. |
+| `complaint.transaction` | Transaction number |
+| `complaint.transaction.hint` | Printed on the receipt. Ask the customer for their copy if you do not have yours. |
+| `complaint.description` | What went wrong |
+| `complaint.submit` | Send to Telga |
+| `complaint.promise` | Telga will check this and give you an answer. If the money is protected while it is checked, Telga will say so — nothing is refunded until the outcome is known. |
+| `complaint.sent.heading` | Sent to Telga |
+| `complaint.sent.reference` | Your case number — quote it when you call: |
+| `complaint.sent.next` | Telga is checking the sale and the provider. You will be told the outcome. Keep serving customers as normal. |
+
 ## Wording rules
 
 1. Never promise speed. No "instant", "immediately", or "right away" about a provider outcome.
