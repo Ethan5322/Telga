@@ -314,11 +314,22 @@ stateDiagram-v2
 
 ### 14.1 Reversing a delivered-but-unredeemed sale
 
-`SUCCESSFUL` is otherwise terminal. **One** transition out of it exists, added 2026-09-09:
+`SUCCESSFUL` is terminal **and stays terminal**. The recovery worker must not sweep a settled
+sale, and retry stays blocked on one.
+
+Returning the value of a settled sale is therefore **not a state transition** — it is an
+**authorised correction** under §13 invariant 8 (*"corrections are authorized adjustment entries,
+never silent edits"*):
 
 ```
-SUCCESSFUL --> REVERSAL_REQUIRED: token proven UNREDEEMED, within the reversal window
+SUCCESSFUL --(supervisor-authorised correction)--> REVERSED
+             posts a compensating credit; the original entries are never edited
 ```
+
+An earlier draft of this section drew it as `SUCCESSFUL --> REVERSAL_REQUIRED` and the transition
+table refused it, so the flow described here was impossible. Implementing that transition then made
+`SUCCESSFUL` non-terminal in one place and terminal in another. **Neither was right**: the exit is
+real, and it is a correction rather than a step the state machine offers to any caller.
 
 **Only when the token is proven unredeemed.** The founder's case is a customer who is handed an
 airtime or data token, cannot use it, and hands it back — the sale succeeded from Telga's side
@@ -366,11 +377,16 @@ secure reconnect and state synchronization. **No offline vending in pilot.**
 
 ## 17. Complaints and loss
 
-> **Unimplemented, and deliberately so.** Founder decision **D144** limits Telga staff to
-> **aggregates** — the operations console shows per-shop counts and states, never an individual
-> transaction. Step 1 below ("search by transaction ID…") therefore **cannot be performed from the
-> console**, and no replacement mechanism exists yet. The obligation in this section still stands;
-> the means does not. Tracked as **R44**, and it must be resolved before a pilot.
+> **Implemented by D150 — §17.2 is the mechanism.** This caveat previously read *"unimplemented,
+> and deliberately so"*, which stopped being true when the complaint desk was built and is
+> corrected here rather than left standing.
+>
+> Founder decision **D144** limits Telga staff to **aggregates**: the console shows per-shop counts
+> and states, never an individual transaction. Step 1 below ("search by transaction ID…") therefore
+> **cannot be performed by browsing**. It is performed **inside an open support case the merchant
+> opened, about one sale the merchant named** — scoped to that case, that transaction and that
+> shop, audited under the case reference, with the recipient still masked. **R44**, which tracked
+> the gap, is closed.
 
 For a "paid but no airtime" complaint:
 
@@ -437,34 +453,6 @@ case reference.
 
 **Never auto-refund an unknown outcome** (§17). Uncertain is a state, not a decision.
 
-### 19.1 Shop-to-shop transfer — TRAINING ONLY
-
-A shop may send selling balance to another shop.
-
-> **This is a regulated activity and is switched off.** Moving value between two legal entities is
-> money transfer. §2 and §7 list `remittance`, `cash.in_out` and `payments.acceptance` as disabled
-> until legal review and an authorized-partner structure exist. The flag
-> `transfer.shop_to_shop` is **off**, and turning it on is a founder decision that needs legal
-> advice first — not a configuration change.
-
-Built now as a **training-mode simulation**, on the same precedent as the Telga Pay card simulator
-(D87/D124) and training deposits (D70): a training ledger, no counterparty, no bank, no network.
-
-**Rules that hold whatever the flag says:**
-
-- The recipient is named by **device id**, never device key. A device key is a credential; asking a
-  shop to read one aloud to another shop teaches exactly the wrong habit (§18.2).
-- Both shops must be `ACTIVE`. A suspended shop neither sends nor receives.
-- One balanced ledger pair, both sides inside one transaction. A transfer that debited without
-  crediting is money destroyed.
-- **PIN authorised**, per-transfer and daily limits, both configurable and both `NOT YET CONFIRMED`.
-- Above the approval threshold, Telga must approve before it settles.
-- **Irreversible** once settled, unless both shops agree and an admin approves — recorded as an
-  adjustment (§13 invariant 8), never an edit.
-- Any transfer fee is configurable and defaults to **zero**. No rate may be invented.
-- Suspicious patterns — rapid repeats, circular routes — raise an alert rather than blocking
-  silently.
-
 ## 18. Merchant onboarding and hardware
 
 | Merchant type | Approach |
@@ -480,32 +468,6 @@ status, support contact, daily report, tamper and damage record.
 
 The merchant independently sources and pays for compatible thermal paper.
 **Paper shortage is never a transaction failure.**
-
-### 18.5 Printing
-
-The slip screens carry a **Print receipt** button. What it does is hand the slip
-to the **device's own print stack** (`window.print()`), which reaches whatever
-that phone or POS is already paired with — a Bluetooth or wi-fi roll printer, or
-a PDF. The print stylesheet is what makes the output a receipt rather than a
-screenshot: everything but the slip is hidden, the slip is sized to the 58 mm or
-80 mm roll the shop chose, and the mark is forced to solid black because a
-thermal head is one bit per dot.
-
-**Telga speaks no printer protocol of its own.** There is no ESC/POS encoder and
-no vendor SDK, because the POS model is not chosen yet (`ASSUMPTIONS` A101). This
-route works on every device that can print at all, needs no permission, and
-cannot silently print the wrong thing — a human sees the print dialogue. When
-the hardware is decided, a native path can sit behind the same button.
-
-**Every printed slip carries `TRAINING — NO REAL VALUE`.** It is drawn inside
-`slipCard` itself, not passed in by a caller, so no screen can print a slip
-without it — a vending sale, a top-up, a data bundle, a reprint and a Telga Pay
-deposit all draw the same card.
-
-**Printing is never a transaction.** It moves no money, writes no row, and needs
-no CSRF token. A failed print is not a failed sale, and the Print button is
-deliberately a plain button while Reprint — which does append an audit line — is
-a form. The two must not look alike.
 
 ### 18.0 One app, one backend, one console
 
@@ -675,6 +637,33 @@ deliberately, under D120's shared-database model. Wiring it would silently reins
 > a founder decision. It is the one architectural choice on this list that is expensive to
 > reverse, and self-service registration makes reaching that second shop faster.
 
+### 18.5 Printing
+
+The slip screens carry a **Print receipt** button. What it does is hand the slip
+to the **device's own print stack** (`window.print()`), which reaches whatever
+that phone or POS is already paired with — a Bluetooth or wi-fi roll printer, or
+a PDF. The print stylesheet is what makes the output a receipt rather than a
+screenshot: everything but the slip is hidden, the slip is sized to the 58 mm or
+80 mm roll the shop chose, and the mark is forced to solid black because a
+thermal head is one bit per dot.
+
+**Telga speaks no printer protocol of its own.** There is no ESC/POS encoder and
+no vendor SDK, because the POS model is not chosen yet (`ASSUMPTIONS` A101). This
+route works on every device that can print at all, needs no permission, and
+cannot silently print the wrong thing — a human sees the print dialogue. When
+the hardware is decided, a native path can sit behind the same button.
+
+**Every printed slip carries `TRAINING — NO REAL VALUE`.** It is drawn inside
+`slipCard` itself, not passed in by a caller, so no screen can print a slip
+without it — a vending sale, a top-up, a data bundle, a reprint and a Telga Pay
+deposit all draw the same card.
+
+**Printing is never a transaction.** It moves no money, writes no row, and needs
+no CSRF token. A failed print is not a failed sale, and the Print button is
+deliberately a plain button while Reprint — which does append an audit line — is
+a form. The two must not look alike.
+
+
 ## 19. Commercial model
 
 Commercial pricing and revenue-policy decisions are maintained outside this repository and remain
@@ -694,6 +683,35 @@ exists only where one has been explicitly configured, and `commission.ts` throws
 a plausible default.
 
 **Do not finalize prices until provider and operating-cost data exist.**
+
+### 19.1 Shop-to-shop transfer — TRAINING ONLY
+
+A shop may send selling balance to another shop.
+
+> **This is a regulated activity and is switched off.** Moving value between two legal entities is
+> money transfer. §2 and §7 list `remittance`, `cash.in_out` and `payments.acceptance` as disabled
+> until legal review and an authorized-partner structure exist. The flag
+> `transfer.shop_to_shop` is **off**, and turning it on is a founder decision that needs legal
+> advice first — not a configuration change.
+
+Built now as a **training-mode simulation**, on the same precedent as the Telga Pay card simulator
+(D87/D124) and training deposits (D70): a training ledger, no counterparty, no bank, no network.
+
+**Rules that hold whatever the flag says:**
+
+- The recipient is named by **device id**, never device key. A device key is a credential; asking a
+  shop to read one aloud to another shop teaches exactly the wrong habit (§18.2).
+- Both shops must be `ACTIVE`. A suspended shop neither sends nor receives.
+- One balanced ledger pair, both sides inside one transaction. A transfer that debited without
+  crediting is money destroyed.
+- **PIN authorised**, per-transfer and daily limits, both configurable and both `NOT YET CONFIRMED`.
+- Above the approval threshold, Telga must approve before it settles.
+- **Irreversible** once settled, unless both shops agree and an admin approves — recorded as an
+  adjustment (§13 invariant 8), never an edit.
+- Any transfer fee is configurable and defaults to **zero**. No rate may be invented.
+- Suspicious patterns — rapid repeats, circular routes — raise an alert rather than blocking
+  silently.
+
 
 ## 20. Funding and reconciliation
 

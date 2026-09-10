@@ -224,6 +224,78 @@ export function fundMerchant(
   });
 }
 
+
+/**
+ * Return the value of a **settled** sale to a merchant.
+ *
+ * ## Why this is not `release`
+ *
+ * The two reversal shapes move different money, and confusing them posts
+ * nothing or posts twice:
+ *
+ * - A `PENDING` or `UNDER_REVIEW` sale still **holds a reservation**. Reversing
+ *   it releases that hold — `release` and `releaseFromUnderReview` — and no new
+ *   value is created.
+ * - A `SUCCESSFUL` sale has already been **debited**. There is no reservation
+ *   left to release, so returning the money means posting a **compensating
+ *   credit**. Calling `release` on one would find no reservation and silently
+ *   move nothing, leaving a transaction marked `REVERSED` and a balance that
+ *   never changed.
+ *
+ * §13 invariant 8: this is an **authorised adjustment entry**, never an edit of
+ * the original. The sale's own entries stay exactly as they were — the ledger
+ * is append-only, and the history of what happened must remain readable after
+ * the correction.
+ *
+ * The counterparty is `PROVIDER_SETTLEMENT`, because that is who the value was
+ * paid to and who Telga recovers from where the contract allows (§17). It is
+ * not `TELGA_REVENUE`: Telga did not keep this money, and posting it there
+ * would overstate revenue by every reversal.
+ */
+export function postReversalAdjustment(
+  driver: SqliteLedgerDriver,
+  input: {
+    merchantId: MerchantId;
+    amount: Money;
+    at: Timestamp;
+    correlationId: string;
+    postingId: PostingId;
+    transactionId?: TransactionId;
+  },
+): void {
+  driver.transaction(() => {
+    ensureAccounts(driver, input.merchantId, input.at);
+    driver.appendEntries({
+      postingId: input.postingId,
+      correlationId: input.correlationId,
+      at: input.at,
+      mode: 'TRAINING',
+      entries: [
+        {
+          accountId: merchantAccountId(input.merchantId, 'MERCHANT_AVAILABLE'),
+          accountKind: 'MERCHANT_AVAILABLE',
+          merchantId: input.merchantId,
+          // Carried on the entries, not the posting: `ledger_entries` is what
+          // holds the link, so a later reader asking "what moved for this sale"
+          // finds the adjustment beside the original debit.
+          transactionId: input.transactionId,
+          direction: 'CREDIT',
+          amount: input.amount,
+          reason: 'REVERSAL',
+        },
+        {
+          accountId: PLATFORM_ACCOUNTS.PROVIDER_SETTLEMENT,
+          accountKind: 'PROVIDER_SETTLEMENT',
+          transactionId: input.transactionId,
+          direction: 'DEBIT',
+          amount: input.amount,
+          reason: 'REVERSAL',
+        },
+      ],
+    });
+  });
+}
+
 /**
  * Reserve value against a sale.
  *

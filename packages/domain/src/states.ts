@@ -59,6 +59,23 @@ export const VALID_TRANSITIONS: Readonly<Record<TransactionState, readonly Trans
     PENDING: Object.freeze(['SUCCESSFUL', 'FAILED', 'UNDER_REVIEW', 'REVERSAL_REQUIRED'] as const),
     UNDER_REVIEW: Object.freeze(['SUCCESSFUL', 'FAILED', 'REVERSAL_REQUIRED'] as const),
     REVERSAL_REQUIRED: Object.freeze(['REVERSED'] as const),
+    /**
+     * Terminal, and it stays terminal — see `CLAUDE.md` §14.1.
+     *
+     * A settled sale is finished: the recovery worker must not sweep it, and
+     * `blocksRetry` depends on this being terminal.
+     *
+     * **Reversing one is not a transition.** §13 invariant 8: *"corrections are
+     * authorized adjustment entries, never silent edits."* Returning the value
+     * of a settled sale posts a compensating credit under a supervisor's
+     * authorisation — `postReversalAdjustment` — and the state moves as part of
+     * that correction, not as a step the state machine offers to anybody who
+     * asks.
+     *
+     * This entry briefly read `['REVERSAL_REQUIRED']`, which made `SUCCESSFUL`
+     * non-terminal in a table while it stayed in `TERMINAL_STATES` — two facts
+     * disagreeing about the same state. The exhaustive terminal test caught it.
+     */
     SUCCESSFUL: Object.freeze([] as const),
     FAILED: Object.freeze([] as const),
     REVERSED: Object.freeze([] as const),

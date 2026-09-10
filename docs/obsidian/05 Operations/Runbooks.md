@@ -89,6 +89,8 @@ Faults found and fixed during development and pilot. Newest first.
 | 2026-09-09 | Console sign-in refused as cross-site **again**, from a browser | **High** | **Resolved — different cause from the first one** — see below |
 | 2026-09-09 | `TRAINING_TRANSFER_POLICY` imported from the wrong package | Low | **Resolved** — see below |
 | 2026-09-09 | **A newly registered shop could never sign in** | **High** | **Resolved** — see below |
+| 2026-09-10 | §14.1 described a transition the code refused | Medium | **Resolved — and the first fix was also wrong** — see below |
+| 2026-09-10 | An approved reversal never settled | **High** | **Resolved** — D152 |
 | 2026-08-19 | [[Source Specification Clipped In PDF]] | Low | Resolved — assumptions recorded |
 
 ### 2026-09-09 — every console sign-in refused as cross-site
@@ -378,6 +380,93 @@ with its own control and its own audit event.
 > never written. The standing recommendation to *"audit the other status
 > columns"* — `devices.status`, `tenant_registry.status`, the merchant
 > lifecycle — is now overdue, and this is the second bug from that family.
+
+### 2026-09-10 — a transition the specification described and the code refused
+
+**Not reported. Found while wiring reversal settlement.**
+
+`CLAUDE.md` §14.1 was written on 2026-09-09 and describes the one way out of
+`SUCCESSFUL`:
+
+> `SUCCESSFUL --> REVERSAL_REQUIRED: token proven UNREDEEMED, within the window`
+
+`VALID_TRANSITIONS` still read `SUCCESSFUL: Object.freeze([])`. **The flow the
+authoritative file described was impossible.** Anything built against it would
+have failed at the transition, and the specification would have looked right.
+
+**This is D137's failure with the arrow reversed.** There, the mechanism was
+built and the documentation described none of it — *"the documentation was
+behind the code, which is the failure mode where somebody later fixes a
+deliberate refusal."* Here the documentation ran ahead. Both end the same way:
+somebody trusts a statement that is not true of the system.
+
+#### The first fix was also wrong
+
+I implemented the transition — added `SUCCESSFUL: ['REVERSAL_REQUIRED']` — and
+the exhaustive terminal test failed immediately: `SUCCESSFUL` is in
+`TERMINAL_STATES`, so it was now **non-terminal in one place and terminal in
+another**. Two facts about one state, disagreeing.
+
+Chasing that further would have meant removing `SUCCESSFUL` from
+`TERMINAL_STATES`, which drives `blocksRetry` and keeps the recovery worker
+away from settled sales. Both would have been damaged to make a diagram true.
+
+**The diagram was what was wrong.** A settled sale *is* terminal. Returning its
+value is an **authorised correction** under §13 invariant 8 — a compensating
+credit posted with a supervisor's authorisation — not a step the state machine
+offers to any caller. §14.1 now says that, and the table is unchanged.
+
+So this entry records two mistakes, both mine: a specification written ahead of
+the code, and then a fix aimed at the code when the specification was the thing
+in error.
+
+> [!tip] Recommendation
+> **When code and specification disagree, establish which one is right before
+> changing either.** The reflex is to make the code match the document, and here
+> that reflex was wrong — the document described a model that would have broken
+> two other guarantees. The exhaustive terminal test is what said so, which is
+> the argument for having tests that assert *properties of the whole table*
+> rather than individual transitions.
+>
+> **And: a specification change describing a state machine should land with the
+> table in the same commit.** §14.1 and `VALID_TRANSITIONS` are one fact written
+> twice and nothing reconciles them — unlike the feature-flag and string tables,
+> which have reconciliation tests and would have caught this on day one.
+
+### 2026-09-10 — a pattern in my own failures, written down
+
+Six defects in two days were **introduced by me**, not inherited. They are
+already logged individually above and in the register; what follows is what they
+have in common, because the shape is more useful than the list.
+
+| What I did | Where |
+|---|---|
+| Claimed a stopped device could sign back in — read the reader's inputs, never the writer | **R46**, withdrawn |
+| Fixed R46 by adding a broad check *before* a narrow one, masking two precise refusals | device-binding tests |
+| Added a sign-in check on `merchants.status` without checking what writes it — every new shop locked out | **R45** |
+| Wrote §14.1 describing a transition, and never implemented it | this entry |
+| Then "fixed" it in the code, when the specification was what was wrong | this entry |
+| Left `APPROVED` in a decide clause, letting an approved reversal be flipped afterwards | D151 |
+
+**Two habits produce all six.**
+
+**Inferring instead of verifying.** R46 and R45 are the same mistake in opposite
+directions: I read one side of a status column and reasoned about the other.
+Both times the answer was one `grep` away, and both times I was *running an audit
+whose entire purpose was to walk between writer and reader*.
+
+**Writing a specification and treating it as evidence.** §14.1 was mine. Having
+written it, I then trusted it over the code — twice, first by not implementing
+it and then by implementing it wrongly rather than questioning it.
+
+> [!tip] Recommendation
+> **Before claiming a control does not work, read the code that writes it, not
+> only the code that reads it.** Every one of these would have been caught by
+> that single step, and it is cheaper than any of the fixes was.
+>
+> **Treat a document I wrote as a claim, not as evidence.** A specification is
+> only as good as the last time somebody checked it against the system — and if
+> I wrote it, I have not checked it, I have asserted it.
 
 ## Related
 

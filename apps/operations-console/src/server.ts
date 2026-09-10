@@ -169,6 +169,26 @@ export interface ConsoleOptions {
     readonly postingId: string;
     readonly at: string;
   }) => void;
+  /**
+   * Post an authorised reversal adjustment — §17.1.
+   *
+   * A port for the same reason `creditMerchant` is one: this server holds a
+   * plain connection for admin tables and **no ledger driver**, because money
+   * must move through `postReversalAdjustment` inside the driver's own
+   * transaction rather than through hand-written SQL here.
+   *
+   * **Optional, and its absence leaves the approval unsettled** rather than
+   * silently crediting nothing. An approval that reports success having moved
+   * no money is the failure §13's invariants exist to prevent.
+   */
+  readonly postReversal?: (input: {
+    readonly merchantId: string;
+    readonly amountMinor: number;
+    readonly transactionId: string;
+    readonly postingId: string;
+    readonly correlationId: string;
+    readonly at: string;
+  }) => void;
   /** The account shops are told to pay into. Checked against every deposit. */
   readonly depositAccount?: string;
   /** Above this, a second approver is required. Defaults to 50,000 birr. */
@@ -2705,13 +2725,101 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         metadata: { outcome: approving ? 'APPROVED' : 'REFUSED' },
       });
 
+      /**
+       * Settle it — the gap this closes.
+       *
+       * An approval used to record an authorisation and stop, leaving a shop
+       * told "approved" with a balance that never moved. That was a visible
+       * half-state rather than a silent one, which was the right way to ship it
+       * unfinished; it is not a state to leave a pilot in.
+       *
+       * ## Two shapes of reversal, and why only one is handled here
+       *
+       * A `SUCCESSFUL` sale was **debited**, so returning the money means
+       * posting a compensating credit — `postReversalAdjustment`, an authorised
+       * adjustment entry under §13 invariant 8. The original entries are never
+       * touched: the ledger is append-only and the history of what happened has
+       * to stay readable after the correction.
+       *
+       * A `PENDING` or `UNDER_REVIEW` sale still **holds a reservation**, and
+       * reversing it releases that hold instead. That path already exists as
+       * `completeReversal` in the api package, needs the full sale dependencies
+       * this console does not hold, and is **left to it** — approving one here
+       * records the authorisation and says so, rather than posting the wrong
+       * kind of movement. Recorded as a gap rather than guessed at.
+       */
+      let settled = false;
+      if (approving) {
+        const request = options.db
+          .prepare(
+            `SELECT r.transaction_id, r.merchant_id, r.amount_minor, t.state
+               FROM reversal_requests r
+               LEFT JOIN transactions t ON t.id = r.transaction_id
+              WHERE r.id = ?`,
+          )
+          .get(id) as
+          | { transaction_id: string; merchant_id: string; amount_minor: number; state: string | null }
+          | undefined;
+
+        if (
+          request !== undefined &&
+          request.state === 'SUCCESSFUL' &&
+          options.postReversal !== undefined
+        ) {
+          const at = options.now();
+          const posting = options.newId('post');
+          try {
+            // One transaction: the credit, the sale's new state and the
+            // request's. A shop credited against a sale still reading
+            // SUCCESSFUL would be reversed twice by the next person to look.
+            options.db.prepare('BEGIN').run();
+            options.postReversal({
+              merchantId: request.merchant_id,
+              amountMinor: request.amount_minor,
+              transactionId: request.transaction_id,
+              postingId: posting,
+              correlationId: options.newId('corr'),
+              at,
+            });
+            options.db
+              .prepare(`UPDATE transactions SET state = 'REVERSED', updated_at = ? WHERE id = ?`)
+              .run(at, request.transaction_id);
+            options.db
+              .prepare(
+                `UPDATE reversal_requests
+                    SET status = 'SETTLED', reversal_entry_id = ?, updated_at = ?
+                  WHERE id = ?`,
+              )
+              .run(posting, at, id);
+            options.db.prepare('COMMIT').run();
+            settled = true;
+          } catch {
+            options.db.prepare('ROLLBACK').run();
+            // The approval stands and is auditable; the money did not move. An
+            // operator sees it still awaiting settlement rather than a shop
+            // credited by half a transaction.
+            response.writeHead(303, {
+              location:
+                '/reversals?notice=' +
+                encodeURIComponent(
+                  'Approved, but the adjustment could not be posted. Nothing was credited. Try again.',
+                ),
+            });
+            response.end();
+            return;
+          }
+        }
+      }
+
       response.writeHead(303, {
         location:
           '/reversals?notice=' +
           encodeURIComponent(
-            approving
-              ? 'Approved. The adjustment is authorised and posts on settlement — the shop’s balance has not moved yet.'
-              : 'Refused. Tell the shop why.',
+            !approving
+              ? 'Refused. Tell the shop why.'
+              : settled
+                ? 'Approved and settled. The adjustment is posted and the shop’s balance has moved.'
+                : 'Approved. This sale still holds a reservation, so settling it releases that hold — a step this console does not yet perform. The balance has not moved.',
           ),
       });
       response.end();

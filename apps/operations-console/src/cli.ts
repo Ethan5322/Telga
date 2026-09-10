@@ -30,6 +30,7 @@ import {
   SqliteLedgerDriver,
   assertMigrationsApplied,
   fundMerchant,
+  postReversalAdjustment,
   saveAdminUser,
 } from '@telga/persistence';
 import { fromBirr, postingId } from '@telga/domain';
@@ -349,6 +350,23 @@ export async function run(
      * bank: this credits a training float, and `funding.submission` (a real
      * deposit against a real bank reference) remains off.
      */
+    /**
+     * Return the value of a settled sale — §17.1, D152.
+     *
+     * `postReversalAdjustment` posts a **compensating credit** and never edits
+     * the original entries: §13 invariant 8, and the ledger is append-only, so
+     * the history of what happened stays readable after the correction.
+     */
+    postReversal: (input) => {
+      postReversalAdjustment(ledgerDriver, {
+        merchantId: input.merchantId as never,
+        amount: fromBirr(input.amountMinor / 100),
+        at: input.at as never,
+        correlationId: input.correlationId,
+        postingId: postingId(input.postingId),
+        transactionId: input.transactionId as never,
+      });
+    },
     creditMerchant: (input) => {
       fundMerchant(ledgerDriver, {
         merchantId: input.merchantId as never,

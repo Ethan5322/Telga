@@ -44,6 +44,7 @@ let port = 0;
 const NOW = '2026-09-09T12:00:00.000Z';
 let nextId = 1;
 let credited = 0;
+let reversalPostings: { merchantId: string; amountMinor: number; transactionId: string }[] = [];
 
 afterEach(() => {
   server?.close();
@@ -111,6 +112,7 @@ beforeEach(async () => {
   tx('txn_pending', 'PENDING', '09****5678', '2026-09-09T11:00:00.000Z');
 
   credited = 0;
+  reversalPostings = [];
   db.prepare(
     `INSERT INTO provider_health_events (id, provider_id, at, status, previous_status, detail, correlation_id)
      VALUES (?, 'provider_simulated', ?, 'UNAVAILABLE', 'HEALTHY', 'simulated outage', 'corr_1')`,
@@ -132,6 +134,12 @@ beforeEach(async () => {
     // production, and a test that omitted it would be testing the wrong shape.
     creditMerchant: () => {
       credited += 1;
+    },
+    // Mirrors what `cli.ts` supplies. Recorded rather than posted, so a test
+    // can assert the settlement was *requested* with the right figures without
+    // needing a ledger driver.
+    postReversal: (input) => {
+      reversalPostings.push(input);
     },
   });
   await new Promise<void>((resolve) => {
@@ -685,14 +693,16 @@ describe('reversal requests — §17.1', () => {
     expect(row.status).toBe('NEEDS_APPROVAL');
   });
 
-  it('records an approval, its author, and moves no money yet', async () => {
-    // §13 invariant 8: the authorisation is recorded separately from the entry
-    // it authorises. Approving must not silently post a balance change.
+  it('records who approved it and why, alongside the settlement', async () => {
+    // §13 invariant 8: a correction is an **authorised** adjustment entry. The
+    // authorisation — who, when, why — is written whether or not the money
+    // moves in the same request, so a posting can always be traced to a person.
+    //
+    // This test previously asserted that approving moved no money, which pinned
+    // a half-built state rather than a rule. Settlement now happens, and the
+    // assertion is on what must be true either way.
     const cookie = await signIn();
     askForReversal();
-    const ledgerRows = (): number =>
-      (db?.prepare('SELECT COUNT(*) AS n FROM ledger_entries').get() as { n: number }).n;
-    const before = ledgerRows();
 
     const reply = await send('/reversals/rev_1/approve', {
       method: 'POST',
@@ -704,13 +714,10 @@ describe('reversal requests — §17.1', () => {
     const row = db
       ?.prepare(`SELECT status, decided_by, decision_reason FROM reversal_requests WHERE id = 'rev_1'`)
       .get() as { status: string; decided_by: string; decision_reason: string };
-    expect(row.status).toBe('APPROVED');
+    // `txn_ok` is SUCCESSFUL, so this one settles in the same request.
+    expect(row.status).toBe('SETTLED');
     expect(row.decided_by).toBe('adm_1');
     expect(row.decision_reason).toContain('unused');
-
-    expect(ledgerRows()).toBe(before);
-    // And the operator is told, rather than assuming the shop has been paid.
-    expect(decodeURIComponent(String(reply.headers['location']))).toContain('has not moved yet');
   });
 
   it('does not decide the same request twice', async () => {
@@ -733,5 +740,97 @@ describe('reversal requests — §17.1', () => {
     const reply = await send('/reversals', { cookie });
     expect(reply.body).not.toContain('reversal-rev_1');
     expect(reply.body).toContain('reversals-empty');
+  });
+});
+
+
+describe('an approved reversal actually settles', () => {
+  const askForReversal = (): void => {
+    db?.prepare(
+      `INSERT INTO reversal_requests
+         (id, transaction_id, merchant_id, requested_by, device_id, reason, amount_minor,
+          redemption, status, correlation_id, created_at, updated_at)
+       VALUES ('rev_s', 'txn_ok', 'merchant_a', 'operator_a', 'device_a',
+               'Token returned unused', 5000, 'UNKNOWN', 'NEEDS_APPROVAL', 'corr', ?, ?)`,
+    ).run(NOW, NOW);
+  };
+
+  it('posts the adjustment and marks the sale REVERSED', async () => {
+    // The gap this closes: approving used to record an authorisation and stop,
+    // leaving a shop told "approved" with a balance that never moved.
+    const cookie = await signIn();
+    askForReversal();
+
+    const reply = await send('/reversals/rev_s/approve', {
+      method: 'POST',
+      cookie,
+      form: { reason: 'Customer confirmed the token was never used' },
+    });
+    expect(reply.status).toBe(303);
+
+    // The money was asked for, with the figures off the request.
+    expect(reversalPostings).toHaveLength(1);
+    expect(reversalPostings[0]?.merchantId).toBe('merchant_a');
+    expect(reversalPostings[0]?.amountMinor).toBe(5000);
+    expect(reversalPostings[0]?.transactionId).toBe('txn_ok');
+
+    // And the sale is REVERSED, so the next person to look does not reverse it
+    // a second time.
+    const tx = db?.prepare(`SELECT state FROM transactions WHERE id = 'txn_ok'`).get() as {
+      state: string;
+    };
+    expect(tx.state).toBe('REVERSED');
+
+    const request = db
+      ?.prepare(`SELECT status, reversal_entry_id FROM reversal_requests WHERE id = 'rev_s'`)
+      .get() as { status: string; reversal_entry_id: string | null };
+    expect(request.status).toBe('SETTLED');
+    // The posting is recorded, so the authorisation and the money can be joined.
+    expect(request.reversal_entry_id).not.toBeNull();
+
+    expect(decodeURIComponent(String(reply.headers['location']))).toContain('balance has moved');
+  });
+
+  it('says plainly when a sale still holds a reservation instead', async () => {
+    // A PENDING sale is reversed by releasing its hold, not by posting a
+    // credit. This console does not do that yet, and must not post the wrong
+    // kind of movement — so it records the authorisation and says so.
+    const cookie = await signIn();
+    db?.prepare(
+      `INSERT INTO reversal_requests
+         (id, transaction_id, merchant_id, requested_by, device_id, reason, amount_minor,
+          redemption, status, correlation_id, created_at, updated_at)
+       VALUES ('rev_p', 'txn_pending', 'merchant_a', 'operator_a', 'device_a',
+               'No airtime arrived', 5000, 'UNKNOWN', 'NEEDS_APPROVAL', 'corr', ?, ?)`,
+    ).run(NOW, NOW);
+
+    const reply = await send('/reversals/rev_p/approve', {
+      method: 'POST',
+      cookie,
+      form: { reason: 'Provider confirmed non-delivery' },
+    });
+
+    // Nothing posted, and the sale is untouched.
+    expect(reversalPostings).toHaveLength(0);
+    const tx = db?.prepare(`SELECT state FROM transactions WHERE id = 'txn_pending'`).get() as {
+      state: string;
+    };
+    expect(tx.state).toBe('PENDING');
+    expect(decodeURIComponent(String(reply.headers['location']))).toContain('has not moved');
+  });
+
+  it('refusing settles nothing', async () => {
+    const cookie = await signIn();
+    askForReversal();
+    await send('/reversals/rev_s/refuse', {
+      method: 'POST',
+      cookie,
+      form: { reason: 'Token was redeemed' },
+    });
+    expect(reversalPostings).toHaveLength(0);
+    const tx = db?.prepare(`SELECT state FROM transactions WHERE id = 'txn_ok'`).get() as {
+      state: string;
+    };
+    expect(tx.state).toBe('SUCCESSFUL');
   });
 });
