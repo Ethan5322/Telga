@@ -456,3 +456,59 @@ describe('remote stop has a button, and a way back', () => {
     expect(unknown.headers['location']).toBe(alreadyActive.headers['location']);
   });
 });
+
+
+describe('the review screen shows the paperwork', () => {
+  it('renders a verdict and a row per document', async () => {
+    // The screen showed no documents at all: a reviewer approved a shop without
+    // seeing whether it had supplied a licence, a TIN or an ID.
+    const cookie = await signIn();
+    db?.prepare(
+      `INSERT INTO merchant_applications
+         (id, reference, status, submitted_via, legal_name, owner_name, phone,
+          address, locality, submitted_at, created_at, updated_at)
+       VALUES ('app_r', 'TLG-AAAA-BBBB', 'SUBMITTED', 'ADMIN', 'Paper Shop', 'Owner',
+               '+251911000000', 'Street', 'Addis Ababa', ?, ?, ?)`,
+    ).run(NOW, NOW, NOW);
+    db?.prepare(
+      `INSERT INTO merchant_application_documents
+         (id, application_id, kind, reference, status, expires_at, created_at, updated_at)
+       VALUES ('d1', 'app_r', 'TRADE_LICENCE', 'TL-1', 'SUPPLIED', '2020-01-01T00:00:00.000Z', ?, ?)`,
+    ).run(NOW, NOW);
+
+    const reply = await send('/applications/app_r', { cookie });
+    expect(reply.status).toBe(200);
+    expect(reply.body).toContain('application-readiness');
+    // Licence expired, TIN and ID never supplied — three blocking facts.
+    expect(reply.body).toContain('data-verdict="NOT_READY"');
+    expect(reply.body).toContain('readiness-TRADE_LICENCE');
+    expect(reply.body).toContain('readiness-TIN_CERTIFICATE');
+    expect(reply.body).toContain('readiness-OWNER_PHOTO_ID');
+    // In words a reviewer can act on, not schema tokens.
+    expect(reply.body).toContain('Trade licence');
+    expect(reply.body).toContain('expired on');
+  });
+
+  it('offers no scan link when there is no scan to open', async () => {
+    // A "View scan" that 404s is worse than no link. Offered only when the
+    // document has a vault handle *and* the admin may export data.
+    const cookie = await signIn();
+    db?.prepare(
+      `INSERT INTO merchant_applications
+         (id, reference, status, submitted_via, legal_name, owner_name, phone,
+          address, locality, submitted_at, created_at, updated_at)
+       VALUES ('app_n', 'TLG-CCCC-DDDD', 'SUBMITTED', 'SELF_SERVICE', 'No Scan Shop', 'Owner',
+               '+251911000001', 'Street', 'Addis Ababa', ?, ?, ?)`,
+    ).run(NOW, NOW, NOW);
+    db?.prepare(
+      `INSERT INTO merchant_application_documents
+         (id, application_id, kind, reference, status, created_at, updated_at)
+       VALUES ('d2', 'app_n', 'TIN_CERTIFICATE', 'TIN-1', 'SUPPLIED', ?, ?)`,
+    ).run(NOW, NOW);
+
+    const reply = await send('/applications/app_n', { cookie });
+    expect(reply.body).not.toContain('readiness-view-TIN_CERTIFICATE');
+    // And it is reported as reference-only rather than silently looking fine.
+    expect(reply.body).toContain('no scan attached');
+  });
+});

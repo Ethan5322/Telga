@@ -28,6 +28,7 @@ export * from './admin/applications';
 export * from './admin/enrollment';
 export * from './admin/provisioning';
 export * from './admin/applicationIntake';
+export * from './admin/registrationReadiness';
 export * from './admin/redeemEnrollment';
 export * from './admin/deviceKeyCheck';
 export * from './admin/documentVault';

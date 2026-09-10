@@ -24,8 +24,10 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import {
   adminLogin,
   authenticateAdmin,
+  assessRegistration,
   deviceKeyFingerprint,
   hashAdminSecret,
+  labelFor,
   verifyDeviceKey,
   newEnrollmentToken,
   beginMfaEnrolment,
@@ -1169,7 +1171,65 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         respond(response, 404, document(deniedScreen(chromeFor(context, csrf), 'No such application.'), 'Not found'));
         return;
       }
-      screen(applicationDetailScreen(chromeFor(context, csrf), found, allowed, url.searchParams.get('error') ?? undefined), 'Application');
+      /**
+       * The paperwork, assessed, alongside the application.
+       *
+       * This screen rendered **no documents at all** — a reviewer approved a
+       * shop without seeing whether it had supplied a licence, a TIN or an ID,
+       * or whether any were in date. The rows existed the whole time.
+       *
+       * Read here rather than in `applicationById`, because the queue does not
+       * need them: one screen wanting more is not a reason to make every list
+       * pay for it.
+       */
+      const supplied = rows<{
+        id: string;
+        kind: string;
+        reference: string;
+        expires_at: string | null;
+        document_uri: string | null;
+      }>(
+        `SELECT id, kind, reference, expires_at, document_uri
+           FROM merchant_application_documents WHERE application_id = ?`,
+        found.id,
+      );
+
+      const readiness = assessRegistration(
+        supplied.map((d) => ({
+          id: d.id,
+          kind: d.kind,
+          reference: d.reference,
+          expiresAt: d.expires_at,
+          documentUri: d.document_uri,
+        })),
+        options.now(),
+      );
+
+      screen(
+        applicationDetailScreen(
+          chromeFor(context, csrf),
+          {
+            ...found,
+            readiness: {
+              verdict: readiness.verdict,
+              reasons: readiness.reasons,
+              documents: readiness.documents.map((d) => ({
+                kind: d.kind,
+                label: labelFor(d.kind),
+                required: d.required,
+                state: d.state,
+                reference: d.reference,
+                expiresAt: d.expiresAt,
+                daysToExpiry: d.daysToExpiry,
+                documentId: d.documentId,
+              })),
+            },
+          },
+          allowed,
+          url.searchParams.get('error') ?? undefined,
+        ),
+        'Application',
+      );
       return;
     }
 

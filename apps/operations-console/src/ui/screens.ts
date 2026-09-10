@@ -826,6 +826,27 @@ export interface ApplicationDetail extends ApplicationRow {
   readonly email: string | null;
   readonly address: string;
   readonly decisionReason: string | null;
+  /**
+   * The paperwork, assessed — `admin/registrationReadiness.ts`.
+   *
+   * Optional so a caller that predates it still compiles, and absent means the
+   * panel is not rendered rather than rendered empty: a reviewer must never be
+   * shown a green light computed from nothing.
+   */
+  readonly readiness?: {
+    readonly verdict: string;
+    readonly reasons: readonly string[];
+    readonly documents: readonly {
+      readonly kind: string;
+      readonly label: string;
+      readonly required: boolean;
+      readonly state: string;
+      readonly reference: string | null;
+      readonly expiresAt: string | null;
+      readonly daysToExpiry: number | null;
+      readonly documentId: string | null;
+    }[];
+  };
 }
 
 export function applicationDetailScreen(
@@ -837,6 +858,144 @@ export function applicationDetailScreen(
   const row = (label: string, value: string, id: string): El =>
     h('tr', {}, h('th', { scope: 'row' }, label), h('td', { 'data-testid': id }, value));
 
+  /**
+   * The paperwork, and the green light.
+   *
+   * This screen showed **no documents at all**: a reviewer was asked to approve
+   * a shop without seeing whether it had supplied a licence, a TIN or an ID,
+   * let alone whether any of them were in date. The data existed the whole
+   * time, in `merchant_application_documents` and the encrypted vault.
+   *
+   * ## The verdict is information, never a gate
+   *
+   * A reviewer may approve a `NOT_READY` application and sometimes should — a
+   * licence expiring next week is a real shop with a real problem, not a
+   * forgery. What this prevents is that happening **unknowingly**. The decide
+   * form below is not disabled by it.
+   *
+   * ## Why each state gets its own words
+   *
+   * "Documents incomplete" tells a reviewer nothing about what to say on the
+   * phone. Missing, expired, expiring and unscanned are four different
+   * conversations, so they read as four different lines.
+   */
+  const readiness = application.readiness;
+  const verdictTone = (verdict: string): string =>
+    verdict === 'READY' ? 'good' : verdict === 'READY_WITH_WARNINGS' ? 'warn' : 'bad';
+  const verdictWords = (verdict: string): string =>
+    verdict === 'READY'
+      ? 'READY — every required document is present, in date and scanned'
+      : verdict === 'READY_WITH_WARNINGS'
+        ? 'READY, WITH WARNINGS — nothing is blocking, but read the notes below'
+        : 'NOT READY — something required is missing or expired';
+  const stateWords: Readonly<Record<string, string>> = {
+    MISSING: 'Not supplied',
+    EXPIRED: 'Expired',
+    EXPIRING_SOON: 'Expiring soon',
+    NO_SCAN: 'Reference only',
+    PRESENT: 'In order',
+  };
+  const stateTone = (state: string): string =>
+    state === 'PRESENT' ? 'good' : state === 'MISSING' || state === 'EXPIRED' ? 'bad' : 'warn';
+
+  const readinessPanel = (): El | false =>
+    readiness === undefined
+      ? false
+      : h(
+          'section',
+          { class: 'console__readiness', 'data-testid': 'application-readiness' },
+          h('h2', {}, 'Registration paperwork'),
+          h(
+            'p',
+            {
+              class: 'console__pill',
+              'data-tone': verdictTone(readiness.verdict),
+              'data-testid': 'readiness-verdict',
+              'data-verdict': readiness.verdict,
+              role: 'status',
+            },
+            verdictWords(readiness.verdict),
+          ),
+          readiness.reasons.length > 0 &&
+            h(
+              'ul',
+              { 'data-testid': 'readiness-reasons' },
+              ...readiness.reasons.map((reason) => h('li', {}, reason)),
+            ),
+          h(
+            'table',
+            { class: 'console__table', 'data-testid': 'readiness-documents' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, 'Document'),
+                h('th', { scope: 'col' }, 'Required'),
+                h('th', { scope: 'col' }, 'State'),
+                h('th', { scope: 'col' }, 'Reference'),
+                h('th', { scope: 'col' }, 'Expires'),
+                h('th', { scope: 'col' }, ''),
+              ),
+            ),
+            h(
+              'tbody',
+              {},
+              ...readiness.documents.map((document) =>
+                h(
+                  'tr',
+                  { 'data-testid': `readiness-${document.kind}`, 'data-state': document.state },
+                  h('td', {}, document.label),
+                  h('td', {}, document.required ? 'Yes' : 'Optional'),
+                  h(
+                    'td',
+                    {},
+                    h(
+                      'span',
+                      { class: 'console__pill', 'data-tone': stateTone(document.state) },
+                      stateWords[document.state] ?? document.state,
+                    ),
+                  ),
+                  // The number printed on the paper. Never an image, and never
+                  // a scan — migration 015.
+                  h('td', { class: 'console__mono' }, document.reference ?? '—'),
+                  h(
+                    'td',
+                    {},
+                    document.expiresAt === null
+                      ? '—'
+                      : `${document.expiresAt.slice(0, 10)}${
+                          document.daysToExpiry !== null && document.daysToExpiry < 0
+                            ? ' (lapsed)'
+                            : document.daysToExpiry !== null
+                              ? ` (${String(document.daysToExpiry)}d)`
+                              : ''
+                        }`,
+                  ),
+                  h(
+                    'td',
+                    {},
+                    // Opening a scan is a data export: it carries its own
+                    // permission and its own audit line. Offered only when
+                    // there is something to open and somebody who may.
+                    document.documentId !== null && allowed.has('ADMIN_EXPORT_DATA')
+                      ? h(
+                          'a',
+                          {
+                            href: `/applications/${encodeURIComponent(application.id)}/documents/${encodeURIComponent(document.documentId)}`,
+                            'data-testid': `readiness-view-${document.kind}`,
+                          },
+                          'View scan',
+                        )
+                      : '',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
   const decidable = application.status === 'UNDER_REVIEW';
 
   return page(
@@ -844,6 +1003,7 @@ export function applicationDetailScreen(
     `Application ${application.reference}`,
     error !== undefined &&
       h('p', { class: 'console__error', role: 'alert', 'data-testid': 'application-error' }, error),
+    readinessPanel(),
     h(
       'table',
       { class: 'console__table', 'data-testid': 'application-detail' },
