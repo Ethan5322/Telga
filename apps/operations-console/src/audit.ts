@@ -79,6 +79,14 @@ export type AdminAuditEvent =
   /** One device stopped and its sessions revoked. The shop's others carry on. */
   | 'ADMIN_DEVICE_STOPPED'
   /**
+   * A stopped device returned to service.
+   *
+   * Not the inverse of a stop: the device row becomes ACTIVE again and its
+   * **enrolment stays revoked**, so the shop must pair it with a new activation
+   * code. The trail records the reinstatement; the re-pairing has its own event.
+   */
+  | 'ADMIN_DEVICE_REINSTATED'
+  /**
    * One **operator** stopped, and their sessions revoked. The shop's other
    * operators carry on — the same shape as stopping one device rather than
    * suspending a merchant, one level further in.

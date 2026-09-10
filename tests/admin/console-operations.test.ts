@@ -393,3 +393,66 @@ describe('provider health', () => {
     expect(reply.body).toContain('HEALTHY → UNAVAILABLE');
   });
 });
+
+
+describe('remote stop has a button, and a way back', () => {
+  it('offers Stop on an active device and Reinstate on a stopped one', async () => {
+    // `POST /devices/:id/stop` existed and was reachable only by typing the
+    // address. §18 lists remote stop among the device controls a platform must
+    // have — a required control with no button is a control nobody has.
+    const cookie = await signIn();
+    const active = await send('/devices', { cookie });
+    expect(active.body).toContain('device-stop-device_a');
+    // Not both at once: a device is either running or it is not.
+    expect(active.body).not.toContain('device-reinstate-device_a');
+
+    db?.prepare(`UPDATE devices SET status = 'STOPPED' WHERE id = 'device_a'`).run();
+
+    const stopped = await send('/devices', { cookie });
+    expect(stopped.body).toContain('device-reinstate-device_a');
+    expect(stopped.body).not.toContain('device-stop-device_a');
+  });
+
+  it('reinstates a stopped device without handing its old key back', async () => {
+    // Reinstating is not the inverse of stopping, and that is deliberate: the
+    // device key may have been read off a machine that was out of the shop's
+    // hands. The machine returns; the credential does not.
+    const cookie = await signIn();
+    db?.prepare(`UPDATE devices SET status = 'STOPPED' WHERE id = 'device_a'`).run();
+    db?.prepare(
+      `INSERT INTO device_enrollments
+         (device_id, merchant_id, enrollment_state, secret_hash, secret_salt,
+          enrolled_at, created_at, updated_at)
+       VALUES ('device_a', 'merchant_a', 'REVOKED', 'h', 's', ?, ?, ?)`,
+    ).run(NOW, NOW, NOW);
+
+    const reply = await send('/devices/device_a/reinstate', { method: 'POST', cookie, form: {} });
+    expect(reply.status).toBe(303);
+
+    const device = db?.prepare(`SELECT status FROM devices WHERE id = 'device_a'`).get() as {
+      status: string;
+    };
+    expect(device.status).toBe('ACTIVE');
+
+    // The enrolment stays revoked, so the shop needs a fresh activation code.
+    const enrolment = db
+      ?.prepare(`SELECT enrollment_state FROM device_enrollments WHERE device_id = 'device_a'`)
+      .get() as { enrollment_state: string };
+    expect(enrolment.enrollment_state).toBe('REVOKED');
+
+    // And the operator is told so, rather than left to discover it.
+    expect(decodeURIComponent(String(reply.headers['location'] ?? ''))).toContain(
+      'new activation code',
+    );
+  });
+
+  it('answers the same way for an unknown device as for one already active', async () => {
+    // Neither confirms which device ids exist: both redirect with the same
+    // "Nothing changed" notice.
+    const cookie = await signIn();
+    const unknown = await send('/devices/no_such_device/reinstate', { method: 'POST', cookie, form: {} });
+    const alreadyActive = await send('/devices/device_a/reinstate', { method: 'POST', cookie, form: {} });
+    expect(unknown.status).toBe(alreadyActive.status);
+    expect(unknown.headers['location']).toBe(alreadyActive.headers['location']);
+  });
+});

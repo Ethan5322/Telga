@@ -1599,6 +1599,63 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       return;
     }
 
+    /**
+     * Undo a remote stop.
+     *
+     * Stopping a device did not have a way back. A machine reported lost and
+     * then found needed a whole new device record and a new activation code,
+     * for no reason other than the missing route.
+     *
+     * ## What it restores, and what it deliberately does not
+     *
+     * The **device row** returns to `ACTIVE`, so it may sell and — since R46 —
+     * sign in again.
+     *
+     * The **enrolment stays revoked.** Stopping sets `enrollment_state =
+     * 'REVOKED'`, and this does not undo that: the device key may have been
+     * read off a machine that was out of the shop's hands, and a control whose
+     * whole purpose is "this device is not where it should be" must not hand
+     * the same credential back. The shop is issued a **new activation code**,
+     * which is one console click and re-pairs the machine in a minute.
+     *
+     * So reinstating is not the inverse of stopping, and saying so is the
+     * point: it returns the *machine*, never the *credential*.
+     */
+    const reinstateDeviceMatch = /^\/devices\/([^/]+)\/reinstate$/.exec(path);
+    if (reinstateDeviceMatch && method === 'POST') {
+      if (!guard('ADMIN_REMOTE_STOP_SALES')) return;
+      const deviceId = decodeURIComponent(reinstateDeviceMatch[1]);
+      const changed = options.db
+        .prepare(`UPDATE devices SET status = 'ACTIVE', updated_at = ? WHERE id = ? AND status <> 'ACTIVE'`)
+        .run(options.now(), deviceId) as { changes: number };
+
+      if (changed.changes === 0) {
+        // Already active, or no such device. Both answered the same way, so
+        // this cannot be used to discover which device ids exist.
+        response.writeHead(303, { location: '/devices?notice=Nothing%20changed.' });
+        response.end();
+        return;
+      }
+
+      record({
+        event: 'ADMIN_DEVICE_REINSTATED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'DEVICE',
+        entityId: deviceId,
+      });
+
+      response.writeHead(303, {
+        location:
+          '/devices?notice=' +
+          encodeURIComponent(
+            'Device reinstated. Its old key stays revoked — issue a new activation code so the shop can pair it again.',
+          ),
+      });
+      response.end();
+      return;
+    }
+
     const stopMatch = /^\/devices\/([^/]+)\/stop$/.exec(path);
     if (stopMatch && method === 'POST') {
       if (!guard('ADMIN_REMOTE_STOP_SALES')) return;

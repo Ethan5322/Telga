@@ -738,3 +738,58 @@ describe('the device accepts what the console handed over', () => {
     ).toContain('error');
   });
 });
+
+describe('a remotely stopped device — R46', () => {
+  it('is refused at sign-in, and the shop’s other devices are unaffected', async () => {
+    // The fix walked from writer to reader: the console's stop button writes
+    // `devices.status`, and until now nothing on the sign-in path read it. This
+    // asserts both ends and the shop beside it, because R45 was caused by
+    // fixing one end alone.
+    const cookie = await signInToConsole();
+    const { merchantId } = await registerAndApprove(cookie, '3');
+    const issued = await send(
+      consolePort,
+      `/merchants/${encodeURIComponent(merchantId)}/credentials`,
+      { method: 'POST', cookie, form: { csrfToken: csrfFrom(cookie) } },
+    );
+    const parameter = (id: string): string =>
+      (new RegExp(`data-testid="${id}"[^>]*>([^<]*)`).exec(issued.body) ?? ['', ''])[1].trim();
+    const form = {
+      userId: parameter('handover-operator'),
+      pin: parameter('handover-pin'),
+      deviceId: parameter('handover-device'),
+      deviceSecret: parameter('handover-key'),
+    };
+
+    await startPos();
+
+    // A freshly issued device signs in. Issuing creates it ACTIVE, and if that
+    // ever changed this assertion is what would catch it — rather than a shop
+    // discovering it at a counter.
+    expect(
+      ((await send(posPort, '/login', { method: 'POST', form }).then((r) => r.headers['set-cookie'])) as
+        | string[]
+        | undefined ?? []).join(';'),
+      'a newly issued device must sign in',
+    ).toContain('telga_session');
+
+    // Telga stops it remotely.
+    const stopped = await send(
+      consolePort,
+      `/devices/${encodeURIComponent(form.deviceId)}/stop`,
+      { method: 'POST', cookie, form: { csrfToken: csrfFrom(cookie), reason: 'lost at the counter' } },
+    );
+    expect([200, 303]).toContain(stopped.status);
+    const row = db
+      ?.prepare('SELECT status FROM devices WHERE id = ?')
+      .get(form.deviceId) as { status: string };
+    expect(row.status, 'the stop button must write the column').not.toBe('ACTIVE');
+
+    // And now it cannot sign back in. Before R46 this succeeded.
+    const after = await send(posPort, '/login', { method: 'POST', form });
+    expect(
+      String(after.headers['location'] ?? ''),
+      'a stopped device must not sign back in',
+    ).toContain('error');
+  });
+});

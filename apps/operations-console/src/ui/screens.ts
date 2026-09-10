@@ -1247,6 +1247,64 @@ export function devicesScreen(
                         ),
                       )
                     : '',
+                  /**
+                   * Remote stop — and the way back.
+                   *
+                   * `CLAUDE.md` §18 lists *"remote stop of new sales without
+                   * deleting history"* among the device controls a merchant
+                   * platform must have. The **route existed and had no button**:
+                   * `POST /devices/:id/stop` worked and was reachable only by
+                   * typing the address, which is how a required control gets
+                   * reported as missing.
+                   *
+                   * **Reinstate did not exist at all.** A stopped device was
+                   * stopped for ever — the commonest real case being a machine
+                   * reported lost and then found, which needed a whole new
+                   * device record and a new activation code for no reason.
+                   *
+                   * Stopping asks first. It ends every session the device holds
+                   * and revokes its enrolment, so a shop mid-sale stops mid-sale;
+                   * an accidental click is a phone call and a fresh activation
+                   * code.
+                   */
+                  allowed.has('ADMIN_REMOTE_STOP_SALES') && row.status === 'ACTIVE'
+                    ? h(
+                        'form',
+                        {
+                          method: 'post',
+                          action: `/devices/${encodeURIComponent(row.id)}/stop`,
+                          'data-testid': `device-stop-form-${row.id}`,
+                        },
+                        h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                        h(
+                          'button',
+                          {
+                            type: 'submit',
+                            class: 'console__button',
+                            'data-confirm':
+                              'Stop this device? It will sign out immediately and need a new activation code to return.',
+                            'data-testid': `device-stop-${row.id}`,
+                          },
+                          'Stop',
+                        ),
+                      )
+                    : '',
+                  allowed.has('ADMIN_REMOTE_STOP_SALES') && row.status !== 'ACTIVE'
+                    ? h(
+                        'form',
+                        {
+                          method: 'post',
+                          action: `/devices/${encodeURIComponent(row.id)}/reinstate`,
+                          'data-testid': `device-reinstate-form-${row.id}`,
+                        },
+                        h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                        h(
+                          'button',
+                          { type: 'submit', class: 'console__button', 'data-testid': `device-reinstate-${row.id}` },
+                          'Reinstate',
+                        ),
+                      )
+                    : '',
                 ),
               ),
             ),

@@ -268,6 +268,36 @@ export async function login(
     return failure(rejection);
   }
 
+  /**
+   * Is the **device row** still active? Defence in depth — R46.
+   *
+   * Placed **after** `deviceRejection`, and that position is the whole
+   * correction. Run before it, this check answered `DEVICE_REVOKED` for an
+   * unknown device and for one enrolled to another merchant — masking
+   * `DEVICE_NOT_ENROLLED` and `DEVICE_NOT_ASSIGNED_TO_MERCHANT`, which are
+   * deliberately distinct and which two tests pin. A broader check that runs
+   * first will always swallow a narrower one that runs second.
+   *
+   * **What it is and is not.** R46 was withdrawn: it claimed a stopped device
+   * could sign back in, and it could not — the stop route revokes the
+   * enrolment, writes `devices.status` and kills the sessions in one
+   * transaction, and the enrolment check above already refuses it. This closes
+   * no hole that was open. What it buys is that a *future* path which stops a
+   * device without revoking its enrolment is still refused here.
+   */
+  const deviceRow = deps.driver.findDevice(request.deviceId, merchantId);
+  if (deviceRow === undefined || deviceRow.status !== 'ACTIVE') {
+    audit(deps, 'DEVICE_REJECTED', {
+      userId: request.userId,
+      role: user.role,
+      merchantId,
+      deviceId: request.deviceId,
+      correlationId,
+      detail: 'DEVICE_NOT_ACTIVE',
+    });
+    return failure('DEVICE_REVOKED');
+  }
+
   const enrollment = enrollmentRow as DeviceEnrollmentRow;
   const deviceOk = await verifySecret(request.deviceSecret, {
     hash: enrollment.secret_hash,
