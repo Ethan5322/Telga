@@ -25,7 +25,7 @@
 import { createServer as createHttpsServer } from 'node:https';
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
-import { hashAdminSecret } from '@telga/api';
+import { OTP_TTL_MS, hashAdminSecret, sendSignInCode } from '@telga/api';
 import {
   SqliteLedgerDriver,
   assertMigrationsApplied,
@@ -396,11 +396,60 @@ export async function run(
    */
   const ledgerDriver = new SqliteLedgerDriver({ file: db, connection: connection as never });
 
+  /**
+   * Emailing the sign-in code — §23.1.
+   *
+   * ## Environment only, never a flag
+   *
+   * A secret passed on a command line is in the shell history, in the process
+   * list, and in any crash report that captures `argv` (§24). The deposit
+   * account above is a flag because it is not a secret; this is.
+   *
+   * ## Both parts, or neither
+   *
+   * Resend refuses a `from` address on an unverified domain, so a key without a
+   * sender is a key that cannot send. Half a configuration would produce a
+   * console that looks ready and fails at the one moment an administrator needs
+   * it — announced here instead.
+   */
+  const resendKey = (process.env['RESEND_API_KEY'] ?? '').trim();
+  const resendFrom = (process.env['RESEND_FROM'] ?? '').trim();
+  const emailNamed = [resendKey, resendFrom].filter((part) => part.length > 0).length;
+
+  if (emailNamed === 1) {
+    throw new ConsoleArgumentError(
+      'Email sign-in codes are half configured. Set RESEND_API_KEY and RESEND_FROM ' +
+        'together, or neither. A key with no verified sender cannot send anything.',
+    );
+  }
+
+  const emailSecondFactor = emailNamed === 2;
+
+  if (emailSecondFactor) {
+    write(`Sign-in codes will be emailed from ${resendFrom}.`);
+    write(`A code expires in ${String(Math.round(OTP_TTL_MS / 1000))} seconds.`);
+  } else if (!singleFactorAuth) {
+    // Worth saying out loud: without this, the second factor is an authenticator
+    // app, and an administrator without one enrolled cannot get in at all.
+    write('No RESEND_API_KEY set. The second factor is an authenticator app only.');
+  }
+
   const handler = createConsoleServer({
     db: connection as never,
     now,
     newId,
     schemaVersion: values.get('schema-version') ?? '016',
+    /**
+     * Absent means no emailed second factor, and the console says so at
+     * start-up. A build that looked configured and silently sent nothing would
+     * leave an administrator staring at an inbox.
+     */
+    ...(emailSecondFactor
+      ? {
+          sendSignInCode: (to: string, code: string, minutes: number) =>
+            sendSignInCode({ apiKey: resendKey, from: resendFrom }, to, code, minutes),
+        }
+      : {}),
     allowedHosts,
     // Secure when this process serves TLS, **and** when a trusted proxy does it
     // in front. Getting the second case wrong is the failure that looks like

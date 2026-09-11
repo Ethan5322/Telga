@@ -140,6 +140,32 @@ async function call(
   }
 }
 
+/**
+ * Chapa's `message`, which is **not always a string**.
+ *
+ * A plain refusal sends text. A validation failure sends an object keyed by
+ * field: `{"message":{"email":["validation.email"]}}`. The first version of
+ * this adapter checked `typeof === 'string'` and fell back to "Chapa refused
+ * the payment" — throwing away the only diagnostic, at exactly the moment
+ * somebody needs it.
+ *
+ * Found on the first real call to the sandbox, which is the argument for making
+ * one before believing an integration works. Every test until then used a
+ * stubbed response shaped the way the documentation described.
+ */
+export function chapaMessage(message: unknown): string {
+  if (typeof message === 'string' && message.trim().length > 0) return message;
+  if (typeof message === 'object' && message !== null) {
+    const parts: string[] = [];
+    for (const [field, problem] of Object.entries(message as Record<string, unknown>)) {
+      const text = Array.isArray(problem) ? problem.join(', ') : String(problem);
+      parts.push(`${field}: ${text}`);
+    }
+    if (parts.length > 0) return parts.join('; ');
+  }
+  return 'Chapa refused the payment and gave no reason.';
+}
+
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 
@@ -161,8 +187,7 @@ export async function initializeChapaPayment(
   if (body['status'] === 'success' && checkoutUrl !== undefined) {
     return { kind: 'STARTED', checkoutUrl };
   }
-  const message = typeof body['message'] === 'string' ? body['message'] : 'Chapa refused the payment.';
-  return { kind: 'REFUSED', message };
+  return { kind: 'REFUSED', message: chapaMessage(body['message']) };
 }
 
 /**
@@ -196,15 +221,33 @@ export async function verifyChapaPayment(config: ChapaConfig, txRef: string): Pr
     method: 'GET',
   });
   if (!result.ok) return { kind: 'UNREACHABLE', detail: result.detail };
-  if (result.status === 404) return { kind: 'NOT_FOUND' };
 
   const body = asRecord(result.body);
   const data = asRecord(body['data']);
-  const amountMinor = santimFrom(data['amount']);
 
+  /**
+   * "No such transaction" is an **answer**, not a failure to get one.
+   *
+   * Chapa says this with **HTTP 400** and `{"status":"failed","data":null}` —
+   * not the 404 this code originally checked for, so the check never fired and
+   * a definite negative fell through to `UNREACHABLE`.
+   *
+   * That distinction decides whether a webhook is retried. `UNREACHABLE` earns
+   * a 503 and Chapa tries again; for a reference Chapa has no record of, that
+   * is a retry loop with no end, because the answer will never change.
+   *
+   * Found by calling the sandbox with a reference that does not exist. The
+   * documentation does not say which status code this uses, and the stubbed
+   * tests used the shape the documentation implied.
+   */
+  if (body['status'] === 'failed' || data['status'] === undefined) {
+    return { kind: 'NOT_FOUND' };
+  }
+
+  const amountMinor = santimFrom(data['amount']);
   if (body['status'] !== 'success' || amountMinor === undefined) {
-    // Chapa answered but not in a shape that can be acted on. Not a failure of
-    // the payment — a failure to learn about it.
+    // Chapa answered, but not in a shape that can be acted on. Not a statement
+    // about the payment — a failure to learn about it, so it is retried.
     return { kind: 'UNREACHABLE', detail: 'verify response missing a usable amount or status' };
   }
 
