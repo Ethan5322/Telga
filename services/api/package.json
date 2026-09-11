@@ -17,6 +17,7 @@
     "@telga/persistence": "*",
     "@telga/provider-mock-airtime": "*",
     "@telga/pos-view-model": "*",
-    "@telga/localization": "*"
+    "@telga/localization": "*",
+    "@telga/provider-chapa": "*"
   }
 }

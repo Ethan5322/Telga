@@ -20,6 +20,7 @@ export * from './balance';
 export * from './commission';
 export * from './voucherCode';
 export * from './depositReference';
+export * from './topupOrder';
 export * from './fundingSubmission';
 export * from './productId';
 export * from './cardPayment';

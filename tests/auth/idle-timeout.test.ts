@@ -51,8 +51,8 @@ function optionsFor(h: UiHarness): PosServerOptions {
 }
 
 describe('the training idle window', () => {
-  it('is one minute', () => {
-    expect(IDLE_MS).toBe(60_000);
+  it('is fifteen minutes', () => {
+    expect(IDLE_MS).toBe(15 * 60_000);
   });
 
   it('expires the session once the window passes with no activity', async () => {
@@ -116,10 +116,16 @@ describe('background polling does not count as activity', () => {
     harness = makeUiHarness('idle-background-poll', { sessionPolicy: TRAINING_SESSION_POLICY });
     const session = await signInAs(harness.api);
 
-    // Poll every 20s for 80s. If polling renewed the window the session would
-    // survive; it must not.
-    for (let i = 0; i < 4; i += 1) {
-      advance(harness, 20_000);
+    // Poll right through the idle window. **Derived from the policy, not a
+    // fixed 80 seconds**: the original hard-coded four polls of 20s, which
+    // outlasted a one-minute window and stopped outlasting anything when the
+    // window was raised to fifteen minutes — the test kept passing its own
+    // arithmetic and stopped testing the property. Now it always polls past
+    // whatever the window is.
+    const step = 20_000;
+    const polls = Math.ceil(IDLE_MS / step) + 1;
+    for (let i = 0; i < polls; i += 1) {
+      advance(harness, step);
       await callWith(harness.api, 'GET', '/api/training/balance', {
         cookie: cookieFor(session.sessionToken),
         headers: { [BACKGROUND_REQUEST_HEADER]: '1' },
@@ -239,7 +245,9 @@ describe('the client-side watcher', () => {
       csrfToken: session.csrfToken,
     });
 
-    expect(screen?.html).toContain(`data-idle-timeout-ms="${String(IDLE_MS)}"`);
+    // Seconds, not milliseconds — so the attribute can never be a six-digit
+    // run that the PIN guard below has to tell apart from a real PIN.
+    expect(screen?.html).toContain(`data-idle-timeout-s="${String(Math.round(IDLE_MS / 1000))}"`);
     expect(screen?.html).toContain('/login?error=SESSION_IDLE_EXPIRED');
     // The poll marks itself background so it cannot defeat the watcher.
     expect(screen?.html).toContain("'x-telga-background': '1'");

@@ -96,6 +96,23 @@ export function helpScreen(props: HelpScreenProps): El {
       ),
     ),
     h('p', { class: 'voucher__custom-hint' }, t(locale, 'help.reference_hint')),
+    /**
+     * Report a problem — §17.2.
+     *
+     * `/complaint` was built and linked from nowhere. Help is where a
+     * shopkeeper looks when something has gone wrong, so it belongs here as
+     * well as on the transaction itself: the transaction link is for "this
+     * sale", this one is for "something happened and I do not know which sale".
+     */
+    h(
+      'p',
+      {},
+      h(
+        'a',
+        { href: '/complaint', class: 'voucher__button', 'data-testid': 'help-report-problem' },
+        t(locale, 'complaint.title'),
+      ),
+    ),
     footer(locale, '/dashboard'),
   );
 }
@@ -366,13 +383,44 @@ export function topUpScreen(props: TopUpScreenProps): El {
       // refused while `card.simulated` is off. `/topup` itself stays reachable
       // — moving earned profit into the selling float has nothing to do with
       // Telga Pay — so the two Pay options are dropped rather than the screen.
+      /**
+       * Two ways money comes **in**, and they are not related to each other.
+       *
+       * **Bank deposit** (§20.1): print a slip, pay it at a bank counter,
+       * Telga credits the balance once it confirms the payment against its
+       * statement. Slow, and a person verifies it.
+       *
+       * **Deposit with Telga Pay** (D87/D124): a card at the terminal —
+       * insert, swipe or tap. Approved credits immediately; declined changes
+       * nothing at all.
+       *
+       * They share only the balance they land in. The bank route is **not**
+       * gated on `card.simulated`: a bank counter has nothing to do with a card
+       * reader, and switching the card simulator off must not take the bank
+       * slip with it.
+       */
+      option('/deposit', '🏦', 'bank_deposit.button', 'topup-bank-deposit'),
+      /**
+       * Chapa — §20.2, and the founder's framing: *"it's one kind of bank
+       * deposit method."*
+       *
+       * Beside the counter slip rather than under Telga Pay, because it does
+       * the same job by a different route: money in from outside, landing in
+       * the shop's own balance. Telga Pay is a card simulator; this is a real
+       * Ethiopian payment company. More methods are expected — *"another bank
+       * or provider I will find"* — and they belong on this row.
+       */
+      ...(isEnabled('deposit.chapa')
+        ? [option('/deposit/chapa', '📲', 'chapa.button', 'topup-chapa')]
+        : []),
       ...(isEnabled('card.simulated')
-        ? [
-            option('/pay/deposit', '🏦', 'balance.top_up.bank', 'topup-bank'),
-            option('/pay', '💳', 'balance.top_up.pay', 'topup-pay'),
-          ]
+        ? [option('/pay/deposit', '💳', 'pay.deposit.entry', 'topup-telga-pay')]
         : []),
       option('/profit/transfer', '📈', 'balance.top_up.profit', 'topup-profit'),
+      // Balance moving **sideways**, not in. Listed here because this is where
+      // a shopkeeper looks when thinking about balance, but it is not a
+      // deposit and the screen says so.
+      option('/transfer', '🔁', 'transfer.title', 'topup-shop-transfer'),
     ),
     !props.canDeposit &&
       h('p', { class: 'voucher__custom-hint', 'data-testid': 'topup-owner-note' }, t(locale, 'settings.permission_denied')),

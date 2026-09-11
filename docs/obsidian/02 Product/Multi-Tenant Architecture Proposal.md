@@ -38,30 +38,43 @@ decision_status: proposed
 
 The brief describes a system that is largely specified and substantially built.
 
-| Brief requirement | Status | Where |
-|---|---|---|
-| Merchant ID per shop | ✅ Built | `merchantIdFor()`, derived from the application id |
-| Operator IDs per shop | ✅ Built | `merchant_users`, `NOT NULL merchant_id` |
-| Device IDs per shop | ✅ Built | `devices` + `device_enrollments` |
-| **43-character device key** | ✅ **Exact match** | `newToken(32)` → base64url = 43 chars, scrypt-hashed, shown once |
-| **PIN 6–12, numeric, not all-same, not sequential** | ✅ **Exact match** | `pinRejection()` in `packages/domain/src/auth.ts` |
-| All devices share one shop balance | ✅ Built | `balanceFor(merchantId)` |
-| Shop data isolation | ✅ Built and tested | Session-derived `merchantId`, never from the request body |
-| Admin identity separate from merchants | ✅ Built | `admin_users`, migration 014 |
-| Admin MFA and step-up re-auth | ✅ Built | `/mfa`, `/step-up` |
-| Application review and approval | ✅ Built | `/applications` |
-| Suspend a shop | ✅ Built | Lifecycle `SUSPENDED`, tenant status refusals |
-| Auto-generated activation code | ✅ Built | 100-bit, base32 minus `I O 0 1`, 1-hour expiry, hashed |
-| Eleven-state merchant lifecycle | ✅ Built | `admin/applications.ts` |
-| Per-shop provisioning | ⚠️ Written, **not exported** | `admin/provisioning.ts` |
-| Per-shop database routing | ⚠️ Written, **not exported** | `admin/tenantRouting.ts` |
+| Brief requirement                                   | Status                       | Where                                                            |
+| --------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------- |
+| Merchant ID per shop                                | ✅ Built                      | `merchantIdFor()`, derived from the application id               |
+| Operator IDs per shop                               | ✅ Built                      | `merchant_users`, `NOT NULL merchant_id`                         |
+| Device IDs per shop                                 | ✅ Built                      | `devices` + `device_enrollments`                                 |
+| **43-character device key**                         | ✅ **Exact match**            | `newToken(32)` → base64url = 43 chars, scrypt-hashed, shown once |
+| **PIN 6–12, numeric, not all-same, not sequential** | ✅ **Exact match**            | `pinRejection()` in `packages/domain/src/auth.ts`                |
+| All devices share one shop balance                  | ✅ Built                      | `balanceFor(merchantId)`                                         |
+| Shop data isolation                                 | ✅ Built and tested           | Session-derived `merchantId`, never from the request body        |
+| Admin identity separate from merchants              | ✅ Built                      | `admin_users`, migration 014                                     |
+| Admin MFA and step-up re-auth                       | ✅ Built                      | `/mfa`, `/step-up`                                               |
+| Application review and approval                     | ✅ Built                      | `/applications`                                                  |
+| Suspend a shop                                      | ✅ Built                      | Lifecycle `SUSPENDED`, tenant status refusals                    |
+| Auto-generated activation code                      | ✅ Built                      | 100-bit, base32 minus `I O 0 1`, 1-hour expiry, hashed           |
+| Eleven-state merchant lifecycle                     | ✅ Built                      | `admin/applications.ts`                                          |
+| Per-shop provisioning                               | ✅ Built and called           | `admin/provisioning.ts`, exported from `@telga/api`; called by `/applications/:id/decide` |
+| Per-shop database routing                           | ⚠️ Written, **no callers**   | `admin/tenantRouting.ts` — deliberate, see below                 |
 
-**The four gaps** are recorded in [[Multi-Shop Onboarding]]: no application can be
-submitted, approval never calls `provisionMerchant()`, no route redeems an
-activation code, and `tenantRouting.ts` has no callers.
+> [!warning] This section was stale, and is corrected here
+> **Four of the five gaps below were closed and this note still described them
+> as open.** Re-verified against the code on 2026-09-10, claim by claim, because
+> a status table nobody re-checks is worse than no status table: it is read as
+> current.
+>
+> This is the same defect that produced the §14.1 and §17 corrections in
+> `CLAUDE.md` — documentation asserting a state of the system that stopped being
+> true. It was found by the founder reading the vault, not by any test.
 
-**A fifth gap** the brief adds: nothing forces a PIN change on first login.
-`pinRejection()` validates a PIN but no `must_change_pin` flag exists.
+| Gap as recorded | Verified 2026-09-10 |
+|---|---|
+| *"no application can be submitted"* | **Closed.** `/register` `GET` and `POST` on the merchant server — D138, §18.1 Path A. Returns a reference; creates no account |
+| *"approval never calls `provisionMerchant()`"* | **Closed.** `/applications/:id/decide` calls it in the same request, after the decision is recorded. Two call sites |
+| *"no route redeems an activation code"* | **Closed.** `/activate` `GET` and `POST` — §18.2 step 6, reachable with no session because a device with no key cannot sign in |
+| *"`tenantRouting.ts` has no callers"* | **Still true, and deliberate.** D113(a) deferred per-shop databases and D120 chose the shared model; wiring this would silently reinstate D103. It stays uncalled until that founder decision is taken — §18.4 |
+| *"nothing forces a PIN change on first login"* | **Closed.** `merchant_users.must_change_pin`, migration 015. Set by `issueCredentials` — a PIN Telga staff read aloud has an unknown number of holders — and read by `changePin` |
+
+**So one gap remains, not five**, and it is a decision rather than an omission.
 
 ## 2. What CLAUDE.md and the vault do **not** specify
 
@@ -349,10 +362,10 @@ Read from `apps/operations-console/src/server.ts` on 2026-09-08, not from memory
 
 | # | Brief requires | State |
 |---|---|---|
-| 1 | Face biometry **+** password **+** PIN | ⚠️ **Password + TOTP + step-up.** No face, no PIN — see below |
+| 1 | Face biometry **+** password **+** PIN | ⚠️ **Password + TOTP + step-up.** No face, no PIN — see below. **And a training relaxation exists**: `--single-factor` (D143, §23.1) switches off both the second factor and step-up together, announced at start-up and bannered on every page. It must be off before live money — §8's security gate cannot close while it is on |
 | 2 | Register new shops | ✅ Review, approve, and since D120 **provision** |
-| 3 | Suspend or deactivate shops | ⚠️ Lifecycle and tenant statuses exist; **no route sets them** |
-| 4 | Monitor system performance | ⚠️ **Counts only** — applications awaiting, merchants active, devices active, tenants behind, backups overdue. **No transaction totals and no volume** |
+| 3 | Suspend or deactivate shops | ✅ **Built.** `/merchants/:id/suspend` and `/reinstate`, `/devices/:id/stop` and `/reinstate`, `/operators/:id/suspend` and `/reinstate`. Each writes the status **and** revokes live sessions — R40 was a status written and never read at sign-in |
+| 4 | Monitor system performance | ✅ **Counts and volume.** `/activity` computes per-shop sales counts, counts by state, and **volume** (`SUM(amount_minor)` over successful sales), plus the platform totals. Still aggregates only — D144 keeps individual transactions out, and §23.2 records where that line sits |
 | 5 | View shop-level performance | ✅ **Built 2026-09-08 — D123.** `/merchants` shows **each shop's own** available float and a count of its sales, as correlated subqueries keyed on the merchant. Proved on the rendered page, including that the two shops' figures never appear as their sum |
 | 6 | **NOT** view individual transactions | ✅ **Satisfied for transactions** — no console query touches `transactions` or `ledger_entries`. ⚠️ But `/audit` returns 200 rows of `audit_events` carrying `entity_id` and `merchant_id`, so *which* shop did *what kind of thing, when* is visible even though amounts and recipients are not |
 | 7 | Manage system configuration | ❌ **Not built.** Feature flags are frozen compile-time constants by design — changing one is a code change plus a decision, deliberately |

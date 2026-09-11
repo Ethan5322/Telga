@@ -62,8 +62,23 @@ export const depositLookupFor = (deviceKey: string): string =>
 export interface DepositPorts {
   readonly now: () => string;
   readonly newId: (prefix: string) => string;
-  /** The shop that quoted this reference, or `undefined` when none did. */
-  readonly merchantForReference: (lookup: string) => string | undefined;
+  /**
+   * The shop that quoted this reference, or `undefined` when none did.
+   *
+   * Given **both** forms, because there are two kinds of reference and they
+   * resolve differently:
+   *
+   * - `lookup` is the hash of the quote, which is how a **per-shop** code is
+   *   stored (`device_enrollments.deposit_lookup`).
+   * - `quoted` is the raw text, which is how a **per-order** code is stored
+   *   (`topup_orders.reference`, normalised) — §20.1, the reference printed on
+   *   a deposit slip.
+   *
+   * The caller decides which to try first. Passing only the hash, as this port
+   * originally did, made a per-order reference unresolvable: hashing it finds
+   * nothing, and there is no way back from a hash to the text.
+   */
+  readonly merchantForReference: (lookup: string, quoted: string) => string | undefined;
   /** True when this bank reference has already produced a credit. */
   readonly alreadyCredited: (bankReference: string) => boolean;
   readonly insertSubmission: (row: {
@@ -122,7 +137,7 @@ export interface DepositOutcome {
 export function recordDeposit(ports: DepositPorts, input: DepositClaimInput): DepositOutcome {
   const at = ports.now();
   const lookup = depositLookupFor(input.quotedReference);
-  const merchantId = ports.merchantForReference(lookup);
+  const merchantId = ports.merchantForReference(lookup, input.quotedReference);
 
   const decision = verifyDeposit({
     claim: {

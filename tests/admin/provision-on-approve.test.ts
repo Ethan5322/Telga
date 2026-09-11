@@ -311,6 +311,65 @@ describe('a rejected application', () => {
   });
 });
 
+describe('an outcome the domain does not define', () => {
+  /**
+   * Found by hand, driving the console with `outcome=APPROVED` — one letter
+   * from the value that approves.
+   *
+   * The route cast the raw form value onto the decision type. A cast is a
+   * promise, not a check, so the string travelled intact to `statusAfterReview`,
+   * which sends everything that is not `APPROVE` or `RETURN_FOR_CORRECTION` to
+   * `CLOSED`. The applicant was **rejected**, the reviewer was shown no error,
+   * and the audit trail recorded an outcome that does not exist.
+   *
+   * No click could produce it — the console's own buttons send correct values —
+   * which is exactly why nothing caught it. Anything that is not a person
+   * clicking, a rename, an integration, a retried request, meets this path.
+   */
+  it('changes nothing, and does not fall back to rejecting the shop', async () => {
+    seedApplication();
+    const cookie = await signIn(await makeAdmin('ops', 'OPERATIONS_ADMIN'));
+
+    const reply = await decide(cookie, 'APPROVED');
+
+    expect(reply.status).toBe(303);
+    expect(reply.location).toContain('error=UNKNOWN_OUTCOME');
+    // Still awaiting a decision — not closed, not approved.
+    expect(application()).toMatchObject({ status: 'UNDER_REVIEW' });
+    expect(merchants()).toHaveLength(0);
+    expect(tenants()).toHaveLength(0);
+    expect(auditEvents()).not.toContain('ADMIN_APPLICATION_DECIDED');
+  });
+
+  it('refuses a missing outcome rather than defaulting to reject', async () => {
+    seedApplication();
+    const cookie = await signIn(await makeAdmin('ops', 'OPERATIONS_ADMIN'));
+
+    const reply = await send(`/applications/${APPLICATION}/decide`, {
+      method: 'POST',
+      cookie,
+      body: `reason=${encodeURIComponent('no outcome field at all')}`,
+    });
+
+    expect(reply.status).toBe(303);
+    expect(reply.location).toContain('error=UNKNOWN_OUTCOME');
+    expect(application()).toMatchObject({ status: 'UNDER_REVIEW' });
+    expect(merchants()).toHaveLength(0);
+  });
+
+  it('still accepts every outcome the domain does define', async () => {
+    // The guard must refuse the unknown without narrowing the known.
+    for (const outcome of ['APPROVE', 'REJECT', 'RETURN_FOR_CORRECTION']) {
+      seedApplication(`app_${outcome}`);
+      const cookie = await signIn(await makeAdmin(`ops_${outcome}`, 'OPERATIONS_ADMIN'));
+      const reply = await decide(cookie, outcome, `app_${outcome}`);
+      expect(reply.status).toBe(303);
+      expect(reply.location).not.toContain('UNKNOWN_OUTCOME');
+      expect(application(`app_${outcome}`)).not.toMatchObject({ status: 'UNDER_REVIEW' });
+    }
+  });
+});
+
 describe('who may do this', () => {
   it('refuses an auditor, who may read everything and change nothing', async () => {
     seedApplication();

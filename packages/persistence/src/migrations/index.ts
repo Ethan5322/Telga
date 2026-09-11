@@ -31,6 +31,9 @@ import { m016FundingSubmissions } from './016_funding_submissions';
 import { m017AdminEmailOtp } from './017_admin_email_otp';
 import { m018SelfServiceRegistration } from './018_self_service_registration';
 import { m019ReversalComplaintsTransfers } from './019_reversal_complaints_transfers';
+import { m020TopupOrders } from './020_topup_orders';
+import { m021ShopDepositReference } from './021_shop_deposit_reference';
+import { m022DepositMethod } from './022_deposit_method';
 
 export interface Migration {
   /** Sort key. Zero-padded so lexical order is execution order. */
@@ -60,6 +63,9 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
   m017AdminEmailOtp,
   m018SelfServiceRegistration,
   m019ReversalComplaintsTransfers,
+  m020TopupOrders,
+  m021ShopDepositReference,
+  m022DepositMethod,
 ]);
 
 export {
@@ -82,5 +88,8 @@ export {
   m017AdminEmailOtp,
   m018SelfServiceRegistration,
   m019ReversalComplaintsTransfers,
+  m020TopupOrders,
+  m021ShopDepositReference,
+  m022DepositMethod,
 };
 

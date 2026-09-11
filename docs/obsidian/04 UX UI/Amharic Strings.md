@@ -410,6 +410,17 @@ literal-from-English.
 | `pay.card.practice_read_error` | Card read error | ካርድ ንባብ ስህተት | ☐ |
 | `pay.card.practice_cancelled` | Cancelled | ተሰርዟል | ☐ |
 | `pay.retry` | Try again | እንደገና ይሞክሩ | ☐ |
+| `bank_deposit.button` | Deposit money | ገንዘብ አስገባ | ☐ |
+| `bank_deposit.title` | Deposit money at the bank | በባንክ ገንዘብ አስገባ | ☐ |
+| `bank_deposit.bank` | Bank | ባንክ | ☐ |
+| `bank_deposit.reference` | Payment reference | የክፍያ ማቲያ | ☐ |
+| `bank_deposit.expires` | Pay before | ከዚህ በፊት ይክፈሉ | ☐ |
+| `bank_deposit.close` | Close | ዝጋ | ☐ |
+| `transfer.title` | Send balance to another shop | ወደ ሌላ ሱቅ ቀሪ ሂሳብ ላክ | ☐ |
+| `transfer.fee` | Fee | ክፍያ | ☐ |
+| `transfer.send` | Send balance | ቀሪ ሂሳብ ላክ | ☐ |
+| `chapa.button` | Deposit with Chapa | በቻፓ ገንዘብ አስገባ | ☐ |
+| `chapa.method` | How to pay | የክፍያ መንገድ | ☐ |
 | `pay.deposit.label` | Add balance | ቀሪ ሂሳብ ጨምር | ☐ |
 | `pay.deposit.heading` | Add training balance | የልምምድ ቀሪ ሂሳብ ጨምር | ☐ |
 | `pay.deposit.prompt` | How much simulated balance do you want to add? | ምን ያህል የልምምድ ቀሪ ሂሳብ መጨመር ይፈልጋሉ? | ☐ |

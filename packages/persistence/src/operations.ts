@@ -22,6 +22,7 @@ import {
   createReservation,
   auditEventId,
   ledgerAccountId,
+  money,
   reservationId as makeReservationId,
 } from '@telga/domain';
 import type {
@@ -291,6 +292,93 @@ export function postReversalAdjustment(
           amount: input.amount,
           reason: 'REVERSAL',
         },
+      ],
+    });
+  });
+}
+
+/**
+ * Move balance from one shop to another — `CLAUDE.md` §19.1.
+ *
+ * ## Why this is not a deposit and not a sale
+ *
+ * **No value enters or leaves Telga.** A deposit brings money in from a bank; a
+ * sale sends it out to a provider. This moves an amount that already exists
+ * from one merchant's available bucket to another's, and the platform total is
+ * unchanged. That is exactly why both sides must be one posting: a transfer
+ * that debited without crediting is money destroyed, and one that credited
+ * without debiting is money invented.
+ *
+ * ## Why `ADJUSTMENT` rather than a transfer entry type
+ *
+ * `ledger_entries.entry_type` permits `FUNDING_CREDIT`, `SALE_DEBIT`,
+ * `COMMISSION_CREDIT`, `FEE_DEBIT`, `REVERSAL` and `ADJUSTMENT`. A transfer is
+ * an **authorised movement between accounts** — §13 invariant 8's language —
+ * and `ADJUSTMENT` is that. Adding a seventh type would be a migration on the
+ * ledger's oldest table for a distinction the `shop_transfers` row already
+ * records in full, including both parties and the authorising operator.
+ *
+ * ## The fee
+ *
+ * Defaults to **zero** (§19.1), and when it is zero no third entry is written —
+ * a nil line in a ledger is noise a reader has to dismiss. When a fee is
+ * configured it credits `TELGA_REVENUE`, and the sender is debited the amount
+ * **plus** the fee so the posting still balances.
+ */
+export function postShopTransfer(
+  driver: SqliteLedgerDriver,
+  input: {
+    senderMerchantId: MerchantId;
+    recipientMerchantId: MerchantId;
+    amount: Money;
+    fee: Money;
+    at: Timestamp;
+    correlationId: string;
+    postingId: PostingId;
+  },
+): void {
+  driver.transaction(() => {
+    ensureAccounts(driver, input.senderMerchantId, input.at);
+    ensureAccounts(driver, input.recipientMerchantId, input.at);
+
+    const feeMinor = input.fee.minor;
+    const debit = money(input.amount.minor + feeMinor);
+
+    driver.appendEntries({
+      postingId: input.postingId,
+      correlationId: input.correlationId,
+      at: input.at,
+      mode: 'TRAINING',
+      entries: [
+        {
+          accountId: merchantAccountId(input.senderMerchantId, 'MERCHANT_AVAILABLE'),
+          accountKind: 'MERCHANT_AVAILABLE',
+          merchantId: input.senderMerchantId,
+          direction: 'DEBIT',
+          // Amount plus fee: the sender parts with both.
+          amount: debit,
+          reason: 'ADJUSTMENT',
+        },
+        {
+          accountId: merchantAccountId(input.recipientMerchantId, 'MERCHANT_AVAILABLE'),
+          accountKind: 'MERCHANT_AVAILABLE',
+          merchantId: input.recipientMerchantId,
+          direction: 'CREDIT',
+          // The recipient gets the amount, never the fee.
+          amount: input.amount,
+          reason: 'ADJUSTMENT',
+        },
+        ...(feeMinor > 0
+          ? [
+              {
+                accountId: PLATFORM_ACCOUNTS.TELGA_REVENUE,
+                accountKind: 'TELGA_REVENUE' as const,
+                direction: 'CREDIT' as const,
+                amount: input.fee,
+                reason: 'ADJUSTMENT' as const,
+              },
+            ]
+          : []),
       ],
     });
   });

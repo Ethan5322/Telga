@@ -33,7 +33,7 @@ import {
   postReversalAdjustment,
   saveAdminUser,
 } from '@telga/persistence';
-import { fromBirr, postingId } from '@telga/domain';
+import { fromBirr, isEnabled, postingId } from '@telga/domain';
 import { createConsoleServer } from './server';
 
 export const EXIT = Object.freeze({
@@ -303,8 +303,65 @@ export async function run(
     (process.env['TELGA_CONSOLE_SINGLE_FACTOR'] ?? '').toLowerCase() === 'true';
 
   if (singleFactorAuth) {
+    /**
+     * The combination that must never start — §23.1, §8.
+     *
+     * *"It must be off before live money. §8's security and permissions gate
+     * cannot close while it is on."* That was a sentence in a document, and a
+     * sentence in a document is not a control: the only thing standing between
+     * a training relaxation and a live-money console was somebody remembering
+     * to drop a flag from a deploy command.
+     *
+     * Now the two refuse to coexist. `assertNoLiveMoneyEnabled()` above already
+     * refuses a live-money build outright; this refuses the narrower and more
+     * likely mistake — a real deployment that keeps the convenient flag.
+     */
+    if (isEnabled('money.live')) {
+      throw new ConsoleArgumentError(
+        'Refusing to start: --single-factor cannot be used while money.live is on. ' +
+          'CLAUDE.md §23.1 — the relaxation is for a training deployment only, and ' +
+          "§8's security gate cannot close while it is on.",
+      );
+    }
     write('SINGLE-FACTOR MODE: password only. No second factor, no step-up.');
     write('Training configuration. This must be off before any real money.');
+  }
+
+  /**
+   * The bank account a merchant deposit is expected to land in.
+   *
+   * ## Why this is required rather than defaulted
+   *
+   * `verifyDeposit` compares the account named on the bank record against this
+   * value and **rejects `WRONG_ACCOUNT`** when they differ — a genuine slip for
+   * a deposit into some other account is still not this deposit.
+   *
+   * The server option existed and the CLI never set it, so `expectedAccount`
+   * was always the empty string. Every deposit naming an account was therefore
+   * rejected as `WRONG_ACCOUNT`, and one naming none was rejected as
+   * `NO_BANK_RECORD` — **there was no path to `CREDITED` at all**, and the
+   * screens, the route and the ledger wiring all worked perfectly on either
+   * side of a gap nobody could cross. The same shape as `creditMerchant` being
+   * unwired, one release earlier.
+   *
+   * It is **not** defaulted to a plausible account number. Inventing the
+   * account that merchant money is checked against is exactly the kind of
+   * confident guess that §30 forbids: an operator who never set it would get a
+   * console that credits deposits against an account MuleSoo does not hold.
+   * Unset means deposits still refuse — the safe direction — and say why.
+   */
+  const depositAccount = (
+    values.get('deposit-account') ??
+    process.env['TELGA_DEPOSIT_ACCOUNT'] ??
+    ''
+  ).trim();
+
+  if (depositAccount.length === 0) {
+    write('No --deposit-account set. Deposits will be refused until one is configured.');
+    write('Set --deposit-account <account> or TELGA_DEPOSIT_ACCOUNT to the account');
+    write('merchant transfers are paid into.');
+  } else {
+    write(`Deposits are checked against account ${depositAccount}.`);
   }
 
   /**
@@ -316,11 +373,28 @@ export async function run(
    * writes a **balanced pair** inside the driver's transaction, because a
    * deposit posted with hand-written SQL is how a ledger stops balancing.
    *
-   * A second connection to one SQLite file is safe here — WAL, and SQLite
-   * serialises writers — and it is opened for the life of the process rather
-   * than per request, so it is closed alongside `connection` on shutdown.
+   * ## Why it is given the console's own connection
+   *
+   * It used to open its own, with a comment claiming that was *"safe here —
+   * WAL, and SQLite serialises writers"*.
+   *
+   * **It was not safe, and it failed every time.** Recording a deposit opens a
+   * write transaction on `connection` and then credits the merchant inside it.
+   * On a second connection that credit is a different writer, against a file
+   * whose write lock the first connection is still holding — and it cannot
+   * wait for a transaction that is itself waiting for the credit to return.
+   * Every deposit that reached the crediting step died on
+   * `SQLITE_BUSY: database is locked`. That writers are serialised is precisely
+   * the problem: one process cannot queue behind itself.
+   *
+   * Sharing the connection makes the credit part of the transaction enclosing
+   * it, which is what the ledger wants anyway: `driver.transaction()` is
+   * `better-sqlite3`'s helper, and it issues a `SAVEPOINT` rather than a
+   * `BEGIN` when the connection is already in a transaction. The balanced pair
+   * still rolls back as a unit, and the deposit row and its ledger entries
+   * commit together or not at all.
    */
-  const ledgerDriver = new SqliteLedgerDriver({ file: db });
+  const ledgerDriver = new SqliteLedgerDriver({ file: db, connection: connection as never });
 
   const handler = createConsoleServer({
     db: connection as never,
@@ -334,6 +408,9 @@ export async function run(
     // and the session travels in clear text on the last hop.
     secureCookies: wantsTls || behindProxy,
     singleFactorAuth,
+    // Empty when unset, which `verifyDeposit` will never match, so deposits
+    // refuse rather than credit against an account nobody configured.
+    depositAccount,
     /**
      * The deposit screens, wired to the ledger they claim to post to.
      *

@@ -211,6 +211,7 @@ describe('migration 008', () => {
       //   016 → funding_submissions
       //   018 → registration_attempts
       //   019 → reversal_requests, complaint_reviews, shop_transfers
+      //   020 → topup_orders
       //
       // 015 also adds `merchant_users.must_change_pin`, 016 adds
       // `device_enrollments.deposit_lookup`, and 018 adds
@@ -234,6 +235,7 @@ describe('migration 008', () => {
         'shifts',
         'shop_transfers',
         'tenant_registry',
+        'topup_orders',
         'transaction_attempts',
       ]);
       expect(driver.health().integrityCheck).toBe('ok');

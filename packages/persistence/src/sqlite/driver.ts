@@ -69,15 +69,52 @@ import * as settings from '../repositories/settings';
 import * as shopbook from '../repositories/shopbook';
 import * as applications from '../repositories/applications';
 import * as extensions from '../repositories/extensions';
+import * as topupOrders from '../repositories/topupOrders';
 import type { PendingOrderInput } from '../repositories/pendingOrders';
+
+/**
+ * How to open the driver's database.
+ *
+ * The plain {@link DriverOptions} case opens a connection from a path and owns
+ * it. `connection` is the other case: adopt one that is already open.
+ */
+export interface SqliteDriverOptions extends DriverOptions {
+  /**
+   * An already-open connection to use instead of opening one.
+   *
+   * ## When this is the right thing
+   *
+   * A process that already holds a connection and needs the ledger **inside a
+   * transaction it has already begun**. The operations console is the example:
+   * it records a deposit in raw SQL and credits the merchant through
+   * `fundMerchant` in the same unit of work. On a second connection that credit
+   * is a separate writer against a file whose write lock the first connection
+   * holds, and it cannot wait for the transaction that is waiting for it —
+   * `SQLITE_BUSY: database is locked`, every time, not intermittently. One
+   * process cannot queue behind itself.
+   *
+   * With a shared connection `transaction()` issues a `SAVEPOINT` rather than a
+   * `BEGIN`, because that is what `better-sqlite3` does when the connection is
+   * already in a transaction, and the nested work still rolls back as a unit.
+   *
+   * **The adopter keeps ownership.** `close()` leaves an adopted connection
+   * open: whoever opened it closes it, and a driver that closed a connection
+   * out from under its owner would be a far worse bug than the one this fixes.
+   * Pragmas are left alone too — they belong to whoever opened it.
+   */
+  readonly connection?: Db;
+}
 
 export class SqliteLedgerDriver implements LedgerDriver {
   private db: Db | undefined;
   private readonly options: DriverOptions;
+  /** False when the connection was adopted, so `close()` leaves it alone. */
+  private readonly ownsConnection: boolean;
 
-  constructor(options: DriverOptions) {
+  constructor(options: SqliteDriverOptions) {
     this.options = options;
-    this.db = openDatabase(options);
+    this.ownsConnection = options.connection === undefined;
+    this.db = options.connection ?? openDatabase(options);
   }
 
   get isOpen(): boolean {
@@ -128,7 +165,9 @@ export class SqliteLedgerDriver implements LedgerDriver {
 
   close(): void {
     if (this.db) {
-      closeDatabase(this.db);
+      // An adopted connection is somebody else's to close. Dropping the handle
+      // still makes this driver unusable, which is what `close()` promises.
+      if (this.ownsConnection) closeDatabase(this.db);
       this.db = undefined;
     }
   }
@@ -547,6 +586,124 @@ export class SqliteLedgerDriver implements LedgerDriver {
 
   pruneRegistrationAttempts(before: string): number {
     return applications.pruneRegistrationAttempts(this.handle(), before);
+  }
+
+  /** Give a shop its own deposit reference if it has none — §20.1. */
+  ensureDepositReference(
+    merchantId: MerchantId,
+    newReference: () => string,
+    normalize: (raw: string) => string,
+  ): string {
+    return merchants.ensureDepositReference(this.handle(), merchantId, newReference, normalize);
+  }
+
+  findMerchantByDepositReference(reference: string): MerchantRow | undefined {
+    return merchants.findMerchantByDepositReference(this.handle(), reference);
+  }
+
+  // --- bank deposit slips ---------------------------------------------------
+  //
+  // §20.1. The **Deposit money** button creates one of these, and the printed
+  // slip carries its reference. Delegated for the same reason as the block
+  // below: the POS holds a driver, not a database.
+
+  /**
+   * Create an order, drawing references until the `UNIQUE` index accepts one.
+   *
+   * The generator is passed in rather than imported, so persistence keeps no
+   * dependency on the domain package and a test can force a collision.
+   * Returns the reference actually stored, normalised.
+   */
+  saveTopupOrder(
+    input: topupOrders.NewTopupOrder,
+    newReference: () => string,
+    normalize: (raw: string) => string,
+  ): string {
+    return topupOrders.saveTopupOrder(this.handle(), input, newReference, normalize);
+  }
+
+  /** What the payment provider last said about an order. Evidence, not authority. */
+  recordTopupProviderOutcome(input: Parameters<typeof topupOrders.recordTopupProviderOutcome>[1]): number {
+    return topupOrders.recordTopupProviderOutcome(this.handle(), input);
+  }
+
+  /**
+   * A deposit matched to a shop and waiting for a person — §20.
+   *
+   * Written directly rather than through `recordDeposit`, because that function
+   * decides *whether* to credit and this caller has already decided: a verified
+   * Chapa payment is queued for an administrator, never credited on the spot.
+   */
+  insertFundingSubmission(input: {
+    readonly id: string;
+    readonly merchantId: string;
+    readonly quotedReference: string;
+    readonly bankReference: string;
+    readonly claimedAmountMinor: number;
+    readonly bankAmountMinor: number;
+    readonly status: string;
+    readonly currency: string;
+    readonly recordedBy: string | null;
+    readonly evidence: string;
+    readonly at: string;
+  }): void {
+    this.handle()
+      .prepare(
+        `INSERT INTO funding_submissions
+           (id, merchant_id, quoted_reference, bank_reference, claimed_amount_minor,
+            bank_amount_minor, status, currency, recorded_by, evidence, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.id,
+        input.merchantId,
+        input.quotedReference,
+        input.bankReference,
+        input.claimedAmountMinor,
+        input.bankAmountMinor,
+        input.status,
+        input.currency,
+        input.recordedBy,
+        input.evidence,
+        input.at,
+        input.at,
+      );
+  }
+
+  /** Whose reference is this? Matched whole, never on amount or date. */
+  findTopupOrderByReference(reference: string): topupOrders.TopupOrderRow | undefined {
+    return topupOrders.findTopupOrderByReference(this.handle(), reference);
+  }
+
+  /** The shop's live slip, if it is holding one. */
+  findOpenTopupOrder(merchantId: string, nowIso: string): topupOrders.TopupOrderRow | undefined {
+    return topupOrders.findOpenTopupOrder(this.handle(), merchantId, nowIso);
+  }
+
+  listTopupOrdersFor(merchantId: string, limit?: number): readonly topupOrders.TopupOrderRow[] {
+    return topupOrders.listTopupOrdersFor(this.handle(), merchantId, limit);
+  }
+
+  markTopupOrderPaid(input: Parameters<typeof topupOrders.markTopupOrderPaid>[1]): number {
+    return topupOrders.markTopupOrderPaid(this.handle(), input);
+  }
+
+  /** Claim an order for settlement. The lock in a concurrent settlement. */
+  claimTopupOrderForSettlement(reference: string, at: string): number {
+    return topupOrders.claimTopupOrderForSettlement(this.handle(), reference, at);
+  }
+
+  /** Name the submission that settled it, once it exists. */
+  linkTopupOrderSubmission(reference: string, fundingSubmissionId: string, at: string): number {
+    return topupOrders.linkTopupOrderSubmission(this.handle(), reference, fundingSubmissionId, at);
+  }
+
+  cancelTopupOrder(id: string, at: string): number {
+    return topupOrders.cancelTopupOrder(this.handle(), id, at);
+  }
+
+  expireTopupOrders(nowIso: string): number {
+    return topupOrders.expireTopupOrders(this.handle(), nowIso);
   }
 
   // --- reversal requests, complaints and shop transfers ----------------------

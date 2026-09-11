@@ -170,7 +170,7 @@ is a help page, not the wallet feature.
 
 **A prefix that matches no real route is not detected.** `card.simulated` gated
 `/pay/card` alone while nine sibling routes went unguarded, and
-`deposits.training` gated `/deposit`, which no route uses. Both are fixed;
+`deposits.training` gated a path that matched nothing. Both are fixed; note that `/deposit` now exists as a different feature — the §20.1 bank payment slip (D153), which that flag does not gate;
 nothing prevents the next one. Recorded as `A99`.
 
 ## Related

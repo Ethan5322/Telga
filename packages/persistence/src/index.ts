@@ -44,6 +44,13 @@ export * as adminRepo from './repositories/admin';
 export * as applicationsRepo from './repositories/applications';
 export * as extensionsRepo from './repositories/extensions';
 export * from './repositories/extensions';
+// §20.1 — a shop's own deposit reference, and the lookup that resolves it.
+export { ensureDepositReference, findMerchantByDepositReference } from './repositories/merchants';
+// §23.1 — the emailed sign-in code. Migration 017 added the columns; these
+// are the first functions ever to read or write them.
+export { saveAdminOtp, findAdminOtp, countAdminOtpAttempt, clearAdminOtp } from './repositories/admin';
+export * as topupOrdersRepo from './repositories/topupOrders';
+export * from './repositories/topupOrders';
 export {
   recordApplication,
   countRegistrationAttemptsSince,

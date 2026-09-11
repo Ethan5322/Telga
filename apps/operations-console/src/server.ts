@@ -38,6 +38,7 @@ import {
   ENROLLMENT_NOTICE,
   enrollmentExpiryFrom,
   normalizeEnrollmentToken,
+  parseReviewOutcome,
   reviewRefusal,
   statusAfterReview,
   ProvisioningError,
@@ -57,7 +58,10 @@ import type { AdminAuthContext, AdminAuthPolicy, AdminPermission } from '@telga/
 import {
   AdminAccessDeniedError,
   STRICT_ADMIN_AUTH,
+  assertNoLiveMoneyEnabled,
   effectivePermissions,
+  formatDepositReference,
+  normalizeDepositReference,
   requireAdmin,
 } from '@telga/domain';
 import {
@@ -66,6 +70,7 @@ import {
   listAdminUsers,
   recordApplication,
   decideReversalRequest,
+  markTopupOrderPaid,
   recordComplaintVerdict,
   revokeAdminSession,
   revokeAllAdminSessions,
@@ -80,8 +85,17 @@ import {
   operatorsScreen,
   providerHealthScreen,
 } from './ui/opsScreens';
+import { ConsoleRateLimiter, scopeForPath } from './rateLimit';
 import { recordAdminAction } from './audit';
 import type { AdminAuditInput } from './audit';
+import { OTP_RESEND_INTERVAL_MS, OTP_TTL_MS, issueEmailOtp, verifyEmailOtp } from '@telga/api';
+import {
+  clearAdminOtp,
+  countAdminOtpAttempt,
+  findAdminOtp,
+  markAdminMfaSatisfied,
+  saveAdminOtp,
+} from '@telga/persistence';
 import { consoleProvisioningPorts } from './provisioningPorts';
 import { CONTENT_SECURITY_POLICY, document } from './ui/page';
 import type { ConsoleChrome } from './ui/page';
@@ -89,18 +103,19 @@ import {
   adminsScreen,
   applicationDetailScreen,
   applicationsScreen,
-  registerShopScreen,
-  handoverScreen,
-  depositsScreen,
-  recordDepositScreen,
   auditScreen,
   dashboardScreen,
   deniedScreen,
+  depositsScreen,
   devicesScreen,
   enrollmentTokenScreen,
+  handoverScreen,
   merchantsScreen,
   mfaEnrolScreen,
   mfaScreen,
+  otpScreen,
+  recordDepositScreen,
+  registerShopScreen,
   signInScreen,
   stepUpScreen,
   tenantsScreen,
@@ -162,6 +177,19 @@ export interface ConsoleOptions {
    * it is a false record of a shop's balance, and every later reconciliation
    * would start from it.
    */
+  /**
+   * Email a sign-in code — §23.1, founder instruction 2026-09-11.
+   *
+   * **Absent means no email second factor**, and the console falls back to
+   * whatever it had. A build that looked configured and silently sent nothing
+   * would leave an administrator waiting for a code that was never queued.
+   *
+   * The Resend key reaches here from the environment via `cli.ts`; it appears
+   * in no committed file (§24).
+   */
+  readonly sendSignInCode?: (to: string, code: string, expiresInMinutes: number) => Promise<
+    { readonly kind: 'SENT' } | { readonly kind: 'REFUSED' | 'UNREACHABLE'; readonly detail: string }
+  >;
   readonly creditMerchant?: (input: {
     readonly merchantId: string;
     readonly amountMinor: number;
@@ -395,12 +423,35 @@ function originOk(request: IncomingMessage, allowedHosts: readonly string[]): bo
   }
 }
 
+/**
+ * Refuse to start if a live-money flag is on — `CLAUDE.md` §8.
+ *
+ * `apps/merchant-pos/src/server.ts` has done this at module load since early
+ * on. **The console did not**, and the console is the process that *credits a
+ * merchant balance*: `creditMerchant` and the second-approval route both post
+ * to the ledger. A build that shipped with `money.live` on would have been
+ * refused by the merchant server and started cheerfully here.
+ *
+ * At module load rather than per request, so the refusal happens before a port
+ * is bound and nobody can reach a half-safe console at all.
+ */
+assertNoLiveMoneyEnabled();
+
 export function createConsoleServer(options: ConsoleOptions): Server {
   // `::1` belongs here because `cli.ts`'s `isLoopback` already accepts it as a
   // bind host. Without it the console would bind to IPv6 loopback and then
   // refuse every form posted to it — the two definitions of "this machine" have
   // to agree, or the console serves a page it will not accept input from.
   const allowedHosts = options.allowedHosts ?? ['localhost', '127.0.0.1', '::1'];
+
+  /**
+   * One limiter for the life of the server — §24, *"rate limiting"*.
+   *
+   * Held here rather than per request, because a counter that is rebuilt on
+   * every request counts nothing. See `rateLimit.ts` for why it is in memory
+   * and what that costs if the console is ever run as more than one process.
+   */
+  const rateLimiter = new ConsoleRateLimiter();
   const secure = options.secureCookies ?? false;
 
   /**
@@ -477,6 +528,37 @@ export function createConsoleServer(options: ConsoleOptions): Server {
     const url = new URL(request.url ?? '/', 'http://console.local');
     const path = url.pathname;
     const method = request.method ?? 'GET';
+
+    /**
+     * Refuse a flood **before** anything else happens — §24.
+     *
+     * Above the origin check, above authentication, above any database read:
+     * a refused request must not parse a body, open a statement or touch the
+     * one SQLite connection the console shares with the merchant server. That
+     * ordering is the whole point — a limiter that runs after the work has
+     * already been done limits nothing.
+     *
+     * The address comes from the socket, never from a header. `X-Forwarded-For`
+     * is written by whoever is calling, so trusting it would let an attacker
+     * hand themselves a fresh identity per request and make this control
+     * decorative.
+     */
+    const address = request.socket.remoteAddress ?? 'unknown';
+    const verdict = rateLimiter.check(address, scopeForPath(path), Date.parse(options.now()));
+    if (!verdict.ok) {
+      response.writeHead(429, {
+        'content-type': 'text/html; charset=utf-8',
+        'retry-after': String(verdict.retryAfterSeconds),
+        // A refusal is not a page worth keeping.
+        'cache-control': 'no-store',
+      });
+      // Deliberately plain, and deliberately says nothing about who is limited
+      // or how close anybody is to a limit: that is a map of the control for
+      // anybody probing it.
+      response.end('<p data-testid="rate-limited">Too many requests. Wait a moment and try again.</p>');
+      return;
+    }
+
     const cookies = parseCookies(request.headers['cookie']);
     const csrf = cookies[CSRF_COOKIE];
 
@@ -607,6 +689,93 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         // The password is cleared but the session can still do nothing.
         metadata: { mfaSatisfied: result.mfaSatisfied },
       });
+
+      /**
+       * The emailed second factor — §23.1, founder instruction 2026-09-11:
+       * *"after enter email and password the system must send OTP, within 60
+       * sec OTP number must be verified."*
+       *
+       * ## Why the session cookie is set before the code is proved
+       *
+       * It has to be: the code is checked on a **second request**, and that
+       * request has to be recognisable as belonging to this sign-in attempt.
+       * The session is created with the password satisfied and the second
+       * factor **not** — `requireMfa` keeps it from reaching anything, so a
+       * session in this state can do exactly one thing, which is present a
+       * code.
+       *
+       * ## Why a failure to send is not a refusal
+       *
+       * If Resend cannot be reached, Telga does not know whether the code was
+       * delivered. §30: an uncertain outcome is never reported as a definite
+       * one. The administrator is told the code could not be sent and offered
+       * another, rather than being told their password was wrong.
+       */
+      if (options.sendSignInCode !== undefined && adminPolicy.requireMfa !== false) {
+        const at = options.now();
+        const issued = await issueEmailOtp(at);
+        const sent = await options.sendSignInCode(
+          result.user.email,
+          issued.code,
+          Math.max(1, Math.round(OTP_TTL_MS / 60_000)),
+        );
+
+        if (sent.kind !== 'SENT') {
+          // To the operator's terminal, never to the browser: the reason names
+          // an unverified domain or a bad key, which is internal detail.
+          process.stderr.write(`[telga-console] sign-in code not sent: ${sent.detail}\n`);
+          record({
+            event: 'ADMIN_SIGN_IN_REFUSED',
+            actorId: result.user.id,
+            actorRole: result.user.role,
+            entityType: 'ADMIN_SESSION',
+            entityId: result.user.id,
+            metadata: { reason: 'OTP_NOT_SENT' },
+          });
+          response.writeHead(303, {
+            location: '/login?error=' + encodeURIComponent('Could not send your sign-in code. Try again.'),
+          });
+          response.end();
+          return;
+        }
+
+        /**
+         * The clock starts **here**, not when the code was generated.
+         *
+         * Hashing and the database write are Telga's own work, and at a sixty
+         * second budget they are several per cent of it. The administrator
+         * should not pay for them.
+         */
+        saveAdminOtp(options.db as never, {
+          adminId: result.user.id,
+          hash: issued.hash,
+          salt: issued.salt,
+          expiresAt: new Date(Date.parse(options.now()) + OTP_TTL_MS).toISOString(),
+          sentAt: options.now(),
+        });
+
+        record({
+          event: 'ADMIN_OTP_SENT',
+          actorId: result.user.id,
+          actorRole: result.user.role,
+          entityType: 'ADMIN_SESSION',
+          entityId: result.user.id,
+          // Never the code, and never the address beyond what the row already
+          // holds. The fact that one was sent is the auditable thing.
+          metadata: { expiresInSeconds: Math.round(OTP_TTL_MS / 1000) },
+        });
+
+        response.writeHead(303, {
+          location: '/otp',
+          'set-cookie': [
+            cookie(SESSION_COOKIE, result.sessionToken, secure),
+            cookie(CSRF_COOKIE, result.csrfToken, secure),
+          ],
+        });
+        response.end();
+        return;
+      }
+
       response.writeHead(303, {
         // Straight to the dashboard under single-factor (D143). Sending an
         // administrator to a second-factor page that nothing is waiting on
@@ -672,6 +841,178 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       });
       screen(mfaEnrolScreen(chromeFor(context, csrf), enrolment), 'Set up your authenticator');
       return;
+    }
+
+    /**
+     * The emailed sign-in code — §23.1.
+     *
+     * ## Where this sits, and why
+     *
+     * **Above** the permission guard and **below** the session check: it needs
+     * to know who is asking, and the asker has no permissions yet. A session
+     * here has passed a password and nothing else.
+     */
+    if (path === '/otp' || path === '/otp/resend') {
+      // The session exists and its password is satisfied; its second factor is
+      // not. `requireMfa` keeps such a session from reaching anything else, so
+      // presenting a code is the only thing it can do.
+      const admin = context.user;
+      const nowMs = Date.parse(options.now());
+
+      if (path === '/otp' && method === 'GET') {
+        const outstanding = findAdminOtp(options.db as never, admin.id);
+        const secondsLeft =
+          outstanding === undefined
+            ? 0
+            : Math.max(0, Math.round((Date.parse(outstanding.expires_at) - nowMs) / 1000));
+        respond(
+          response,
+          200,
+          document(
+            otpScreen(chromeFor(context, csrf), secondsLeft, url.searchParams.get('error') ?? undefined),
+            'Sign-in code',
+          ),
+        );
+        return;
+      }
+
+      if (path === '/otp/resend' && method === 'POST') {
+        await readForm(request);
+        const outstanding = findAdminOtp(options.db as never, admin.id);
+        // The resend interval, so a caller cannot make Telga mail an address as
+        // fast as they can press a button — a nuisance to the administrator and
+        // a good way to get the sending domain marked as spam.
+        if (
+          outstanding?.sent_at != null &&
+          nowMs - Date.parse(outstanding.sent_at) < OTP_RESEND_INTERVAL_MS
+        ) {
+          response.writeHead(303, {
+            location: '/otp?error=' + encodeURIComponent('Wait a moment before asking for another code.'),
+          });
+          response.end();
+          return;
+        }
+        if (options.sendSignInCode === undefined) {
+          response.writeHead(303, { location: '/otp' });
+          response.end();
+          return;
+        }
+        const issued = await issueEmailOtp(options.now());
+        const sent = await options.sendSignInCode(
+          admin.email,
+          issued.code,
+          Math.max(1, Math.round(OTP_TTL_MS / 60_000)),
+        );
+        if (sent.kind !== 'SENT') {
+          process.stderr.write(`[telga-console] resend failed: ${sent.detail}\n`);
+          response.writeHead(303, {
+            location: '/otp?error=' + encodeURIComponent('Could not send a code. Try again.'),
+          });
+          response.end();
+          return;
+        }
+        saveAdminOtp(options.db as never, {
+          adminId: admin.id,
+          hash: issued.hash,
+          salt: issued.salt,
+          expiresAt: new Date(Date.parse(options.now()) + OTP_TTL_MS).toISOString(),
+          sentAt: options.now(),
+        });
+        record({
+          event: 'ADMIN_OTP_SENT',
+          actorId: admin.id,
+          actorRole: admin.role,
+          entityType: 'ADMIN_SESSION',
+          entityId: admin.id,
+          metadata: { resend: true },
+        });
+        response.writeHead(303, { location: '/otp' });
+        response.end();
+        return;
+      }
+
+      if (path === '/otp' && method === 'POST') {
+        const form = await readForm(request);
+        const outstanding = findAdminOtp(options.db as never, admin.id);
+
+        if (outstanding === undefined) {
+          response.writeHead(303, {
+            location: '/otp?error=' + encodeURIComponent('That code has expired. Ask for another.'),
+          });
+          response.end();
+          return;
+        }
+
+        const verdict = await verifyEmailOtp(
+          form['code'] ?? '',
+          {
+            hash: outstanding.hash,
+            salt: outstanding.salt,
+            expiresAt: outstanding.expires_at,
+            attempts: outstanding.attempts,
+          },
+          options.now(),
+        );
+
+        if (!verdict.ok) {
+          /**
+           * Wrong, expired, or out of attempts.
+           *
+           * A used-up or expired code is **cleared**, so the next attempt is
+           * told to ask for another rather than guessing against a dead code.
+           * A merely wrong one is kept and counted: the attempt budget is what
+           * actually stops guessing.
+           */
+          if (verdict.refusal === 'CODE_EXPIRED' || verdict.refusal === 'TOO_MANY_ATTEMPTS') {
+            clearAdminOtp(options.db as never, admin.id);
+          } else {
+            countAdminOtpAttempt(options.db as never, admin.id);
+          }
+          record({
+            event: 'ADMIN_OTP_REFUSED',
+            actorId: admin.id,
+            actorRole: admin.role,
+            entityType: 'ADMIN_SESSION',
+            entityId: admin.id,
+            metadata: { reason: verdict.refusal },
+          });
+          const said =
+            verdict.refusal === 'CODE_EXPIRED'
+              ? 'That code has expired. Ask for another.'
+              : verdict.refusal === 'TOO_MANY_ATTEMPTS'
+                ? 'Too many wrong codes. Ask for another.'
+                : 'That code is not right.';
+          response.writeHead(303, { location: '/otp?error=' + encodeURIComponent(said) });
+          response.end();
+          return;
+        }
+
+        /**
+         * Accepted.
+         *
+         * The code is cleared on success as well as on failure — one that
+         * stayed in the row after being accepted would be a second, silent way
+         * in. The session is marked as having satisfied its second factor, and
+         * from here it is an ordinary console session.
+         *
+         * **No geography and no time-of-day check**, on the founder's
+         * instruction and on the merits: an Ethiopian merchant platform whose
+         * administrator travels, or works at night, must not be locked out by a
+         * rule that protects nothing a correct code does not already protect.
+         */
+        clearAdminOtp(options.db as never, admin.id);
+        markAdminMfaSatisfied(options.db as never, auth.sessionId, options.now());
+        record({
+          event: 'ADMIN_OTP_ACCEPTED',
+          actorId: admin.id,
+          actorRole: admin.role,
+          entityType: 'ADMIN_SESSION',
+          entityId: admin.id,
+        });
+        response.writeHead(303, { location: '/' });
+        response.end();
+        return;
+      }
     }
 
     if (path === '/mfa') {
@@ -1291,8 +1632,20 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         respond(response, 404, document(deniedScreen(chromeFor(context, csrf), 'No such application.'), 'Not found'));
         return;
       }
+      // Validated, never cast. An unrecognised outcome used to be cast straight
+      // through and land on the `REJECT` branch, so a value one letter from
+      // `APPROVE` closed the application with no error shown and wrote an
+      // outcome into the audit trail that the domain does not define.
+      const outcome = parseReviewOutcome(form['outcome']);
+      if (outcome === undefined) {
+        response.writeHead(303, {
+          location: `/applications/${encodeURIComponent(id)}?error=UNKNOWN_OUTCOME`,
+        });
+        response.end();
+        return;
+      }
       const decision = {
-        outcome: (form['outcome'] ?? 'REJECT') as 'APPROVE' | 'REJECT' | 'RETURN_FOR_CORRECTION',
+        outcome,
         reason: form['reason'] ?? '',
         reviewedBy: context.user.id,
       };
@@ -1801,7 +2154,32 @@ export function createConsoleServer(options: ConsoleOptions): Server {
 
     if (path === '/deposits' && method === 'GET') {
       if (!guard('ADMIN_REVIEW_FUNDING')) return;
-      screen(depositsScreen(chromeFor(context, csrf), deposits(), allowed), 'Deposits');
+      screen(depositsScreen(
+          chromeFor(context, csrf),
+          deposits(),
+          allowed,
+          rows<{
+            reference: string;
+            merchant_id: string;
+            amount_minor: number;
+            created_at: string;
+            expires_at: string;
+          }>(
+            `SELECT reference, merchant_id, amount_minor, created_at, expires_at
+               FROM topup_orders
+              WHERE status = 'OPEN' AND expires_at > ?
+              ORDER BY created_at`,
+            options.now(),
+          ).map((r) => ({
+            reference: formatDepositReference(r.reference),
+            merchantId: r.merchant_id,
+            amountMinor: r.amount_minor,
+            issuedAt: r.created_at,
+            expiresAt: r.expires_at,
+          })),
+          context.user.id,
+          url.searchParams.get('notice') ?? undefined,
+        ), 'Deposits');
       return;
     }
 
@@ -1861,12 +2239,55 @@ export function createConsoleServer(options: ConsoleOptions): Server {
           {
             now: options.now,
             newId: options.newId,
-            merchantForReference: (lookup) =>
-              (
+            /**
+             * Whose reference is this? — §20.1.
+             *
+             * **A printed slip first.** `topup_orders.reference` is per order,
+             * so it identifies not only the shop but the exact deposit it was
+             * printed for. That is what makes a thousand shops paying in the
+             * same amount on the same morning distinguishable: the amount is
+             * never consulted, only the reference.
+             *
+             * The per-shop code is the fallback, for a shop that transferred
+             * without printing a slip. Order matters: a per-order code is more
+             * specific, and checking it first means a slip that exists is
+             * always matched to its own order.
+             *
+             * **Neither is guessed at.** If neither answers, the caller sends
+             * the payment to manual review rather than to the nearest shop.
+             */
+            merchantForReference: (lookup, quoted) => {
+              const normalized = normalizeDepositReference(quoted);
+
+              // 1. A printed slip — per order, so it identifies the exact
+              //    deposit it was printed for. Checked first because it is the
+              //    most specific thing a shop can quote.
+              const order = options.db
+                .prepare(`SELECT merchant_id FROM topup_orders WHERE reference = ?`)
+                .get(normalized) as { merchant_id: string } | undefined;
+              if (order !== undefined) return order.merchant_id;
+
+              // 2. The shop's own standing reference — §20.1, for a shop that
+              //    pays in without printing a slip. Added 2026-09-11: the only
+              //    per-shop code before this was `device_enrollments.
+              //    deposit_lookup`, written by `issueCredentials` and by
+              //    nothing else, so every shop provisioned through the CLI had
+              //    none and this fallback resolved nothing at all.
+              const shop = options.db
+                .prepare(`SELECT id FROM merchants WHERE deposit_reference = ?`)
+                .get(normalized) as { id: string } | undefined;
+              if (shop !== undefined) return shop.id;
+
+              // 3. The device key, kept only for shops issued one before §20.1
+              //    superseded it. It must not be quoted on new paperwork: it is
+              //    a sign-in credential, which is the whole reason the codes
+              //    above exist.
+              return (
                 options.db
                   .prepare(`SELECT merchant_id FROM device_enrollments WHERE deposit_lookup = ?`)
                   .get(lookup) as { merchant_id: string } | undefined
-              )?.merchant_id,
+              )?.merchant_id;
+            },
             alreadyCredited: (reference) =>
               options.db
                 .prepare(
@@ -1925,9 +2346,39 @@ export function createConsoleServer(options: ConsoleOptions): Server {
             recordedBy: context.user.id,
           },
         );
+
+        /**
+         * Close the slip this payment answered — §20.1.
+         *
+         * Inside the same transaction as the credit, so an order marked `PAID`
+         * and a balance that moved are one fact rather than two that can
+         * disagree. A shop credited against an order still reading `OPEN`
+         * would be blocked from printing its next slip, and an order marked
+         * paid with no credit would be worse.
+         *
+         * Only on `CREDITED`. A deposit sent to manual review or refused has
+         * not answered anything, and the slip stays open for the payment that
+         * eventually does.
+         */
+        if (outcome.status === 'CREDITED') {
+          markTopupOrderPaid(options.db as never, {
+            reference: normalizeDepositReference((form['quotedReference'] ?? '').trim()),
+            fundingSubmissionId: outcome.submissionId,
+            at: options.now(),
+          });
+        }
+
         options.db.prepare('COMMIT').run();
-      } catch {
+      } catch (error) {
         options.db.prepare('ROLLBACK').run();
+        // The operator sees a refusal; somebody has to be able to find out why.
+        // This catch used to swallow the reason entirely, so a deposit that
+        // failed for a configuration fault and one that failed for a bug looked
+        // identical from both the screen and the logs. The message goes to
+        // stderr, never to the screen: it can name internal detail, and the
+        // person at the console is not the person who can act on it.
+        process.stderr.write(`[telga-console] deposit not recorded: ${String(error)}
+`);
         screen(
           recordDepositScreen({
             chrome: chromeFor(context, csrf),
@@ -1955,6 +2406,131 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       });
 
       response.writeHead(303, { location: '/deposits' });
+      response.end();
+      return;
+    }
+
+    /**
+     * The **second approval** a high-value deposit needs — §20.
+     *
+     * ## The gap this closes
+     *
+     * `recordDeposit` stores an over-cap deposit as `MATCHED` and returns
+     * `NEEDS_APPROVAL`. The deposits screen counted those rows — *"N waiting for
+     * a decision"* — and **nothing could make the decision**. A shop that paid
+     * in more than the cap had its money sit in a row forever: no error, no
+     * complaint path, no balance. Found by auditing which admin permissions
+     * guard nothing; `ADMIN_SECOND_APPROVE_FUNDING` guarded no route at all.
+     *
+     * ## Why a *different* person
+     *
+     * §20: *"High-value or exceptional deposits require a second approval."* A
+     * second approval given by the person who recorded the deposit is not a
+     * second approval — it is the same judgement typed twice, and it defeats
+     * the only control standing between a mistaken or dishonest entry and a
+     * shop's balance. The check is on `recorded_by`, and it is refused in the
+     * route rather than hidden in the screen: a hidden button that still
+     * answers is not a control (§23.2).
+     *
+     * A `PLATFORM_OWNER` is not exempt. Seniority is not a second pair of eyes.
+     */
+    const approveFunding = /^\/deposits\/([^/]+)\/approve$/.exec(path);
+    if (approveFunding && method === 'POST') {
+      if (!guard('ADMIN_SECOND_APPROVE_FUNDING')) return;
+      const id = decodeURIComponent(approveFunding[1]);
+      // CSRF is settled centrally, before routing: the console judges Origin
+      // and falls back to `Sec-Fetch-Site` for an opaque one (D142). A
+      // per-route token check here would be a second, weaker answer to a
+      // question already decided.
+      await readForm(request);
+
+      const row = options.db
+        .prepare(
+          `SELECT id, merchant_id, bank_amount_minor, bank_reference, status, recorded_by
+             FROM funding_submissions WHERE id = ?`,
+        )
+        .get(id) as
+        | {
+            id: string;
+            merchant_id: string | null;
+            bank_amount_minor: number | null;
+            bank_reference: string;
+            status: string;
+            recorded_by: string | null;
+          }
+        | undefined;
+
+      const refuse = (reason: string): void => {
+        response.writeHead(303, { location: `/deposits?notice=${encodeURIComponent(reason)}` });
+        response.end();
+      };
+
+      if (row === undefined) return refuse('No such deposit.');
+      // Only a deposit actually waiting. A replayed press finds CREDITED and
+      // says so rather than crediting twice.
+      if (row.status !== 'MATCHED') return refuse(`Already decided — this deposit is ${row.status}.`);
+      if (row.merchant_id === null || row.bank_amount_minor === null) {
+        return refuse('This deposit resolved to no shop. It needs manual review, not approval.');
+      }
+      if (row.recorded_by === context.user.id) {
+        return refuse(
+          'You recorded this deposit, so you cannot be its second approver. Ask a colleague.',
+        );
+      }
+
+      const at = options.now();
+      const posting = options.newId('post');
+      try {
+        // One transaction: the credit and the status. A credited shop against a
+        // row still reading MATCHED would be approved again by the next person
+        // to look at the queue.
+        options.db.prepare('BEGIN').run();
+        if (options.creditMerchant === undefined) {
+          throw new Error('no creditMerchant port supplied');
+        }
+        options.creditMerchant({
+          merchantId: row.merchant_id,
+          amountMinor: row.bank_amount_minor,
+          postingId: posting,
+          correlationId: options.newId('corr'),
+          at,
+        });
+        options.db
+          .prepare(
+            `UPDATE funding_submissions
+                SET status = 'CREDITED', approved_by = ?, approved_at = ?, posting_id = ?, updated_at = ?
+              WHERE id = ? AND status = 'MATCHED'`,
+          )
+          .run(context.user.id, at, posting, at, id);
+        // The slip this payment answered, if it came from one — §20.1.
+        markTopupOrderPaid(options.db as never, {
+          reference: normalizeDepositReference(row.bank_reference),
+          fundingSubmissionId: row.id,
+          at,
+        });
+        options.db.prepare('COMMIT').run();
+      } catch (error) {
+        options.db.prepare('ROLLBACK').run();
+        process.stderr.write(`[telga-console] second approval failed: ${String(error)}\n`);
+        return refuse('The approval could not be posted. Nothing was credited.');
+      }
+
+      record({
+        event: 'ADMIN_FUNDING_SECOND_APPROVED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'FUNDING_SUBMISSION',
+        entityId: id,
+        merchantId: row.merchant_id,
+        // Both people, on the one row. "Who approved this" and "who recorded
+        // it" is the question an auditor asks first, and it must be answerable
+        // without joining anything.
+        metadata: { recordedBy: row.recorded_by ?? 'unknown', approvedBy: context.user.id, at },
+      });
+
+      response.writeHead(303, {
+        location: `/deposits?notice=${encodeURIComponent('Approved and credited.')}`,
+      });
       response.end();
       return;
     }

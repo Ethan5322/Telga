@@ -22,8 +22,34 @@ import { randomBytes } from 'node:crypto';
 import type { TransportConfig } from './config';
 import type { RequestScheme } from './proxy';
 
-/** A fresh nonce per response. Never reused, never derived from anything. */
-export const newNonce = (): string => randomBytes(16).toString('base64');
+/**
+ * A fresh nonce per response. Never reused, never derived from anything.
+ *
+ * ## Why hex and not base64
+ *
+ * Same 128 bits either way, and both are valid in a CSP `nonce-` source. Hex is
+ * chosen for one reason: **base64 spells words.**
+ *
+ * `tests/ui/server.test.ts` refuses any page containing
+ * `/salt|secret|credential|api[_-]?key/i` — a deliberately broad guard against a
+ * secret reaching a rendered page. A random base64 nonce contains `salt`, in
+ * some mixture of cases, about **once in every 52,600 values**: `3fxsaLtMae…`,
+ * `lwSc06vBSaltm5…`. With sixteen pages rendered per run that is roughly one run
+ * in three thousand, which is exactly the shape of a failure nobody can
+ * reproduce — it failed once in a full suite and passed twelve times in
+ * isolation.
+ *
+ * The guard is right and stays untouched: it cannot know which letter-run is
+ * innocent, and a version that could is a version that misses a real leak. So
+ * the nonce stops being able to spell the words instead. Hex is `0-9a-f`, which
+ * contains no `s`, `l`, `t`, `r`, `u`, `i`, `p`, `k` or `y` — none of the
+ * guarded words can be written in it at all.
+ *
+ * This is the second time a broad secret-guard has fired on an innocent value
+ * and the answer was to change the value rather than the guard; see the idle
+ * window, published in seconds because milliseconds made a six-digit number.
+ */
+export const newNonce = (): string => randomBytes(16).toString('hex');
 
 export interface HeaderOptions {
   readonly config: TransportConfig;

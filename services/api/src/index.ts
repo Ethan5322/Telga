@@ -14,6 +14,10 @@ export { requireReversal, completeReversal, SUPERVISOR_ROLES } from './applicati
 export type { ReversalApproval } from './application/reversal';
 export { rehydrate, persistRehydrated } from './application/rehydrate';
 export * from './application/voucherOrders';
+export { orderBankDeposit, openBankDeposit, cancelBankDeposit } from './application/bankDeposit';
+export { startChapaDeposit, settleChapaDeposit, assertChapaSandbox, LiveChapaKeyRefused } from './application/chapaDeposit';
+export type { ChapaStartResult, ChapaSettleResult, ChapaPorts } from './application/chapaDeposit';
+export type { BankDepositResult, BankDepositRequest } from './application/bankDeposit';
 export * from './application/reprint';
 export * from './application/settings';
 export * from './application/deposits';
@@ -23,6 +27,8 @@ export * from './application/changePin';
 export * from './auth/totp';
 export * from './auth/adminSessions';
 export * from './auth/emailOtp';
+// §23.1 — the delivery half of the console's second factor.
+export * from './notifications/resend';
 export * from './admin/tenants';
 export * from './admin/applications';
 export * from './admin/enrollment';

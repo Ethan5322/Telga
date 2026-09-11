@@ -235,3 +235,74 @@ export function clearAdminMfaSecret(db: Db, id: string, at: string): void {
       WHERE id = @id`,
   ).run({ id, at });
 }
+
+/**
+ * The emailed sign-in code — §23.1.
+ *
+ * Migration 017 added these columns and **nothing ever read or wrote them**.
+ * The code, its expiry, its attempt count and the moment it was sent all lived
+ * in a schema nobody used, which is what a second factor looks like when the
+ * delivery half was never built.
+ *
+ * The code itself is never stored. `otp_hash` and `otp_salt` are a derivation
+ * of it, exactly as a password is — a database that could reveal a live sign-in
+ * code is a database that is itself a second factor.
+ */
+export function saveAdminOtp(
+  db: Db,
+  input: {
+    readonly adminId: string;
+    readonly hash: string;
+    readonly salt: string;
+    readonly expiresAt: string;
+    readonly sentAt: string;
+  },
+): void {
+  db.prepare(
+    `UPDATE admin_users
+        SET otp_hash = ?, otp_salt = ?, otp_expires_at = ?, otp_sent_at = ?, otp_attempts = 0
+      WHERE id = ?`,
+  ).run(input.hash, input.salt, input.expiresAt, input.sentAt, input.adminId);
+}
+
+/** What is outstanding for this administrator, if anything. */
+export const findAdminOtp = (
+  db: Db,
+  adminId: string,
+): { hash: string; salt: string; expires_at: string; attempts: number; sent_at: string | null } | undefined =>
+  db
+    .prepare(
+      `SELECT otp_hash AS hash, otp_salt AS salt, otp_expires_at AS expires_at,
+              otp_attempts AS attempts, otp_sent_at AS sent_at
+         FROM admin_users WHERE id = ? AND otp_hash IS NOT NULL`,
+    )
+    .get(adminId) as
+    | { hash: string; salt: string; expires_at: string; attempts: number; sent_at: string | null }
+    | undefined;
+
+/**
+ * A wrong guess.
+ *
+ * Counted against the **code**, never the account. Locking the account would
+ * hand anybody who knows an administrator's email a denial-of-service button;
+ * killing the code costs the real administrator one more email and costs an
+ * attacker their whole budget.
+ */
+export const countAdminOtpAttempt = (db: Db, adminId: string): void => {
+  db.prepare('UPDATE admin_users SET otp_attempts = otp_attempts + 1 WHERE id = ?').run(adminId);
+};
+
+/**
+ * Used, expired, or abandoned — the code is gone either way.
+ *
+ * Cleared on success as well as on failure: a code that stayed in the row after
+ * it had been accepted would be a second, silent way in.
+ */
+export const clearAdminOtp = (db: Db, adminId: string): void => {
+  db.prepare(
+    `UPDATE admin_users
+        SET otp_hash = NULL, otp_salt = NULL, otp_expires_at = NULL,
+            otp_sent_at = NULL, otp_attempts = 0
+      WHERE id = ?`,
+  ).run(adminId);
+};

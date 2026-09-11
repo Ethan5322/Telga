@@ -729,6 +729,103 @@ reason, ledger entry, and adjustments.
 
 Segregate: merchant funds · Telga revenue · provider settlement · hardware deposits · refund reserves.
 
+### 20.1 The Deposit Money button and the payment slip
+
+A shop needs selling balance before it can sell anything. Today it must already know Telga's
+bank details and its own reference. This button puts both on a printed slip.
+
+**One button, on the shop's own device.** `Deposit money` opens an amount, creates a **top-up
+order**, and prints a slip the shopkeeper carries to the bank.
+
+| Step | Who acts | What happens |
+|---|---|---|
+| 1 | Shop operator | Presses **Deposit money**, enters the amount |
+| 2 | The backend | Creates a top-up order and a **reference unique to that order**, then stores it **before** anything prints |
+| 3 | The device | Prints the slip — bank, Telga's account, amount, reference, expiry |
+| 4 | The shop | Pays that account, quoting that reference |
+| 5 | The bank | Confirms the money arrived |
+| 6 | Telga | Matches the reference **and the amount**, then credits the shop's balance |
+
+**The slip creates an expectation, never a balance.** Printing moves no money and writes no
+ledger entry, exactly as §18.5 requires of every print. Only a confirmed bank record creates
+spendable balance, and `verifyDeposit` already refuses without one — `NO_BANK_RECORD`.
+
+#### What must never credit a shop
+
+Restated here because this button is what makes the question arise:
+
+- A printed slip presented at the counter.
+- A screenshot of a transfer.
+- An SMS on anybody's personal phone.
+- The shop saying the money was sent.
+
+An SMS alert may be a *hint* that a payment arrived. It is not evidence, because it can be
+delayed, duplicated, spoofed or truncated, and nothing in it is signed. It may prompt a person to
+look; it may never credit on its own.
+
+#### The reference identifies, and authorises nothing
+
+**Per order, not per shop, and never a credential.** The slip carries an amount, so the reference
+has to be specific enough to match that amount — a per-shop code cannot tell one payment from the
+next.
+
+The shape is `depositReference.ts`: eight characters plus a check character, from the alphabet
+that excludes `I`, `O`, `0` and `1` because a teller writes this down from paper. That module
+already exists and is tested.
+
+> **The device key must stop being the deposit reference.** It is one of the four credentials
+> `credentialsOf()` requires to sign in. Printing it on a bank slip reads a password aloud at a
+> counter, copies it onto two paper slips, keys it into the bank's core system and leaves it on
+> every statement thereafter — and `Device Binding` A52 records that a copied key is
+> indistinguishable from the original, so nothing would ever notice. Superseded here; recorded in
+> [[Decision Log]].
+
+**A reference that does not resolve goes to a person.** It is never rounded to the nearest shop
+and never matched on amount and time alone — many shops deposit the same round figures on the
+same day. `MANUAL_REVIEW`, with the two cases distinguished: unreadable, and well-formed but held
+by nobody.
+
+#### What the slip carries, and what it must not
+
+Carries: Telga's legal name · bank name · Telga's account name and number · the amount · the
+reference · the order number · when it expires · the instruction **"Pay only to this account.
+Never to an employee's personal account."** · a plain statement that balance appears only after
+Telga confirms the payment with the bank.
+
+**Does not carry any customer or owner personal data** — no name, no phone number. §22 allows a
+receipt no unnecessary personal data, and this slip is handled by bank staff and archived in
+statements. The reference identifies the shop; nothing else has to.
+
+#### Refusals a shop will actually meet
+
+Shop not `ACTIVE` · amount below the minimum or above the per-order maximum · an unexpired order
+already open for that shop · the order expired before the money arrived (a new slip is printed;
+the reference is never reused).
+
+#### One bank transaction credits exactly once
+
+`alreadyCredited` refuses a bank reference that has already produced a credit. Duplicate alerts,
+a re-keyed statement line and a retried request all resolve to the same one credit.
+
+#### What is settled and what is not
+
+**Settled**: the slip, the order, the reference, and that only a bank record creates balance.
+
+**`NOT YET CONFIRMED`** — no value may be invented for these (§31): Telga's bank and account
+number, the order expiry window, per-order minimum and maximum, and the auto-credit ceiling above
+which §20's second approval is required.
+
+**How the bank confirmation arrives is not decided.** Until a bank feed exists, confirmation is a
+person reading the statement and recording the bank reference in the console — which is what
+`/deposits` already does, and it is a pilot mechanism, not the destination. A merchant-collection
+API, a virtual account per shop, or a licensed payment-service provider would each replace it;
+each needs its own written agreement, and none may be assumed to exist. **No integration may be
+named in code or documentation until its NBE authorisation and contract are confirmed** (§21).
+
+**This button does not make Telga a wallet.** It tops up a *shop's* selling balance — §18.3, the
+balance a shop already has. A consumer holding a Telga balance is a different product, forbidden
+by §2 until an authorised structure exists, and a decision the founder has not taken.
+
 ## 21. Provider agreement
 
 The first provider must be an authorized airtime provider, distributor, or integration partner.

@@ -9,8 +9,8 @@
  *
  * | Attribute | Window | What happens |
  * |---|---|---|
- * | `data-lock-after-ms` | the shop's setting | **Locks.** Session lives, a PIN reopens it |
- * | `data-idle-timeout-ms` | the server's session config | **Signs out.** Session ends |
+ * | `data-lock-after-s` | the shop's setting | **Locks.** Session lives, a PIN reopens it |
+ * | `data-idle-timeout-s` | the server's session config | **Signs out.** Session ends |
  *
  * A shop that set 45 seconds got the session's 60, and its own setting was
  * inert. These tests hold the two apart.
@@ -160,7 +160,7 @@ describe('the shop’s lock window reaches the page', () => {
     const tag = bodyTag(await unlockedDashboard(port, session));
 
     // The bug: this said 60000, the session's window, whatever the shop chose.
-    expect(tag).toContain('data-lock-after-ms="45000"');
+    expect(tag).toContain('data-lock-after-s="45"');
   });
 
   it('keeps the sign-out window separate from the lock window', async () => {
@@ -173,9 +173,9 @@ describe('the shop’s lock window reaches the page', () => {
     await savePreferences(port, session, { screenLockEnabled: 'on', lockSeconds: '90' });
     const tag = bodyTag(await unlockedDashboard(port, session));
 
-    expect(tag).toContain('data-lock-after-ms="90000"');
-    expect(tag).toContain('data-idle-timeout-ms=');
-    expect(tag).not.toContain('data-lock-after-ms="60000"');
+    expect(tag).toContain('data-lock-after-s="90"');
+    expect(tag).toContain('data-idle-timeout-s=');
+    expect(tag).not.toContain('data-lock-after-s="60"');
   });
 
   it('emits no lock window at all when the shop has the lock off', async () => {
@@ -190,7 +190,7 @@ describe('the shop’s lock window reaches the page', () => {
 
     expect(tag).not.toContain('data-lock-after-ms');
     // The session sign-out is unaffected by the shop's lock setting.
-    expect(tag).toContain('data-idle-timeout-ms=');
+    expect(tag).toContain('data-idle-timeout-s=');
   });
 
   it('honours a changed value rather than the first one saved', async () => {
@@ -199,10 +199,10 @@ describe('the shop’s lock window reaches the page', () => {
     const session = await asOwner(harness);
 
     await savePreferences(port, session, { screenLockEnabled: 'on', lockSeconds: '30' });
-    expect(bodyTag(await unlockedDashboard(port, session))).toContain('data-lock-after-ms="30000"');
+    expect(bodyTag(await unlockedDashboard(port, session))).toContain('data-lock-after-s="30"');
 
     await savePreferences(port, session, { screenLockEnabled: 'on', lockSeconds: '120' });
-    expect(bodyTag(await unlockedDashboard(port, session))).toContain('data-lock-after-ms="120000"');
+    expect(bodyTag(await unlockedDashboard(port, session))).toContain('data-lock-after-s="120"');
   });
 });
 

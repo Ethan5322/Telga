@@ -1,5 +1,5 @@
 /**
- * Every column of every table, held as a ledger.
+ * The columns of the tables that matter most, held as a ledger.
  *
  * ## Why this exists
  *
@@ -99,6 +99,60 @@ const EXPECTED: Readonly<Record<string, readonly string[]>> = {
 
   // --- 018: self-service registration ---------------------------------------
   registration_attempts: ['created_at', 'id', 'outcome', 'source'],
+
+  // --- the money-and-identity core ------------------------------------------
+  //
+  // Added 2026-09-11. This guard's own title says *"every column of every
+  // table"* and it covered **four** — the ones migration 019 happened to add.
+  // A column dropped from `merchants`, `transactions` or `ledger_entries` —
+  // the tables where losing one loses money or identity — passed unnoticed.
+  //
+  // Still not every table. The claim in the title is narrowed to match what
+  // is actually pinned, because a guard that overstates its coverage is worse
+  // than one that admits a limit.
+  merchants: ['created_at', 'deposit_reference', 'id', 'mode', 'status', 'updated_at'],
+  devices: ['created_at', 'device_type', 'id', 'merchant_id', 'status', 'updated_at'],
+  merchant_users: [
+    'created_at', 'display_name', 'failed_attempts', 'id', 'last_login_at',
+    'locked_until', 'merchant_id', 'mode', 'must_change_pin', 'pin_hash', 'pin_params',
+    'pin_salt', 'role', 'status', 'updated_at'
+  ],
+  device_enrollments: [
+    'created_at', 'deposit_lookup', 'device_id', 'display_name', 'enrolled_at',
+    'enrollment_state', 'expires_at', 'last_seen_at', 'merchant_id',
+    'revocation_reason', 'revoked_at', 'secret_hash', 'secret_salt', 'updated_at'
+  ],
+  transactions: [
+    'amount_minor', 'created_at', 'currency', 'device_id', 'id', 'idempotency_key',
+    'merchant_id', 'mode', 'operator_id', 'payload_fingerprint', 'product_type',
+    'provider_id', 'provider_reference', 'recipient_hash', 'recipient_masked', 'state',
+    'updated_at'
+  ],
+  ledger_entries: [
+    'account_id', 'account_type', 'amount_minor', 'correlation_id', 'created_at',
+    'currency', 'direction', 'entry_type', 'id', 'merchant_id', 'metadata', 'mode',
+    'posting_id', 'provider_reference', 'rule_version', 'transaction_id'
+  ],
+  ledger_accounts: ['account_type', 'created_at', 'currency', 'id', 'merchant_id'],
+  funding_submissions: [
+    'approved_at', 'approved_by', 'bank_amount_minor', 'bank_reference',
+    'claimed_amount_minor', 'created_at', 'currency', 'decided_at', 'decided_by',
+    'evidence', 'id', 'merchant_id', 'outcome_reason', 'posting_id', 'quoted_reference',
+    'recorded_by', 'status', 'updated_at'
+  ],
+  topup_orders: [
+    'amount_minor', 'correlation_id', 'created_at', 'currency', 'device_id',
+    'expires_at', 'funding_submission_id', 'id', 'merchant_id', 'method', 'mode',
+    'operator_id', 'provider_reference', 'provider_status', 'reference', 'status',
+    'updated_at'
+  ],
+  admin_users: [
+    'approved_by', 'created_at', 'created_by', 'department', 'display_name', 'email',
+    'failed_attempts', 'id', 'last_activity_at', 'last_login_at', 'locked_until',
+    'mfa_enrolled_at', 'mfa_secret_hash', 'otp_attempts', 'otp_expires_at', 'otp_hash',
+    'otp_salt', 'otp_sent_at', 'password_hash', 'password_params', 'password_salt',
+    'role', 'status', 'updated_at', 'webauthn_credential_id', 'webauthn_public_key'
+  ],
 };
 
 describe('the schema’s columns are a ledger, not an accident', () => {

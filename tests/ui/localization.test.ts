@@ -116,6 +116,65 @@ describe('the Amharic gap is explicit', () => {
         'screen.pay_card',
         'screen.pay_result',
         'support.response.notice',
+        // §20.1's bank-deposit strings. The short labels are translated;
+        // these are left to fall back to English **on purpose**. They are
+        // the safety-critical sentences — where to pay, never to pay an
+        // employee's personal account, and that no balance exists yet — and
+        // unverified Amharic on those is worse than English a shopkeeper can
+        // ask about. A native speaker translates them before pilot.
+        'bank_deposit.lede',
+        'bank_deposit.amount_label',
+        'bank_deposit.limits',
+        'bank_deposit.print_slip',
+        'bank_deposit.not_yet_money',
+        'bank_deposit.slip_title',
+        'bank_deposit.slip_status',
+        'bank_deposit.account_name',
+        'bank_deposit.account_number',
+        'bank_deposit.quote_reference',
+        'bank_deposit.never_personal_account',
+        'bank_deposit.credited_later',
+        'bank_deposit.already_open',
+        'bank_deposit.view_slip',
+        'bank_deposit.cancel',
+        'bank_deposit.cancel_confirm',
+        'bank_deposit.no_account',
+        'bank_deposit.refused.shop_not_active',
+        'bank_deposit.refused.amount_invalid',
+        'bank_deposit.refused.amount_below_minimum',
+        'bank_deposit.refused.amount_above_maximum',
+        'bank_deposit.refused.order_already_open',
+        'bank_deposit.refused.deposits_disabled',
+        'bank_deposit.close_note',
+        'bank_deposit.test_account',
+        'pay.deposit.entry',
+        'transfer.lede',
+        'transfer.recipient',
+        'transfer.device_hint',
+        'transfer.pin',
+        'transfer.confirm',
+        'transfer.sent',
+        'transfer.final',
+        'transfer.needs_approval',
+        'transfer.not_moved',
+        'transfer.training_only',
+        'transfer.refused.sender_not_active',
+        'transfer.refused.recipient_unknown',
+        'transfer.refused.recipient_not_active',
+        'transfer.refused.same_shop',
+        'transfer.refused.insufficient',
+        'transfer.refused.over_limit',
+        'transfer.refused.amount_invalid',
+        'chapa.title',
+        'chapa.lede',
+        'chapa.pay_now',
+        'chapa.slip_title',
+        'chapa.slip_status',
+        'chapa.method_value',
+        'chapa.credited_later',
+        'chapa.keep_reference',
+        'chapa.refused.unavailable',
+        'chapa.refused.disabled',
       ].sort(),
     );
   });
@@ -123,7 +182,7 @@ describe('the Amharic gap is explicit', () => {
   it('reports the coverage honestly', () => {
     const coverage = translationCoverage('am');
     expect(coverage.total).toBe(MESSAGE_KEYS.length);
-    expect(coverage.translated).toBe(MESSAGE_KEYS.length - 26);
+    expect(coverage.translated).toBe(MESSAGE_KEYS.length - 79);
     expect(translationCoverage('en').translated).toBe(MESSAGE_KEYS.length);
   });
 

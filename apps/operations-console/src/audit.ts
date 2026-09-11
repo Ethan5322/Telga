@@ -34,6 +34,22 @@ import type { ConsoleDb } from './server';
 export type AdminAuditEvent =
   | 'ADMIN_SIGNED_IN'
   | 'ADMIN_SIGN_IN_REFUSED'
+  /**
+   * A sign-in code was emailed — §23.1.
+   *
+   * Recorded because a code going out is the moment somebody's password was
+   * accepted. A run of these against one account, with no matching
+   * `ADMIN_SIGNED_IN`, is a password that is already known to somebody who
+   * cannot read the inbox.
+   *
+   * Never carries the code, and never the address beyond the row the actor id
+   * already names.
+   */
+  | 'ADMIN_OTP_SENT'
+  /** A wrong code. Counted against the code, never the account. */
+  | 'ADMIN_OTP_REFUSED'
+  /** The second factor was satisfied and the session is fully live. */
+  | 'ADMIN_OTP_ACCEPTED'
   | 'ADMIN_SIGNED_OUT'
   | 'ADMIN_MFA_ENROLLED'
   | 'ADMIN_MFA_CONFIRMED'
@@ -67,6 +83,14 @@ export type AdminAuditEvent =
    * carrying it would hand a credential to every reader of the trail.
    */
   | 'ADMIN_DEPOSIT_RECORDED'
+  /**
+   * A **second** person approved a high-value deposit — §20.
+   *
+   * Separate from `ADMIN_DEPOSIT_RECORDED` because they are two acts by two
+   * people, and the control only means something if the trail can show they
+   * were different people.
+   */
+  | 'ADMIN_FUNDING_SECOND_APPROVED'
   /**
    * A shop was stopped from selling, or allowed to again.
    *

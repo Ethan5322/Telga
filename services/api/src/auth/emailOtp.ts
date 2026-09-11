@@ -55,13 +55,33 @@ import { deriveSecret, verifySecret } from './secrets';
 export const OTP_LENGTH = 6;
 
 /**
- * Ten minutes.
+ * **Sixty seconds** — founder instruction, 2026-09-11:
+ * *"within 60 sec OTP number must be verified."*
  *
- * Long enough for mail to arrive and be read on another device; short enough
- * that a code sitting in an unattended inbox is worthless by the time anybody
- * finds it.
+ * ## The trade this makes, stated plainly
+ *
+ * It was ten minutes. Sixty seconds is a deliberate, and tight, choice: a code
+ * that dies in a minute is worthless to anyone who reaches the inbox later, and
+ * that is the point.
+ *
+ * **The cost is delivery time.** Telga controls when the code is generated and
+ * when it is checked; it controls nothing in between. Resend, the recipient's
+ * mail provider, and greylisting between them commonly spend five to thirty
+ * seconds, and occasionally minutes. Every one of those seconds is spent from
+ * this budget, so a slow morning means a code that expires before it is read.
+ *
+ * **Two things make that survivable**, and both matter more here than they
+ * would at ten minutes:
+ *
+ * - The clock starts when Resend **accepts** the email, not when the code is
+ *   generated, so Telga's own work is not charged to the window.
+ * - An expired code is not a failure. The screen says it expired and offers
+ *   another, and {@link OTP_RESEND_INTERVAL_MS} is well inside the window.
+ *
+ * If sign-in proves unreliable in practice, this is the number to raise — not
+ * the attempt limit, and not the code length.
  */
-export const OTP_TTL_MS = 10 * 60 * 1000;
+export const OTP_TTL_MS = 60 * 1000;
 
 /**
  * Five wrong guesses, then this code is dead.
@@ -81,6 +101,21 @@ export const MAX_OTP_ATTEMPTS = 5;
  * good way to get Telga's sending domain marked as spam.
  */
 export const OTP_RESEND_INTERVAL_MS = 30 * 1000;
+
+/**
+ * The resend interval must stay **inside** the code's life.
+ *
+ * If a code expired before another could be requested, an administrator would
+ * be left with a dead code and no way to replace it — locked out by the two
+ * numbers rather than by either. Asserted rather than left to a comment,
+ * because the TTL was changed once and will be again.
+ */
+if (OTP_RESEND_INTERVAL_MS >= OTP_TTL_MS) {
+  throw new Error(
+    `OTP_RESEND_INTERVAL_MS (${String(OTP_RESEND_INTERVAL_MS)}ms) must be shorter than ` +
+      `OTP_TTL_MS (${String(OTP_TTL_MS)}ms), or an expired code cannot be replaced.`,
+  );
+}
 
 export interface OtpRecord {
   readonly hash: string;
@@ -115,15 +150,22 @@ export function newOtpCode(): string {
   return code;
 }
 
-/** Generate a code and derive what the row should hold. */
-export async function issueEmailOtp(now: string): Promise<IssuedOtp> {
+/**
+ * Generate a code and derive what the row should hold.
+ *
+ * `now` should be the moment the code is **handed to the mailer**, so the
+ * sixty-second window is not spent on Telga's own hashing and database work.
+ * With a ten-minute window that was a rounding error; at sixty seconds it is
+ * several per cent of the budget.
+ */
+export async function issueEmailOtp(now: string, ttlMs: number = OTP_TTL_MS): Promise<IssuedOtp> {
   const code = newOtpCode();
   const derived = await deriveSecret(code);
   return {
     code,
     hash: derived.hash,
     salt: derived.salt,
-    expiresAt: new Date(Date.parse(now) + OTP_TTL_MS).toISOString(),
+    expiresAt: new Date(Date.parse(now) + ttlMs).toISOString(),
   };
 }
 

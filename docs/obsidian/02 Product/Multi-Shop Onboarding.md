@@ -163,7 +163,7 @@ READY_FOR_TRAINING → ACTIVE_TRAINING → LIVE_ELIGIBLE`, with `SUSPENDED` and
 |---|---|---|
 | Isolation | *"The other shop's rows are not in the file"* | Every query must remember `WHERE merchant_id = ?` |
 | Code today | **`provisioning.ts` and `tenantRouting.ts` already implement it** | Does not exist |
-| Cost to adopt | Export two modules, wire two call sites | Async refactor: ~80 files, 21 `transaction()` call sites, re-prove the claim lease (A37/R16) |
+| Cost to adopt | **One module left**: `provisioning.ts` is exported and wired; only `tenantRouting.ts` remains, and the port design keeps the swap to one function | Async refactor: ~80 files, 21 `transaction()` call sites, re-prove the claim lease (A37/R16) |
 | Cross-shop reporting | A fan-out, not a query | One query |
 | Backup / restore | N operations | One |
 | Blast radius | One corrupt file affects one shop | One database holds every shop |

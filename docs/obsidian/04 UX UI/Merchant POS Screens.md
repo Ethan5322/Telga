@@ -181,10 +181,28 @@ these render functions feed one unchanged — `mount()` builds real DOM from the
 
 | Gap | Consequence |
 |---|---|
-| No authentication or session | The POS trusts a `merchantId` in the URL. Fine for training on a controlled machine; **not** a security boundary — [[Security Model]] |
-| No login, PIN or device binding screen | Screens 1 and the device controls in [[Screen Inventory]] are not built |
-| No receipt printing | The button exists for a `SUCCESSFUL` sale; there is no print abstraction behind it yet, and no reprint event is recorded |
-| No funding, reports or operations console | Out of this scope |
+| ~~No authentication or session~~ | **Closed.** Sign-in is operator id + PIN + device id + device key; `merchantId` comes from the **session**, never from the request — verified 2026-09-10, no route reads it from a URL or body. [[Authentication and Sessions]] |
+| ~~No login, PIN or device binding screen~~ | **Closed.** `/login`, `/activate` (§18.2 redemption) and `/settings/pin` all exist |
+| ~~No receipt printing~~ | **Closed.** §18.5 — `window.print()` against the device's own print stack, one `slipCard` for every printed thing, and reprint records an audit event |
+| ~~No funding, reports or operations console~~ | **Closed.** Bank deposit slips (§20.1, D153), Telga Pay deposits, statements, and the operations console |
+
+> [!warning] This limitations table was stale, and one entry was dangerous
+> Written 2026-08-20 and never revisited. It stated that *"the POS trusts a
+> `merchantId` in the URL"* and was **not** a security boundary. That has not
+> been true for a long time: the merchant id is derived from the session, and
+> merchant isolation is tested against a live server including URL, body and
+> encoded-id tampering.
+>
+> **A stale note claiming a security hole is worse than one claiming a missing
+> feature.** It invites somebody to "fix" a boundary that already exists, or to
+> treat the deployment as unsafe when it is not — and it would have been read as
+> current by anybody who found it.
+>
+> Corrected 2026-09-10 after the founder pointed out that the vault's ⚠️ markers
+> were no longer trustworthy. The rest of this note still describes the
+> **smallest coherent flow** of August 2026 and should be read as a design
+> record of that moment, not as a description of the system today —
+> [[Screen Inventory]] is the current list.
 | No reversal control | Deliberate: `completeReversal` requires a supervisor approval, and exposing it without an authenticated supervisor session would be a way *around* that approval rather than an implementation of it |
 | No offline behaviour | The pilot has no offline vending; a lost connection shows `STALE` and refuses nothing else |
 | Component-level tests only | No browser, no CSS, no real screen reader |

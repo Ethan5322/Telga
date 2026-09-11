@@ -37,6 +37,9 @@ import {
 } from '@telga/persistence';
 import {
   TRAINING_LOCKOUT_POLICY,
+  formatDepositReference,
+  newDepositReference,
+  normalizeDepositReference,
   VOUCHER_PIN_LOCKOUT_POLICY,
   fromBirr,
   postingId,
@@ -84,6 +87,27 @@ export interface CliArgs {
    * the schema constrains it to TRAINING.
    */
   readonly trainingFloatBirr?: number;
+  /**
+   * Where a shop pays money in — §20.1.
+   *
+   * All three parts or none, and **nothing is defaulted**. §31 lists Telga's
+   * banking arrangement as `NOT YET CONFIRMED` and §30 forbids inventing one,
+   * so an unset account means no slip prints — the safe direction. A slip
+   * naming a bank but no account number would send a shopkeeper to a counter
+   * with half an instruction.
+   */
+  readonly depositBank?: {
+    readonly bankName: string;
+    readonly accountName: string;
+    readonly accountNumber: string;
+  };
+  /** Chapa — §20.2. From the environment; absent means the feature cannot run. */
+  readonly chapa?: {
+    readonly secretKey: string;
+    readonly merchantEmail: string;
+    readonly callbackUrl?: string;
+    readonly returnUrl?: string;
+  };
 }
 
 export class CliArgumentError extends Error {
@@ -387,6 +411,52 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     if (rejected) throw new CliArgumentError(`--provision-pin refused: ${rejected}`);
   }
 
+  /**
+   * Chapa — §20.2. Environment only, never a CLI flag.
+   *
+   * A secret passed on a command line is in the shell history, in the process
+   * list, and in any crash report that captures `argv` (§24). The bank account
+   * above is a flag because it is not a secret; this is not.
+   */
+  const chapaKey = (process.env['CHAPA_SECRET_KEY'] ?? '').trim();
+  const chapaEmail = (process.env['CHAPA_MERCHANT_EMAIL'] ?? '').trim();
+  const chapa =
+    chapaKey.length > 0 && chapaEmail.length > 0
+      ? {
+          secretKey: chapaKey,
+          merchantEmail: chapaEmail,
+          ...(process.env['CHAPA_CALLBACK_URL'] === undefined
+            ? {}
+            : { callbackUrl: process.env['CHAPA_CALLBACK_URL'] }),
+          ...(process.env['CHAPA_RETURN_URL'] === undefined
+            ? {}
+            : { returnUrl: process.env['CHAPA_RETURN_URL'] }),
+        }
+      : undefined;
+
+  // §20.1 — the account a deposit slip tells a shop to pay into.
+  const bankName = (values.get('deposit-bank-name') ?? process.env['TELGA_DEPOSIT_BANK_NAME'] ?? '').trim();
+  const accountName = (
+    values.get('deposit-account-name') ??
+    process.env['TELGA_DEPOSIT_ACCOUNT_NAME'] ??
+    ''
+  ).trim();
+  const accountNumber = (
+    values.get('deposit-account-number') ??
+    process.env['TELGA_DEPOSIT_ACCOUNT_NUMBER'] ??
+    ''
+  ).trim();
+  const named = [bankName, accountName, accountNumber].filter((part) => part.length > 0).length;
+  // Half a bank account is a configuration mistake, not a partial feature.
+  // Refusing at start-up beats printing a slip somebody cannot act on.
+  if (named > 0 && named < 3) {
+    throw new CliArgumentError(
+      'Deposit bank details are incomplete. Give --deposit-bank-name, ' +
+        '--deposit-account-name and --deposit-account-number together, or none of them.',
+    );
+  }
+  const depositBank = named === 3 ? { bankName, accountName, accountNumber } : undefined;
+
   const transport = transportFrom(values, port);
 
   return {
@@ -396,6 +466,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     provisionPin,
     trainingFloatBirr,
     transport,
+    ...(depositBank === undefined ? {} : { depositBank }),
+    ...(chapa === undefined ? {} : { chapa }),
     deviceId: values.get('device') ?? 'device_training_1',
     operatorId: values.get('operator') ?? 'operator_training_1',
     environment: values.get('environment') ?? process.env['TELGA_ENVIRONMENT'] ?? 'local',
@@ -435,6 +507,18 @@ export function optionsFrom(args: CliArgs, driver: SqliteLedgerDriver): PosServe
   const api: ApiDeps = {
     driver,
     provider,
+    // §20.2. The application layer needs it to start a payment; the server
+    // needs it to verify a webhook. Same configuration, two consumers.
+    ...(args.chapa === undefined
+      ? {}
+      : {
+          chapa: {
+            config: { secretKey: args.chapa.secretKey },
+            merchantEmail: args.chapa.merchantEmail,
+            ...(args.chapa.callbackUrl === undefined ? {} : { callbackUrl: args.chapa.callbackUrl }),
+            ...(args.chapa.returnUrl === undefined ? {} : { returnUrl: args.chapa.returnUrl }),
+          },
+        }),
     providerId: toProviderId('provider_simulated'),
     // `createSale` validates every sale's productId against this catalog —
     // including a sale created through voucher PIN authorization — so the
@@ -487,6 +571,20 @@ export function optionsFrom(args: CliArgs, driver: SqliteLedgerDriver): PosServe
     voucherCatalog: TRAINING_VOUCHER_CATALOG,
     voucherNetworks: TRAINING_VOUCHER_NETWORKS,
     dataCategories: TRAINING_DATA_CATEGORIES,
+    /**
+     * Where a shop pays money in — §20.1.
+     *
+     * All three parts or none. A slip naming a bank but no account number, or
+     * an account number with no bank, is worse than a screen that says Telga
+     * has no account configured: the first sends somebody to a counter with
+     * half an instruction, the second sends them to ask.
+     *
+     * **Nothing is defaulted.** §31 lists Telga's banking arrangement as
+     * `NOT YET CONFIRMED`, and §30 forbids inventing one. An unset deposit
+     * account means no slip prints, which is the safe direction.
+     */
+    ...(args.depositBank === undefined ? {} : { depositBank: args.depositBank }),
+    ...(args.chapa === undefined ? {} : { chapa: args.chapa }),
     simulatedBehaviours: [...MOCK_BEHAVIOURS],
     defaultLocale: args.locale,
     transport: args.transport,
@@ -551,12 +649,35 @@ export async function provision(args: CliArgs, options: PosServerOptions): Promi
     correlationId: options.api.newId('corr'),
   });
 
+  /**
+   * The shop's own deposit reference — §20.1.
+   *
+   * Issued here so a shop provisioned through the CLI has one at all. Before
+   * this, the only per-shop code was `device_enrollments.deposit_lookup`,
+   * written by `issueCredentials` and by nothing else — so every CLI-provisioned
+   * shop had none, and a deposit quoting anything but a printed slip resolved
+   * to nobody and went to manual review.
+   *
+   * Idempotent: a shop that already has one keeps it. Re-issuing would strand
+   * every payment quoting the old code.
+   *
+   * **Printed in the clear, unlike the device key**, and that difference is the
+   * point: this authorises nothing. The worst somebody holding it can do is
+   * give the shop money.
+   */
+  const depositReference = options.api.driver.ensureDepositReference(
+    merchantId,
+    newDepositReference,
+    normalizeDepositReference,
+  );
+
   process.stdout.write(
     [
       'Provisioned for TRAINING MODE — NO REAL VALUE.',
       `  operator: ${args.operatorId}`,
       `  merchant: ${args.merchantId}`,
       `  device:   ${args.deviceId}`,
+      `  deposit reference: ${formatDepositReference(depositReference)}  (safe to share — not a credential)`,
       args.trainingFloatBirr === undefined
         ? '  balance:  none — pass --training-float <birr> to credit a simulated opening balance'
         : `  balance:  ${String(args.trainingFloatBirr)} birr SIMULATED — no real value`,

@@ -468,6 +468,115 @@ it and then by implementing it wrongly rather than questioning it.
 > only as good as the last time somebody checked it against the system — and if
 > I wrote it, I have not checked it, I have asserted it.
 
+### 2026-09-10 — the vault told the founder four things that were not true
+
+**Not reported by a test. Found by the founder reading the vault**, which is the
+part that matters: *"i cant scan check manualy, use full scan and find out fix
+issues."*
+
+They quoted `⚠️ Written, **not exported**` beside `provisioning.ts` — exported
+and called from two sites — and a list of "four gaps" of which three were closed.
+
+A full scan found **nine** claims of that shape. Verified one at a time against
+the code:
+
+| Claim | Verdict |
+|---|---|
+| `provisioning.ts` not exported | Stale — exported, two callers |
+| No route suspends or deactivates a shop | Stale — merchants, devices and operators all have suspend/reinstate |
+| Monitoring is "counts only, no volume" | Stale — `/activity` computes volume |
+| No application can be submitted | Stale — `/register` |
+| Approval never calls `provisionMerchant()` | Stale — it does |
+| No route redeems an activation code | Stale — `/activate` |
+| No `must_change_pin` flag exists | Stale — migration 015, set and read |
+| POS "trusts a `merchantId` in the URL" | **Stale and dangerous** |
+| `tenantRouting.ts` has no callers | **True, and deliberate** — D120 |
+
+The eighth is the one worth dwelling on. `04 UX UI/Merchant POS Screens.md`
+stated the POS was **not a security boundary** and took the merchant id from the
+URL. It has not for a long time: the id is session-derived, and isolation is
+tested against a live server including URL and body tampering.
+
+**A stale note claiming a security hole is worse than one claiming a missing
+feature.** It invites somebody to "fix" a boundary that exists, or to treat a
+sound deployment as unsafe.
+
+> [!tip] Recommendation
+> **A vault cannot be kept honest by re-reading it.** Nine stale claims
+> accumulated across 124 notes, two of them already carrying earlier
+> "corrections" that were themselves out of date by the time anybody looked.
+> Every previous attempt at this was a human re-read, and every one decayed.
+>
+> `tests/docs/vault-claims.test.ts` now checks the **one claim that is
+> mechanically decidable**: a note saying a route does not exist while that
+> route is served. It reads the route table out of both servers and fails with
+> the file and line.
+>
+> **What it deliberately does not do** is police prose. Design intent, deferred
+> decisions and genuinely unbuilt things are left alone, and append-only records
+> — the Decision Log, these Runbooks, the Risk Register — are exempt by name,
+> because their value is saying what was true *then*. Forcing history to match
+> the present would be the worse failure.
+>
+> The same shape as the feature-flag, string and migration-ledger reconciliations
+> that already exist. It should have been written the first time a status table
+> went stale.
+
+### 2026-09-11 — a permission that guarded nothing was stranding deposits
+
+**Not reported, and no test would have caught it.** Every test passed; the
+feature was simply absent, and an absent feature has no failing assertion.
+
+Found by asking a different question: *which declared admin permissions guard
+no route?* Thirteen did. Four are deliberate — `ADMIN_VIEW_TRANSACTION` and
+`ADMIN_REPRINT_RECEIPT` are switched off by D144 and §23.2 on purpose. Nine
+were gaps, and one of them held money.
+
+`ADMIN_SECOND_APPROVE_FUNDING`. §20 requires a second approval for a
+high-value deposit. `recordDeposit` stored one as `MATCHED`, the deposits
+screen counted it — *"N waiting for a decision"* — and **nothing in the system
+could make that decision.** A shop that paid in more than the cap had its money
+sit in a row: no error, no complaint path, no balance, no way for anybody to
+notice except the shop ringing up to ask.
+
+Two more absences found the same way: the console had **no rate limiting at
+all**, and the session idle window was one minute, which expired between
+reading a screen and pressing the button on it.
+
+> [!tip] Recommendation
+> **A permission that guards no route is a feature that was specified and never
+> built.** It is a cheap query and it found a money-stranding gap that every
+> test in the suite agreed was fine. Worth running whenever a permission table
+> and a router drift apart — which is whenever either is edited.
+>
+> **The shape to watch for: a screen that counts something it cannot act on.**
+> The deposits screen displayed the number of waiting rows, which looks like
+> working software and is the strongest possible signal that an action is
+> missing. A count with no verb beside it deserves suspicion.
+
+### 2026-09-11 — the comment that caused the bug it explained
+
+While raising the idle window, the test that refuses any six-digit run in a
+rendered page began to fail. `15 * 60_000` is `900000` — six digits, and
+indistinguishable from a PIN to a guard that cannot know which numbers are
+innocent.
+
+**The guard was right and stayed untouched.** A version that could tell a safe
+six-digit number from a PIN is a version that misses a real one, so the page
+stopped emitting six-digit numbers instead: the idle window is now published in
+seconds, which is also the unit the shop's own lock setting uses.
+
+Then the comment explaining that fix — written inside the client script —
+**shipped to the browser containing the offending number**, and the guard fired
+again on the explanation.
+
+> [!tip] Recommendation
+> **Comments inside the client-script template literal are published.** They
+> are not source-only: they reach every browser, they count toward anything
+> that inspects the page, and they cannot contain backticks either. Two
+> separate bugs in that one literal now — this, and the backtick that ends the
+> literal mid-parse. Anything written there is code that ships.
+
 ## Related
 
 - [[Provider Health]]

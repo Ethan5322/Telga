@@ -69,8 +69,18 @@ gates. It is off for that reason, not by oversight.
 | Tier | Mechanism | Money | Status |
 |---|---|---|---|
 | **1. CLI float** | `provision --training-float`, `fundMerchant` | Simulated | **In use today.** D113(c) |
-| **2. In-app training deposit** | `/pay/deposit` → `POST /api/training/pay/deposits` | Simulated | **Built, unreachable.** A100 |
-| **3. Funding submission** | Bank deposit → operator verification → credit | **Real** | **Not built.** Gate 6 |
+| **2. Deposit with Telga Pay** | `/pay/deposit` → `POST /api/training/pay/deposits` | Simulated | **Built and reachable.** A100 closed — its own button on the top-up screen |
+| **3. Bank deposit slip** | **Deposit money** → printed slip → bank → console verification → credit | Simulated float, **real bank payment** | **Built — D153.** The mechanism works end to end; the *confirmation* is still a person |
+| **4. Telga transfer** | `/transfer` → another shop's device id | Simulated | **Built — §19.1.** Not a top-up: balance moves **sideways** between shops and no new value enters Telga |
+
+> [!warning] This table was stale and is corrected here
+> Re-verified 2026-09-10. Tier 2 was recorded as *"built, unreachable"* after it
+> had been given its own button, and tier 3 as *"not built"* after the slip, the
+> order, the reference and the console's verification path had all landed.
+>
+> A status table that is read as current and is not is worse than none. Found by
+> the founder reading the vault, not by a test — the same defect as the §14.1 and
+> §17 corrections in `CLAUDE.md`.
 
 ### Tier 1 — what the shop runs on now
 
@@ -79,6 +89,27 @@ a balanced append-only posting against `BANK_CLEARING`. It requires shell access
 to the machine holding the database. That is a deliberate barrier and an
 auditable one, but it means **the merchant cannot top up without the founder**,
 which does not survive contact with a second shop.
+
+### Tier 3 — what is built, and what is honestly not
+
+**Built (D153, §20.1):** the **Deposit money** button, the `topup_orders` row, a
+reference unique to each order enforced by a `UNIQUE` index, the printed slip,
+and the console's verification — reference resolution, duplicate-bank-reference
+refusal, expected-account check, the second-approval ceiling, and a balanced
+`fundMerchant` credit. A deposit has been driven end to end and credited with the
+ledger residual at zero.
+
+**Not built, and the gate that matters:** there is **no bank feed**. Confirmation
+is a person reading a statement and typing the bank reference into
+`/deposits`. That is a pilot mechanism, not the destination — it depends on human
+attention and is where fraud risk sits. A merchant-collection API, a virtual
+account per shop, or a licensed payment-service provider would each replace it,
+and each needs its own written agreement (§21). **None may be named in code or
+documentation until its NBE authorisation and contract are confirmed.**
+
+**Still simulated.** `money.live` is false and `assertSafeStartup` refuses to boot
+with any real-money flag on, so the credit lands in a training ledger. Gate 6 is
+about *real* merchant funds, and it stays shut.
 
 ### Tier 2 — built, and switched off by accident of layout
 

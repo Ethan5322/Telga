@@ -196,6 +196,21 @@ describe('every training route needs a session', () => {
       path: '/api/training/operators/pin',
       body: { currentPin: '000000', newPin: '482913' },
     },
+    // §20.1 — the bank deposit slip. Ordering one creates a reference Telga
+    // will later honour, so an unauthenticated caller must not reach it.
+    { method: 'POST', path: '/api/training/deposits/orders', body: { amountBirr: 500 } },
+    { method: 'GET', path: '/api/training/deposits/orders/open' },
+    { method: 'POST', path: '/api/training/deposits/orders/cancel', body: {} },
+    // §19.1 — sending balance to another shop. The one route here that parts
+    // with the shop's own money.
+    {
+      method: 'POST',
+      path: '/api/training/transfers',
+      body: { recipientDeviceId: 'device_b', amountBirr: 100 },
+    },
+    // §20.2 — starting a Chapa payment. It creates a reference Telga will
+    // honour and a checkout an unauthenticated caller must not be able to open.
+    { method: 'POST', path: '/api/training/deposits/chapa', body: { amountBirr: 500 } },
   ];
 
   it('refuses all of them with 401 when unauthenticated', async () => {

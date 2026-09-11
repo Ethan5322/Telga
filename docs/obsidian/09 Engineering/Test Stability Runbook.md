@@ -337,6 +337,48 @@ npm run docs:validate
 It passes only when the stress passes, three consecutive full runs are clean, no test was weakened
 or skipped, no retry wrapper was added, and any root cause is written up above.
 
+### A55 — the CSP nonce that spelled `salt`
+
+**Observed once**, in a full-suite run on 2026-09-11:
+`tests/ui/server.test.ts > never puts a recipient number or an internal digest
+in any page`.
+
+Investigation, in the order the procedure prescribes:
+
+- Isolated runs: **12/12 passed**.
+- Rather than soak further, the hypothesis was **measured**. The guard refuses
+  `/salt|secret|credential|api[_-]?key/i`. The CSP nonce was
+  `randomBytes(16).toString('base64')`. Three million sampled nonces contained
+  a case-insensitive `salt` **57 times — one in 52,632**: `3fxsaLtMaeV6…`,
+  `lwSc06vBSaltm5…`, `3OQOKSalT44Q…`.
+- Sixteen pages are rendered per run, so ≈ **1 run in 3,300**. That is precisely
+  the observed shape: one failure in a full suite, twelve clean in isolation.
+
+**Root cause: a false positive, measured rather than guessed.** No secret ever
+reached a page.
+
+**Fixed by changing the nonce, not the guard.** `newNonce` now returns hex. Same
+128 bits, equally valid in a CSP `nonce-` source, and `0-9a-f` contains no `s`,
+`l`, `t`, `r`, `u`, `i`, `p`, `k` or `y` — none of the guarded words can be
+spelled in it. Three million hex nonces: **zero matches.**
+
+**Status: RESOLVED.**
+
+> [!tip] Recommendation
+> **When a broad secret-guard fires on an innocent value, change the value.**
+> The guard cannot know which letter-run is innocent, and a version that could
+> is a version that misses a real leak. Relaxing it would have traded a
+> one-in-3,300 false positive for a permanent blind spot.
+>
+> **This is the second instance in two days.** The idle window is published in
+> seconds because milliseconds made a six-digit number indistinguishable from a
+> PIN. Same guard family, same answer both times.
+>
+> **And: measure the hypothesis before soaking it.** Twelve isolated runs proved
+> nothing; three million samples in one second proved it exactly. A soak tells
+> you whether a thing recurs, not why — when the mechanism is cheap to compute,
+> compute it.
+
 ## Related
 
 - [[Testing Strategy]]

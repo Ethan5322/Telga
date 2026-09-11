@@ -29,6 +29,7 @@ export const BUILD_ORDER = [
   'packages/persistence',
   'services/backup',
   'services/provider-adapters/mock-airtime',
+  'services/provider-adapters/chapa',
   'services/api',
   'services/worker',
   'apps/merchant-pos',

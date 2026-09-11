@@ -44,9 +44,9 @@ const CLIENT_SCRIPT = `
   // who has walked away.
   // Two windows, not one.
   //
-  //   data-lock-after-ms   - the shop's lock-the-screen-after-N-seconds.
+  //   data-lock-after-s    - the shop's lock-the-screen-after-N-seconds.
   //                          Locks: the session lives, a PIN reopens it.
-  //   data-idle-timeout-ms - the server's session expiry. Signs out.
+  //   data-idle-timeout-s  - the server's session expiry. Signs out.
   //
   // These were the same number until 2026-08-30, so a shop that set 45 seconds
   // got the session's 60 and its setting did nothing. Whichever window is
@@ -55,8 +55,27 @@ const CLIENT_SCRIPT = `
   // The server enforces both independently: screenIsLocked re-checks the lock
   // window on every request, so a page that never fires these timers, or that
   // is edited to a longer one, changes nothing that matters.
-  var idleMs = parseInt(document.body.getAttribute('data-idle-timeout-ms') || '0', 10);
-  var lockMs = parseInt(document.body.getAttribute('data-lock-after-ms') || '0', 10);
+  // Seconds in the markup, milliseconds in the timers.
+  //
+  // Emitted in seconds so the attribute can never be mistaken for a PIN.
+  // The idle-timeout test refuses any standalone six-digit run in the page,
+  // deliberately broadly, because a PIN is six digits and a leak would look
+  // like an ordinary number. A quarter-hour window in milliseconds is a
+  // six-digit number, and tripped that guard.
+  //
+  // Two traps in this comment, both hit while writing it:
+  //   - No backticks. This lives inside the client-script template literal,
+  //     where one would end the literal and break the parse.
+  //   - No six-digit numbers, not even as an example. This comment SHIPS TO
+  //     THE BROWSER inside the script, so writing the offending value here
+  //     re-created the exact leak the guard was catching.
+  //
+  // The guard was right to fire and is the wrong thing to relax: it cannot know
+  // which six-digit number is innocent, and a version that could would be a
+  // version that misses a real PIN. So the page stops emitting six-digit
+  // numbers instead. Seconds are also the unit the shop's own setting is in.
+  var idleMs = parseInt(document.body.getAttribute('data-idle-timeout-s') || '0', 10) * 1000;
+  var lockMs = parseInt(document.body.getAttribute('data-lock-after-s') || '0', 10) * 1000;
   if (idleMs > 0 || lockMs > 0) {
     var idleTimer, lockTimer;
     var signOut = function () {
@@ -928,8 +947,8 @@ export function htmlDocument(bodyHtml: string, chrome: Chrome, nonce: string): s
     `<style nonce="${n}">${STYLES}</style>`,
     '</head>',
     idleTimeoutMs > 0 || lockAfterMs > 0
-      ? `<body${idleTimeoutMs > 0 ? ` data-idle-timeout-ms="${escapeText(String(idleTimeoutMs))}"` : ''}` +
-        `${lockAfterMs > 0 ? ` data-lock-after-ms="${escapeText(String(lockAfterMs))}"` : ''}>`
+      ? `<body${idleTimeoutMs > 0 ? ` data-idle-timeout-s="${escapeText(String(Math.round(idleTimeoutMs / 1000)))}"` : ''}` +
+        `${lockAfterMs > 0 ? ` data-lock-after-s="${escapeText(String(Math.round(lockAfterMs / 1000)))}"` : ''}>`
       : '<body>',
     bodyHtml,
     `<script nonce="${n}">${CLIENT_SCRIPT}</script>`,

@@ -153,13 +153,56 @@ export interface SubmissionReceipt {
  * A rejection **requires a reason**. A review that records no reason is not a
  * review, and the applicant and the next admin both need to know why.
  */
+export type ReviewOutcome = 'APPROVE' | 'REJECT' | 'RETURN_FOR_CORRECTION';
+
+/**
+ * The three things a reviewer can decide. Exported as a value, not only a type,
+ * because the type vanishes at runtime and the runtime is where a form posts.
+ */
+export const REVIEW_OUTCOMES: readonly ReviewOutcome[] = Object.freeze([
+  'APPROVE',
+  'REJECT',
+  'RETURN_FOR_CORRECTION',
+]);
+
+/**
+ * Read an outcome off a form, or refuse to guess.
+ *
+ * ## Why this exists
+ *
+ * The console used to cast whatever arrived — `form['outcome'] ?? 'REJECT'` with
+ * an `as` — straight onto {@link ReviewDecision}. A cast is a promise to the
+ * compiler, not a check, so any string at all reached the decision, and
+ * `statusAfterReview` sends everything that is not `APPROVE` or
+ * `RETURN_FOR_CORRECTION` to `CLOSED`.
+ *
+ * **So `APPROVED` — one letter from the value that approves — silently rejected
+ * the shop**, recorded `outcome: 'APPROVED'` in the audit trail as though such
+ * an outcome existed, and showed the reviewer no error. Found by posting the
+ * wrong value by hand; the console's own buttons send the right ones, which is
+ * why no test and no click ever hit it.
+ *
+ * An unreadable outcome now refuses. It does **not** fall back to `REJECT`:
+ * defaulting a decision nobody made to the destructive one is how an applicant
+ * loses a shop to a typo.
+ */
+export function parseReviewOutcome(raw: string | undefined): ReviewOutcome | undefined {
+  if (raw === undefined) return undefined;
+  return REVIEW_OUTCOMES.find((outcome) => outcome === raw);
+}
+
 export interface ReviewDecision {
-  readonly outcome: 'APPROVE' | 'REJECT' | 'RETURN_FOR_CORRECTION';
+  readonly outcome: ReviewOutcome;
   readonly reason: string;
   readonly reviewedBy: string;
 }
 
-export type ReviewRefusal = 'REASON_REQUIRED' | 'NOT_UNDER_REVIEW' | 'ILLEGAL_TRANSITION';
+export type ReviewRefusal =
+  | 'REASON_REQUIRED'
+  | 'NOT_UNDER_REVIEW'
+  | 'ILLEGAL_TRANSITION'
+  /** The form carried no outcome, or one this domain does not define. */
+  | 'UNKNOWN_OUTCOME';
 
 export function reviewRefusal(
   current: ApplicationStatus,

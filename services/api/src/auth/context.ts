@@ -44,12 +44,32 @@ export interface SessionPolicy {
 export const BACKGROUND_REQUEST_HEADER = 'x-telga-background';
 
 export const TRAINING_SESSION_POLICY: SessionPolicy = Object.freeze({
-  // One minute, for training. Deliberately aggressive so an unattended
-  // counter machine locks quickly. **This is short enough that a slow
-  // multi-step sale can expire mid-order** — the operator is returned to
-  // sign-in and no order is completed, which is safe but disruptive. A real
-  // counter value is NOT YET CONFIRMED and belongs with a security review.
-  idleTimeoutMs: 60_000,
+  /**
+   * Fifteen minutes. **Raised from one minute on 2026-09-11.**
+   *
+   * The old value's own comment recorded the problem it caused: *"short enough
+   * that a slow multi-step sale can expire mid-order — safe but disruptive."*
+   * In practice it expired between reading one screen and pressing the button
+   * on it, which reads as a broken login rather than a security control.
+   *
+   * **The unattended-till risk is covered by something better.** `screenLock`
+   * is a separate, shop-configurable control (`screenLockEnabled`,
+   * `lockSeconds`) that locks the *screen* and asks for the operator's PIN —
+   * the right tool for a machine left on a counter, because it protects the
+   * till without destroying the session behind it. A one-minute *session*
+   * timeout was a second, blunter answer to a question the screen lock already
+   * answers, and it was the one a shopkeeper felt.
+   *
+   * What this does **not** relax: `absoluteLifetimeMs` still ends every session
+   * at twelve hours whatever the operator does, a suspended shop or operator
+   * still has sessions revoked on the next request, and sign-in lockout after
+   * four wrong attempts is untouched.
+   *
+   * Still `NOT YET CONFIRMED` as a production value — it belongs with the §8
+   * security review, and fifteen minutes is a counter-realistic default, not a
+   * decided term.
+   */
+  idleTimeoutMs: 15 * 60_000,
   absoluteLifetimeMs: 12 * 60 * 60_000,
   maxSalesPerWindow: 30,
   // Deliberately **below** `idleTimeoutMs`. When the two were equal, waiting

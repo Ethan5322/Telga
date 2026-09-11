@@ -28,4 +28,17 @@ export interface AuthedApiDeps extends SaleDeps {
    * on the mock package, and only consulted when the mode is TRAINING.
    */
   useSimulatedBehaviour?(behaviour: string): void;
+  /**
+   * Chapa — §20.2. **Absent means the feature cannot run**, which is the safe
+   * default for a payment integration with no key configured.
+   *
+   * The secret key reaches here from the environment, via `cli.ts`. It has no
+   * default and appears in no committed file (§24).
+   */
+  readonly chapa?: {
+    readonly config: { readonly secretKey: string };
+    readonly merchantEmail: string;
+    readonly callbackUrl?: string;
+    readonly returnUrl?: string;
+  };
 }

@@ -100,13 +100,28 @@ Five of the twenty-one are implemented, in training mode only — see [[Merchant
 | 14–15 | Find transaction, details | `/transactions` and `/transactions/:id` |
 | 21 | Review queue (merchant-facing part) | `/queue` |
 
-Not built: provider selection, receipt printing and reprint, balance detail,
-funding, verification queue, offline, support and reports.
-
-> [!note] Two corrections to the line above — 2026-09-09
-> **Login is built** (`/login`, with the four-parameter form and the operator PIN), and so is
-> **the operations console**, which is its own application in `apps/operations-console/`. The
-> "not built" list had not been revisited since those landed.
+> [!warning] The "not built" line below is obsolete — corrected 2026-09-10
+> It has been revisited twice and was wrong both times by the time anybody read
+> it. Re-verified route by route against `apps/merchant-pos/src/server.ts`:
+>
+> | Claimed not built | Verified 2026-09-10 |
+> |---|---|
+> | Receipt printing and reprint | **Built** — §18.5, `window.print()` over one `slipCard`; reprint records an audit event |
+> | Balance detail | **Built** — `/home` shows available, reserved and under-review |
+> | Funding | **Built** — `/deposit` (bank slip, D153) and `/pay/deposit` (Telga Pay) |
+> | Verification queue | **Built** — the console's `/deposits`, with slips awaiting payment |
+> | Offline | **Built** — `/offline` |
+> | Support | **Built** — `/complaint`, D150 |
+> | Reports | **Built** — `/statements` |
+> | Provider selection | **Still not built.** One provider, so there is nothing to select. §14 step 3 |
+>
+> Also built since this note and not listed at all: `/transfer` (§19.1),
+> `/deposit` and `/deposit/slip` (§20.1), `/activate` (§18.2), `/register`
+> (§18.1).
+>
+> **Two earlier corrections, kept:** login is built (`/login`, four-parameter
+> form and operator PIN), and so is the operations console, its own application
+> in `apps/operations-console/`.
 >
 > The two **registration** screens are new with D138 and are numbered `—` because the founder's
 > original twenty-one predates them: registration was named in `CLAUDE.md` §22 as a required
@@ -115,10 +130,23 @@ funding, verification queue, offline, support and reports.
 ## Screens that exist but are not reachable
 
 Founder decision [[Decision Log]] **D112** switched off `card.simulated` and
-`product.data`. The screens below are still in the source tree and still
-render if called directly in a unit test, but **no route serves them** — every
-path answers `404` with `FEATURE_DISABLED`, and nothing in the navigation links
-to them.
+`product.data`.
+
+> [!warning] Half of this is no longer true — verified 2026-09-10
+> **`card.simulated` is back on.** `/pay` and `/pay/deposit` serve, and Telga Pay
+> has its own button on the top-up screen ("Deposit with Telga Pay"). Only
+> `product.data` remains off, so `/vouchers/data` is the one path here still
+> answering `404`.
+>
+> The refusal mechanism itself is unchanged and worth restating, because it is
+> the part that matters: a disabled route answers a **byte-identical** 404 to a
+> path that never existed, decided by `routeBlockedBy()` *above* the router — no
+> partial execution, no body parsed, no transaction opened. §7 requires a
+> disabled feature to be inaccessible rather than hidden.
+
+The screens below are still in the source tree and still render if called
+directly in a unit test; whether a route serves one depends on its flag as
+listed.
 
 | Screen | Path | Gated by |
 |---|---|---|

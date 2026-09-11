@@ -675,6 +675,14 @@ export interface DepositRow {
   readonly decidedBy: string | null;
   readonly approvedBy: string | null;
   readonly createdAt: string;
+  /**
+   * Who recorded it — §20's second approval turns on this.
+   *
+   * Carried so the screen can hide a button the route would refuse anyway.
+   * The *control* is the route's check on `recorded_by`; this only spares a
+   * colleague from pressing something that was never going to work.
+   */
+  readonly recordedBy?: string | null;
 }
 
 /**
@@ -685,12 +693,84 @@ export interface DepositRow {
  * a **second** approver because it is over the cap, and `MANUAL_REVIEW`, where
  * the quoted reference resolved to no shop and **must not be guessed at**.
  */
+/**
+ * A slip a shop has printed and not yet paid — §20.1.
+ *
+ * The bridge between the device button and this desk: an admin sees which
+ * references are outstanding, so a payment arriving at the bank has something
+ * to be matched against rather than being a surprise.
+ */
+export interface AwaitingPaymentRow {
+  readonly reference: string;
+  readonly merchantId: string;
+  readonly amountMinor: number;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+}
+
 export function depositsScreen(
   chromeIn: ConsoleChrome,
   rows: readonly DepositRow[],
   allowed: Allowed,
+  awaiting: readonly AwaitingPaymentRow[] = [],
+  /** Who is looking, so the screen can tell "yours" from "a colleague's". */
+  viewerId?: string,
+  notice?: string,
 ): El {
   const waiting = rows.filter((r) => r.status === 'MATCHED' || r.status === 'MANUAL_REVIEW');
+
+  /**
+   * What the shops are about to pay in.
+   *
+   * Deliberately **not** an aggregate. D144 keeps Telga staff out of a shop's
+   * individual *transactions*; a top-up order is not a transaction and not a
+   * sale — it is a shop telling Telga "money is coming, here is the code".
+   * Withholding it would leave a verifier matching a bank statement against
+   * nothing, which is §20's job made impossible.
+   *
+   * No amount is ever matched on. The amount is shown so a verifier can see
+   * that a payment looks like what was expected — never so the system can
+   * decide whose it is.
+   */
+  const awaitingPanel = (): El =>
+    awaiting.length === 0
+      ? h(
+          'p',
+          { class: 'console__note', 'data-testid': 'awaiting-empty' },
+          'No shop is currently holding an unpaid slip.',
+        )
+      : h(
+          'table',
+          { class: 'console__table', 'data-testid': 'awaiting-table' },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              h('th', { scope: 'col' }, 'Reference'),
+              h('th', { scope: 'col' }, 'Shop'),
+              h('th', { scope: 'col' }, 'Expected'),
+              h('th', { scope: 'col' }, 'Printed'),
+              h('th', { scope: 'col' }, 'Pay before'),
+            ),
+          ),
+          h(
+            'tbody',
+            {},
+            ...awaiting.map((row) =>
+              h(
+                'tr',
+                { 'data-testid': `awaiting-${row.reference}` },
+                h('td', { class: 'console__mono' }, row.reference),
+                h('td', {}, row.merchantId),
+                h('td', {}, birr(row.amountMinor)),
+                h('td', {}, row.issuedAt.slice(0, 16).replace('T', ' ')),
+                h('td', {}, row.expiresAt.slice(0, 16).replace('T', ' ')),
+              ),
+            ),
+          ),
+        );
 
   return page(
     { ...chromeIn, section: 'deposits' },
@@ -706,7 +786,17 @@ export function depositsScreen(
           ),
         )
       : '',
+    notice !== undefined &&
+      h('p', { class: 'console__note', role: 'status', 'data-testid': 'deposits-notice' }, notice),
+    h('h2', { 'data-testid': 'awaiting-heading' }, 'Slips waiting to be paid'),
     h(
+      'p',
+      { class: 'console__note' },
+      'A shop printed these from its own device. Match an incoming bank payment to its reference — ' +
+        'never to its amount, because many shops pay in the same figures.',
+    ),
+    awaitingPanel(),
+    h('h2', {}, 'Recorded deposits'),    h(
       'p',
       { class: 'console__note', 'data-testid': 'deposits-waiting' },
       `${String(waiting.length)} waiting for a decision.`,
@@ -727,6 +817,7 @@ export function depositsScreen(
               h('th', { scope: 'col' }, 'Amount'),
               h('th', { scope: 'col' }, 'Status'),
               h('th', { scope: 'col' }, 'Why'),
+              h('th', { scope: 'col' }, 'Second approval'),
               h('th', { scope: 'col' }, 'Verifier'),
             ),
           ),
@@ -743,6 +834,54 @@ export function depositsScreen(
                 h('td', {}, row.bankAmountMinor === null ? '—' : birr(row.bankAmountMinor)),
                 h('td', {}, h('span', { class: 'console__pill' }, row.status)),
                 h('td', {}, row.outcomeReason ?? ''),
+                /**
+                 * The second approval — §20.
+                 *
+                 * Only on a row that is actually waiting, and never on one the
+                 * viewer recorded themselves: *"a second approval given by the
+                 * person who recorded the deposit is not a second approval."*
+                 * They are told why rather than shown a button that refuses.
+                 */
+                h(
+                  'td',
+                  { class: 'console__actions' },
+                  row.status !== 'MATCHED'
+                    ? ''
+                    : !allowed.has('ADMIN_SECOND_APPROVE_FUNDING')
+                      ? ''
+                      : viewerId !== undefined && row.recordedBy === viewerId
+                        ? h(
+                            'span',
+                            { class: 'console__note', 'data-testid': `own-deposit-${row.id}` },
+                            'You recorded this. A colleague must approve it.',
+                          )
+                        : h(
+                            'form',
+                            {
+                              method: 'post',
+                              action: `/deposits/${encodeURIComponent(row.id)}/approve`,
+                              'data-testid': `approve-deposit-form-${row.id}`,
+                            },
+                            h('input', {
+                              type: 'hidden',
+                              name: 'csrfToken',
+                              value: chromeIn.csrfToken ?? '',
+                            }),
+                            h(
+                              'button',
+                              {
+                                type: 'submit',
+                                class: 'console__button',
+                                // It credits a shop's balance. An accidental
+                                // press is money moved on nobody's judgement.
+                                'data-confirm':
+                                  'Approve this deposit? It credits the shop immediately.',
+                                'data-testid': `approve-deposit-${row.id}`,
+                              },
+                              'Approve',
+                            ),
+                          ),
+                ),
                 h('td', {}, row.approvedBy ?? row.decidedBy ?? ''),
               ),
             ),
@@ -998,11 +1137,33 @@ export function applicationDetailScreen(
 
   const decidable = application.status === 'UNDER_REVIEW';
 
+  /**
+   * A reason code is for a log; a reviewer needs a sentence.
+   *
+   * Unknown codes fall through to the code itself rather than to a shrug —
+   * seeing `SOMETHING_ODD` is worse than a sentence and far better than a blank
+   * box or a cheerful "an error occurred".
+   */
+  const errorMessage = (code: string): string =>
+    code === 'UNKNOWN_OUTCOME'
+      ? 'That decision was not recognised, so nothing was changed. Use Approve, Return for correction, or Reject.'
+      : code === 'REASON_REQUIRED'
+        ? 'Give a reason. Rejecting or returning an application without one is not a review.'
+        : code === 'NOT_UNDER_REVIEW'
+          ? 'This application is not under review, so it cannot be decided. Start the review first.'
+          : code === 'ILLEGAL_TRANSITION'
+            ? 'That decision is not possible from this application’s current status.'
+            : code;
+
   return page(
     { ...chrome, section: 'applications' },
     `Application ${application.reference}`,
     error !== undefined &&
-      h('p', { class: 'console__error', role: 'alert', 'data-testid': 'application-error' }, error),
+      h(
+        'p',
+        { class: 'console__error', role: 'alert', 'data-testid': 'application-error' },
+        errorMessage(error),
+      ),
     readinessPanel(),
     h(
       'table',
@@ -1794,5 +1955,79 @@ export function deniedScreen(chrome: ConsoleChrome, reason: string): El {
     'Not permitted',
     h('p', { class: 'console__error', role: 'alert', 'data-testid': 'denied-reason' }, reason),
     h('p', {}, h('a', { href: '/', 'data-testid': 'denied-home' }, 'Back to the dashboard')),
+  );
+}
+
+/**
+ * The emailed sign-in code — §23.1.
+ *
+ * Reached only with a session whose password is satisfied and whose second
+ * factor is not. That session can do exactly one thing, which is this.
+ */
+export function otpScreen(
+  chrome: ConsoleChrome,
+  expiresInSeconds: number,
+  error?: string,
+): El {
+  return page(
+    { ...chrome, section: 'login' },
+    'Enter your sign-in code',
+    h('h1', {}, 'Check your email'),
+    h(
+      'p',
+      { class: 'console__note', 'data-testid': 'otp-lede' },
+      `Telga sent a ${String(6)}-digit code to your email address. ` +
+        `It expires in ${String(expiresInSeconds)} seconds.`,
+    ),
+    error !== undefined &&
+      h('p', { class: 'console__error', role: 'alert', 'data-testid': 'otp-error' }, error),
+    h(
+      'form',
+      { method: 'post', action: '/otp', 'data-testid': 'otp-form' },
+      h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+      h(
+        'label',
+        { for: 'code' },
+        'Sign-in code',
+        h('input', {
+          id: 'code',
+          name: 'code',
+          type: 'text',
+          inputmode: 'numeric',
+          // Six characters exactly. `autocomplete` lets a phone offer the code
+          // straight from the message, which matters a great deal when the
+          // window is sixty seconds.
+          maxlength: '6',
+          minlength: '6',
+          pattern: '[0-9]{6}',
+          autocomplete: 'one-time-code',
+          required: true,
+          autofocus: true,
+          'data-testid': 'otp-code',
+        }),
+      ),
+      h(
+        'button',
+        { type: 'submit', class: 'console__button', 'data-testid': 'otp-submit' },
+        'Sign in',
+      ),
+    ),
+    // A code that expired is not a failure, and the window is short enough that
+    // this will be used. Offered plainly rather than buried.
+    h(
+      'form',
+      { method: 'post', action: '/otp/resend', 'data-testid': 'otp-resend-form' },
+      h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+      h(
+        'button',
+        { type: 'submit', class: 'console__button console__button--quiet', 'data-testid': 'otp-resend' },
+        'Send me another code',
+      ),
+    ),
+    h(
+      'p',
+      { class: 'console__note' },
+      'Telga will never ask you for this code by phone or message.',
+    ),
   );
 }

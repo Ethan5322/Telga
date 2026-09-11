@@ -42,6 +42,11 @@ import type {
   TransactionDto,
 } from '@telga/pos-view-model';
 import { assertSafeForDisplay } from '@telga/pos-view-model';
+import { cancelBankDeposit, openBankDeposit, orderBankDeposit } from '../application/bankDeposit';
+import { settleShopTransfer } from '../application/shopTransfer';
+import { startChapaDeposit } from '../application/chapaDeposit';
+import { postShopTransfer } from '@telga/persistence';
+import { TRAINING_TRANSFER_POLICY, postingId } from '@telga/domain';
 import { transferProfit } from '../application/profitTransfer';
 import { changePin } from '../application/changePin';
 import type { PendingOrderRow } from '@telga/persistence';
@@ -570,6 +575,253 @@ function validateOrderBody(body: unknown): CreatePendingOrderRequest | string {
   }
 
   return request;
+}
+
+/**
+ * `POST /api/training/deposits/chapa` — start a Chapa payment.
+ *
+ * §20.2. Creates a top-up order and returns Chapa's checkout URL. **Credits
+ * nothing**: the balance moves only when Chapa's own record confirms the
+ * payment, which happens on the webhook path.
+ */
+export async function postChapaDeposit(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): Promise<HttpResponse> {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const chapa = deps.chapa;
+  if (chapa === undefined) {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'DISABLED', 'chapa.refused.disabled');
+  }
+
+  const body = request.body as Record<string, unknown> | null;
+  const raw = body?.['amountBirr'];
+  const birr = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(birr)) {
+    return fail(
+      deps,
+      correlationId,
+      400,
+      'INVALID_REQUEST',
+      'AMOUNT_INVALID',
+      'bank_deposit.refused.amount_invalid',
+    );
+  }
+
+  const result = await startChapaDeposit(deps, context, chapa, {
+    amountMinor: Math.round(birr * 100),
+    correlationId,
+  });
+
+  switch (result.kind) {
+    case 'DISABLED':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'DISABLED', 'chapa.refused.disabled');
+    case 'REFUSED':
+      return fail(
+        deps,
+        correlationId,
+        400,
+        'INVALID_REQUEST',
+        result.reason,
+        'bank_deposit.refused.amount_invalid',
+      );
+    case 'PROVIDER_UNAVAILABLE':
+      // 502: Telga is fine, the gateway is not. Distinct from a refusal so the
+      // screen can say "nothing was charged" rather than blaming the amount.
+      return fail(
+        deps,
+        correlationId,
+        502,
+        'PROVIDER_UNAVAILABLE',
+        'PROVIDER_UNAVAILABLE',
+        'chapa.refused.unavailable',
+      );
+    case 'STARTED':
+      return ok(deps, correlationId, { reference: result.reference, checkoutUrl: result.checkoutUrl }, 201);
+  }
+}
+
+/**
+ * `POST /api/training/transfers` — send balance to another shop.
+ *
+ * §19.1, and **not a deposit**: no value enters Telga, an amount that already
+ * exists moves sideways. Both ledger sides and the `shop_transfers` row go in
+ * one transaction, because a transfer that debited without crediting is money
+ * destroyed.
+ */
+export function postShopTransferRequest(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const body = request.body as Record<string, unknown> | null;
+  const recipientDeviceId = String(body?.['recipientDeviceId'] ?? '').trim();
+  const raw = body?.['amountBirr'];
+  const birr = typeof raw === 'number' ? raw : Number(raw);
+
+  if (recipientDeviceId.length === 0) {
+    return fail(
+      deps,
+      correlationId,
+      400,
+      'INVALID_REQUEST',
+      'RECIPIENT_UNKNOWN',
+      'transfer.refused.recipient_unknown',
+    );
+  }
+  if (!Number.isFinite(birr)) {
+    return fail(deps, correlationId, 400, 'INVALID_REQUEST', 'AMOUNT_INVALID', 'transfer.refused.amount_invalid');
+  }
+
+  const result = settleShopTransfer(
+    {
+      deps,
+      policy: TRAINING_TRANSFER_POLICY,
+      availableMinor: (merchantId) => deps.driver.balanceFor(merchantId as never).available.minor,
+      // The balanced pair, posted inside the transaction `settleShopTransfer`
+      // opens around the row.
+      postTransfer: (input) => {
+        postShopTransfer(deps.driver as never, {
+          senderMerchantId: input.senderMerchantId as never,
+          recipientMerchantId: input.recipientMerchantId as never,
+          amount: money(input.amountMinor),
+          fee: money(input.feeMinor),
+          at: input.at as never,
+          correlationId: input.correlationId,
+          postingId: postingId(input.postingId),
+        });
+      },
+    },
+    {
+      senderMerchantId: context.merchantId,
+      senderDeviceId: context.deviceId,
+      senderOperatorId: context.userId,
+      recipientDeviceId,
+      amountMinor: Math.round(birr * 100),
+    },
+  );
+
+  switch (result.kind) {
+    case 'REFUSED':
+      return fail(deps, correlationId, 400, 'INVALID_REQUEST', result.reason, 'transfer.refused.amount_invalid');
+    case 'NEEDS_APPROVAL':
+      // 202: recorded, awaiting a supervisor. **Not** a success — the screen
+      // must not tell an operator the other shop has the money.
+      return ok(
+        deps,
+        correlationId,
+        { status: 'NEEDS_APPROVAL', amountMinor: result.amountMinor, feeMinor: result.feeMinor },
+        202,
+      );
+    case 'SETTLED':
+      return ok(
+        deps,
+        correlationId,
+        {
+          status: 'SETTLED',
+          amountMinor: result.amountMinor,
+          feeMinor: result.feeMinor,
+          recipientMerchantId: result.recipientMerchantId,
+        },
+        201,
+      );
+  }
+}
+
+/**
+ * `POST /api/training/deposits/orders` — ask for a bank payment slip.
+ *
+ * §20.1. Creates the order and returns its reference. **Credits nothing**: a
+ * shop's balance after this call is exactly what it was before, and the screen
+ * that renders the reply says so in words.
+ */
+export function postBankDepositOrder(
+  deps: AuthedApiDeps,
+  request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+
+  const body = request.body as Record<string, unknown> | null;
+  const raw = body?.['amountBirr'];
+  const birr = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(birr)) {
+    return fail(
+      deps,
+      correlationId,
+      400,
+      'INVALID_REQUEST',
+      'AMOUNT_INVALID',
+      'bank_deposit.refused.amount_invalid',
+    );
+  }
+
+  const result = orderBankDeposit(deps, context, {
+    amountMinor: Math.round(birr * 100),
+    correlationId,
+  });
+
+  switch (result.kind) {
+    case 'SIMULATED_ONLY':
+      return fail(deps, correlationId, 403, 'SIMULATED_ONLY', 'LIVE_MODE_REFUSED', 'mode.training');
+    case 'REFUSED':
+      // The reason travels as the reason code, so the screen can show the one
+      // sentence that fits rather than a generic refusal.
+      return fail(
+        deps,
+        correlationId,
+        400,
+        'INVALID_REQUEST',
+        result.reason,
+        'bank_deposit.refused.amount_invalid',
+      );
+    case 'ORDERED':
+      return ok(
+        deps,
+        correlationId,
+        {
+          orderId: result.orderId,
+          reference: result.reference,
+          amountMinor: result.amountMinor,
+          issuedAt: result.issuedAt,
+          expiresAt: result.expiresAt,
+        },
+        201,
+      );
+  }
+}
+
+/** `GET /api/training/deposits/orders/open` — the slip this shop is holding. */
+export function getBankDepositOrder(
+  deps: AuthedApiDeps,
+  _request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  const open = openBankDeposit(deps, context);
+  return ok(deps, correlationId, { order: open ?? null });
+}
+
+/** `POST /api/training/deposits/orders/cancel` — abandon an unpaid slip. */
+export function postCancelBankDepositOrder(
+  deps: AuthedApiDeps,
+  _request: HttpRequest,
+  context: AuthContext,
+  correlationId: string,
+): HttpResponse {
+  const refused = assertTraining(deps, correlationId);
+  if (refused) return refused;
+  return ok(deps, correlationId, { cancelled: cancelBankDeposit(deps, context) });
 }
 
 /**

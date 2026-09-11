@@ -67,6 +67,17 @@ export const AUDIT_ACTIONS = [
   'PROFIT_TRANSFERRED_TO_BALANCE',
   /** An owner changed a transaction PIN. Never records the PIN itself. */
   'OPERATOR_PIN_CHANGED',
+  /**
+   * A shop asked for a bank payment slip — §20.1.
+   *
+   * Audited although it moves **no money**, because it is the moment a
+   * reference enters the world. When a payment later arrives quoting one, the
+   * question "where did this come from" has to have an answer naming an
+   * operator and a till.
+   */
+  'TOPUP_ORDER_CREATED',
+  /** The shop abandoned an unpaid slip before printing another. */
+  'TOPUP_ORDER_CANCELLED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

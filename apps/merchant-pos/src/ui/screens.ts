@@ -300,6 +300,44 @@ export function transactionDetailScreen(props: DetailProps): El {
           recoveryPanel(view),
           supportBlock(view, locale),
           actionBar(view, chrome.merchantId, locale),
+          /**
+           * Reverse, and report a problem — §17.1 and §17.2.
+           *
+           * **Both routes existed and nothing linked to them.** `/reverse` and
+           * `/complaint` answered 200 and were reachable only by typing the URL,
+           * which for a shopkeeper means not at all. Found by the founder
+           * looking for the button, which is the only way an unlinked screen is
+           * ever found.
+           *
+           * Here rather than in a menu because §17.1 step 1 is *"presses Reverse
+           * **on a transaction**"* — a reversal is about one sale, and starting
+           * from the sale is what carries its id. The link is shown for every
+           * transaction: `decideReversal` owns whether it is allowed, and a
+           * screen that hid the button for a state it guessed wrong would leave
+           * a merchant with no way to ask.
+           */
+          h(
+            'section',
+            { class: 'detail__extra', 'data-testid': 'transaction-extra-actions' },
+            h(
+              'a',
+              {
+                href: `/reverse?transaction=${encodeURIComponent(view.transactionId)}`,
+                class: 'voucher__button',
+                'data-testid': 'action-request-reversal',
+              },
+              t(locale, 'reverse.title'),
+            ),
+            h(
+              'a',
+              {
+                href: `/complaint?transaction=${encodeURIComponent(view.transactionId)}`,
+                class: 'voucher__button',
+                'data-testid': 'action-report-problem',
+              },
+              t(locale, 'complaint.title'),
+            ),
+          ),
         ),
     }),
   );

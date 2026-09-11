@@ -131,7 +131,8 @@ export type FeatureFlag =
    * it today moves none — and putting it there would make that list mean
    * "features we are nervous about" rather than "features that move real money".
    */
-  | 'transfer.shop_to_shop';
+  | 'transfer.shop_to_shop'
+  | 'deposit.chapa';
 
 /**
  * What is on.
@@ -214,12 +215,40 @@ export const FEATURE_FLAGS: Readonly<Record<FeatureFlag, boolean>> = Object.free
   // if it causes a problem. Recorded as theirs.
   //
   // **This flag was never what blocks real money.** `money.live` is false and
-  // `assertSafeStartup` refuses to boot if any MOVES_REAL_MONEY flag is on, so
+  // `assertNoLiveMoneyEnabled` refuses to boot if any MOVES_REAL_MONEY flag is on, so
   // what this gates is the *simulation* — a training ledger, no counterparty,
   // no bank, no network — exactly as `card.simulated` gates Telga Pay. The
   // regulated question returns in full the day `money.live` is considered, and
   // D146 does not touch that.
   'transfer.shop_to_shop': true,
+
+  /**
+   * **On, and sandbox-only by construction** — §20.2.
+   *
+   * Chapa is an Ethiopian payment company. A shop pays money to Chapa, Chapa
+   * tells Telga, and Telga credits that shop's selling balance. One *method* of
+   * paying in, beside carrying a slip to a bank counter — not a wallet, and not
+   * payment acceptance on a customer's behalf.
+   *
+   * ## Why the flag is not what keeps this safe
+   *
+   * A flag is one edit away from being wrong, so the safety is put somewhere an
+   * edit cannot reach: **the adapter refuses any key that is not
+   * `CHASECK_TEST-`**. With the flag on and a live key configured, Telga refuses
+   * to start. There is no configuration of this build that reaches live Chapa.
+   *
+   * `payments.acceptance` stays **off** and is a different question: that is
+   * Telga taking a *customer's* money on a shop's behalf. This is a shop paying
+   * in its own float, which is what §20 has always described.
+   *
+   * ## And no Chapa payment credits by itself
+   *
+   * A verified payment becomes a `MATCHED` funding submission waiting for a
+   * person, exactly like a high-value bank deposit. §20's second approval, on
+   * the founder's instruction. The gateway's word moves money no faster than a
+   * bank statement does.
+   */
+  'deposit.chapa': true,
 });
 
 /** Flags that stay off until the CLAUDE.md §8 launch gates are documented. */

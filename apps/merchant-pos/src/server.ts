@@ -66,6 +66,11 @@ import {
   topUpScreen,
 } from './ui/menuScreens';
 import { POLICY_TEXTS, TRAINING_SUPPORT, learningSteps } from './ui/content';
+import { bankDepositAmountScreen, bankDepositSlipScreen } from './ui/bankDepositScreens';
+import { shopTransferScreen } from './ui/shopTransferScreens';
+import { chapaAmountScreen, chapaSlipScreen } from './ui/chapaScreens';
+import { verifyChapaWebhook } from '@telga/provider-chapa';
+import { settleChapaDeposit } from '@telga/api';
 import { lockScreen } from './ui/lockScreen';
 import { offlineScreen, outageScreen } from './ui/serviceStateScreens';
 import { cardPresentScreen, cardResultScreen } from './ui/cardScreens';
@@ -86,7 +91,12 @@ import {
 } from '@telga/api';
 import { ApplicationWriteError, maskRecipient } from '@telga/persistence';
 import type { Locale } from '@telga/localization';
-import { TRAINING_REVERSAL_POLICY, decideReversal } from '@telga/domain';
+import {
+  TRAINING_REVERSAL_POLICY,
+  TRAINING_TOPUP_POLICY,
+  decideReversal,
+  formatDepositReference,
+} from '@telga/domain';
 import { isLocale, t } from '@telga/localization';
 import { toTransactionViewModel, succeed, succeedList } from '@telga/pos-view-model';
 import type { BalanceDto, RemoteData, TransactionDto, TransactionViewModel } from '@telga/pos-view-model';
@@ -177,6 +187,84 @@ import { reversalScreen, reversalSentScreen } from './ui/reversalScreens';
 import { checkRegistrationThrottle, registrationSource } from './registration';
 import { newNonce, securityHeaders } from './transport/headers';
 
+/** What `/api/training/deposits/orders/open` returns. */
+interface BankDepositOrderDto {
+  readonly reference: string;
+  readonly amountMinor: number;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+}
+
+/**
+ * One sentence per refusal — §20.1.
+ *
+ * Each reason gets its own message rather than a shared "could not print":
+ * "you already have a slip" and "that is more than a single deposit may be"
+ * lead a shopkeeper to different next actions, and a generic refusal leads
+ * them to press the button again.
+ */
+/** One sentence per Chapa refusal — §20.2. */
+function chapaErrorFor(locale: Locale, code: string | null): string | undefined {
+  if (code === null) return undefined;
+  switch (code) {
+    case 'DISABLED':
+      return t(locale, 'chapa.refused.disabled');
+    case 'PROVIDER_UNAVAILABLE':
+      // Deliberately says nothing was charged. A shopkeeper who thinks a
+      // failed start might have taken money will not try again.
+      return t(locale, 'chapa.refused.unavailable');
+    case 'SHOP_NOT_ACTIVE':
+      return t(locale, 'bank_deposit.refused.shop_not_active');
+    case 'AMOUNT_BELOW_MINIMUM':
+      return t(locale, 'bank_deposit.refused.amount_below_minimum');
+    case 'AMOUNT_ABOVE_MAXIMUM':
+      return t(locale, 'bank_deposit.refused.amount_above_maximum');
+    case 'ORDER_ALREADY_OPEN':
+      return t(locale, 'bank_deposit.refused.order_already_open');
+    default:
+      return t(locale, 'bank_deposit.refused.amount_invalid');
+  }
+}
+
+/** One sentence per transfer refusal — §19.1. */
+function transferErrorFor(locale: Locale, code: string | null): string | undefined {
+  if (code === null) return undefined;
+  switch (code) {
+    case 'SENDER_NOT_ACTIVE':
+      return t(locale, 'transfer.refused.sender_not_active');
+    case 'RECIPIENT_UNKNOWN':
+      return t(locale, 'transfer.refused.recipient_unknown');
+    case 'RECIPIENT_NOT_ACTIVE':
+      return t(locale, 'transfer.refused.recipient_not_active');
+    case 'SAME_MERCHANT':
+      return t(locale, 'transfer.refused.same_shop');
+    case 'INSUFFICIENT_BALANCE':
+      return t(locale, 'transfer.refused.insufficient');
+    case 'OVER_DAILY_LIMIT':
+      return t(locale, 'transfer.refused.over_limit');
+    default:
+      return t(locale, 'transfer.refused.amount_invalid');
+  }
+}
+
+function bankDepositErrorFor(locale: Locale, code: string | null): string | undefined {
+  if (code === null) return undefined;
+  switch (code) {
+    case 'SHOP_NOT_ACTIVE':
+      return t(locale, 'bank_deposit.refused.shop_not_active');
+    case 'AMOUNT_BELOW_MINIMUM':
+      return t(locale, 'bank_deposit.refused.amount_below_minimum');
+    case 'AMOUNT_ABOVE_MAXIMUM':
+      return t(locale, 'bank_deposit.refused.amount_above_maximum');
+    case 'ORDER_ALREADY_OPEN':
+      return t(locale, 'bank_deposit.refused.order_already_open');
+    case 'DEPOSITS_DISABLED':
+      return t(locale, 'bank_deposit.refused.deposits_disabled');
+    default:
+      return t(locale, 'bank_deposit.refused.amount_invalid');
+  }
+}
+
 export interface PosServerOptions {
   readonly api: ApiDeps;
   readonly environment: string;
@@ -187,6 +275,32 @@ export interface PosServerOptions {
    * caller that only knows `catalog` still type-checks; the voucher routes
    * render "not found" screens when it is absent rather than throwing.
    */
+  /**
+   * Where a shop pays money in — §20.1.
+   *
+   * **Absent by default, and absent means no slip prints.** Telga's bank and
+   * account number are `NOT YET CONFIRMED` (§31), and a slip naming no account
+   * sends a shopkeeper to a bank counter with nothing to say. Better a screen
+   * that admits it than paper that looks official and is useless.
+   */
+  readonly depositBank?: {
+    readonly bankName: string;
+    readonly accountName: string;
+    readonly accountNumber: string;
+  };
+  /**
+   * Chapa — §20.2. **Absent means the button does nothing**, which is the safe
+   * direction for a payment integration with no key configured.
+   *
+   * The secret key is read from the environment by `cli.ts` and never appears
+   * in this file, in a default, or in a commit (§24).
+   */
+  readonly chapa?: {
+    readonly secretKey: string;
+    readonly merchantEmail: string;
+    readonly callbackUrl?: string;
+    readonly returnUrl?: string;
+  };
   readonly voucherCatalog?: readonly VoucherProduct[];
   readonly voucherNetworks?: readonly VoucherNetwork[];
   /** Data bundle categories. Absent means the data flow renders no tiles. */
@@ -756,6 +870,185 @@ export async function renderScreen(
       status: 200,
       html: htmlDocument(
         renderToHtml(learningScreen({ chrome, steps: learningSteps(locale) })),
+        chrome,
+        nonce,
+      ),
+    };
+  }
+
+  // --- Chapa deposits — §20.2 -------------------------------------------------
+  //
+  // One method of paying in, beside the counter slip. The shop pays Chapa;
+  // Chapa tells Telga; Telga credits automatically once it has confirmed the
+  // payment with Chapa itself.
+
+  if (path === '/deposit/chapa') {
+    // Switched off, or no key configured: the screen says so rather than
+    // offering a button that cannot work.
+    if (!isEnabled('deposit.chapa') || options.chapa === undefined) return undefined;
+    return {
+      status: 200,
+      html: htmlDocument(
+        renderToHtml(
+          chapaAmountScreen({
+            chrome,
+            csrfToken: request.csrfToken ?? '',
+            minimumFormatted: format(money(TRAINING_TOPUP_POLICY.minimumMinor)),
+            maximumFormatted: format(money(TRAINING_TOPUP_POLICY.maximumMinor)),
+            errorMessage: chapaErrorFor(locale, query.get('error')),
+          }),
+        ),
+        chrome,
+        nonce,
+      ),
+    };
+  }
+
+  if (path === '/deposit/chapa/slip') {
+    if (!isEnabled('deposit.chapa') || options.chapa === undefined) return undefined;
+    const open = await readVia<{ order: BankDepositOrderDto | null }>(
+      options,
+      '/api/training/deposits/orders/open',
+      {},
+      cookie,
+    );
+    const order = open.ok ? open.data.order : null;
+    const checkoutUrl = query.get('pay');
+    // Both are needed: an order without a checkout link is a slip nobody can
+    // pay, and a link without an order is a payment nothing will match.
+    if (order === null || checkoutUrl === null || checkoutUrl.length === 0) return undefined;
+    return {
+      status: 200,
+      html: htmlDocument(
+        renderToHtml(
+          chapaSlipScreen({
+            chrome,
+            order: {
+              reference: formatDepositReference(order.reference),
+              amountFormatted: format(money(order.amountMinor)),
+              issuedAt: order.issuedAt,
+              expiresAt: order.expiresAt,
+            },
+            checkoutUrl,
+            supportContact: SUPPORT_CONTACT,
+          }),
+        ),
+        chrome,
+        nonce,
+      ),
+    };
+  }
+
+  // --- Telga transfer — §19.1 ------------------------------------------------
+  //
+  // Balance moving sideways between two shops. Not a deposit: nothing enters
+  // Telga, so this sits apart from both top-up routes.
+
+  if (path === '/transfer') {
+    const balance = await readVia<BalanceDto>(options, '/api/training/balance', {}, cookie);
+    const sent = query.get('sent');
+    const pending = query.get('pending');
+    return {
+      status: 200,
+      html: htmlDocument(
+        renderToHtml(
+          shopTransferScreen({
+            chrome,
+            csrfToken: request.csrfToken ?? '',
+            availableFormatted: balance.ok ? balance.data.available.formatted : '—',
+            errorMessage: transferErrorFor(locale, query.get('error')),
+            ...(sent !== null && Number.isSafeInteger(Number(sent))
+              ? {
+                  done: {
+                    amountFormatted: format(money(Number(sent))),
+                    feeFormatted: format(money(Number(query.get('fee') ?? '0'))),
+                    recipientDeviceId: query.get('to') ?? '',
+                    remainingFormatted: balance.ok ? balance.data.available.formatted : '—',
+                  },
+                }
+              : {}),
+            ...(pending !== null && Number.isSafeInteger(Number(pending))
+              ? { awaitingApproval: { amountFormatted: format(money(Number(pending))) } }
+              : {}),
+          }),
+        ),
+        chrome,
+        nonce,
+      ),
+    };
+  }
+
+  // --- bank deposit slip — §20.1 --------------------------------------------
+  //
+  // The **Deposit money** button lands here. Nothing on this path moves money:
+  // it creates an order and prints paper, and the credit happens in the console
+  // once a bank record is confirmed.
+
+  if (path === '/deposit') {
+    const open = await readVia<{ order: BankDepositOrderDto | null }>(
+      options,
+      '/api/training/deposits/orders/open',
+      {},
+      cookie,
+    );
+    const order = open.ok ? open.data.order : null;
+    return {
+      status: 200,
+      html: htmlDocument(
+        renderToHtml(
+          bankDepositAmountScreen({
+            chrome,
+            csrfToken: request.csrfToken ?? '',
+            minimumFormatted: format(money(TRAINING_TOPUP_POLICY.minimumMinor)),
+            maximumFormatted: format(money(TRAINING_TOPUP_POLICY.maximumMinor)),
+            errorMessage: bankDepositErrorFor(locale, query.get('error')),
+            ...(order === null
+              ? {}
+              : {
+                  openOrder: {
+                    reference: formatDepositReference(order.reference),
+                    amountFormatted: format(money(order.amountMinor)),
+                    expiresAt: order.expiresAt,
+                  },
+                }),
+          }),
+        ),
+        chrome,
+        nonce,
+      ),
+    };
+  }
+
+  if (path === '/deposit/slip') {
+    const open = await readVia<{ order: BankDepositOrderDto | null }>(
+      options,
+      '/api/training/deposits/orders/open',
+      {},
+      cookie,
+    );
+    const order = open.ok ? open.data.order : null;
+    // No slip without an order. A reference that is not stored is a reference
+    // nobody can honour.
+    if (order === null) return undefined;
+    return {
+      status: 200,
+      html: htmlDocument(
+        renderToHtml(
+          bankDepositSlipScreen({
+            chrome,
+            order: {
+              // Grouped for a human at a counter; the stored form has no
+              // hyphens and everything compares against that.
+              reference: formatDepositReference(order.reference),
+              amountFormatted: format(money(order.amountMinor)),
+              issuedAt: order.issuedAt,
+              expiresAt: order.expiresAt,
+              merchantId: context.merchantId,
+            },
+            ...(options.depositBank === undefined ? {} : { bank: options.depositBank }),
+            supportContact: SUPPORT_CONTACT,
+          }),
+        ),
         chrome,
         nonce,
       ),
@@ -3343,6 +3636,228 @@ async function route(
     const body = apiResponse.body as { ok: true } | { ok: false; error: { reasonCode: string } };
     response.writeHead(303, {
       location: body.ok ? '/settings?saved=1' : `/settings?error=${encodeURIComponent(body.error.reasonCode)}`,
+      ...securityHeaders({ config: transport, scheme, sessionSensitive: true }),
+    });
+    response.end();
+    return;
+  }
+
+  if (path === '/transfer' && method === 'POST') {
+    const form = await readFormBody(request, limit);
+    if (form === 'TOO_LARGE') {
+      response.writeHead(303, { location: '/transfer?error=AMOUNT_INVALID' });
+      response.end();
+      return;
+    }
+    const apiResponse = await handle(options.api, {
+      method: 'POST',
+      path: '/api/training/transfers',
+      query: {},
+      headers: { cookie: cookieHeader ?? '' },
+      body: {
+        csrfToken: form['csrfToken'],
+        recipientDeviceId: form['recipientDeviceId'],
+        amountBirr: form['amountBirr'],
+        pin: form['pin'],
+      },
+    });
+    const body = apiResponse.body as
+      | { ok: true; data: { status: string; amountMinor: number; feeMinor: number } }
+      | { ok: false; error: { reasonCode: string } };
+
+    let location: string;
+    if (!body.ok) {
+      location = `/transfer?error=${encodeURIComponent(body.error.reasonCode)}`;
+    } else if (body.data.status === 'NEEDS_APPROVAL') {
+      // Deliberately a different parameter from `sent`. An operator told
+      // "sent" would tell the other shop to expect money that has not moved.
+      location = `/transfer?pending=${encodeURIComponent(String(body.data.amountMinor))}`;
+    } else {
+      location =
+        `/transfer?sent=${encodeURIComponent(String(body.data.amountMinor))}` +
+        `&fee=${encodeURIComponent(String(body.data.feeMinor))}` +
+        `&to=${encodeURIComponent(form['recipientDeviceId'] ?? '')}`;
+    }
+
+    response.writeHead(303, {
+      location,
+      ...securityHeaders({ config: transport, scheme, sessionSensitive: true }),
+    });
+    response.end();
+    return;
+  }
+
+  /**
+   * Start a Chapa payment — §20.2.
+   *
+   * Creates the order, asks Chapa for a checkout page, and sends the shop to a
+   * slip carrying both the reference and the link. Nothing has moved yet.
+   */
+  if (path === '/deposit/chapa' && method === 'POST') {
+    if (!isEnabled('deposit.chapa') || options.chapa === undefined) {
+      response.writeHead(303, { location: '/deposit/chapa?error=DISABLED' });
+      response.end();
+      return;
+    }
+    const form = await readFormBody(request, limit);
+    if (form === 'TOO_LARGE') {
+      response.writeHead(303, { location: '/deposit/chapa?error=AMOUNT_INVALID' });
+      response.end();
+      return;
+    }
+    const apiResponse = await handle(options.api, {
+      method: 'POST',
+      path: '/api/training/deposits/chapa',
+      query: {},
+      headers: { cookie: cookieHeader ?? '' },
+      body: { csrfToken: form['csrfToken'], amountBirr: form['amountBirr'] },
+    });
+    const body = apiResponse.body as
+      | { ok: true; data: { reference: string; checkoutUrl: string } }
+      | { ok: false; error: { reasonCode: string } };
+
+    response.writeHead(303, {
+      location: body.ok
+        ? `/deposit/chapa/slip?pay=${encodeURIComponent(body.data.checkoutUrl)}`
+        : `/deposit/chapa?error=${encodeURIComponent(body.error.reasonCode)}`,
+      ...securityHeaders({ config: transport, scheme, sessionSensitive: true }),
+    });
+    response.end();
+    return;
+  }
+
+  /**
+   * Chapa's webhook — §20.2.
+   *
+   * ## Why this route has no session
+   *
+   * Chapa is a server on the internet, not a signed-in operator. Its identity is
+   * proved by a **signature over the exact bytes it sent**, which is the only
+   * thing standing between this endpoint and anyone who can post JSON.
+   *
+   * ## Why the raw body
+   *
+   * The signature is over the bytes Chapa hashed. Parsing and re-serialising
+   * JSON reorders keys and reformats numbers, producing a different hash and a
+   * valid message rejected. So the body is read as bytes, verified, and only
+   * then parsed.
+   *
+   * ## Why it answers 200 to things it refuses
+   *
+   * A webhook receiver that returns an error gets retried. For a **refused
+   * signature** that is a stranger being invited to try again; for an
+   * **already-credited** order it is Chapa re-sending an event that was handled
+   * correctly the first time. Neither is a problem Chapa can fix by retrying, so
+   * both are acknowledged. The one case that *is* worth a retry — Chapa itself
+   * being unreachable when Telga tries to verify — answers 503.
+   */
+  if (path === '/webhooks/chapa' && method === 'POST') {
+    if (!isEnabled('deposit.chapa') || options.chapa === undefined) {
+      response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ ok: false }));
+      return;
+    }
+
+    const raw = await readBody(request, limit);
+    if (raw === 'TOO_LARGE') {
+      response.writeHead(413, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ ok: false }));
+      return;
+    }
+    const rawText = raw.toString('utf8');
+
+    const verdict = verifyChapaWebhook(request.headers, rawText, options.chapa.secretKey);
+    if (verdict !== 'VALID') {
+      // Never says which of the two it was. An attacker probing this endpoint
+      // learns nothing about whether a signature was close.
+      process.stderr.write(`[telga-pos] chapa webhook refused: ${verdict}\n`);
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    let txRef = '';
+    try {
+      const parsed = JSON.parse(rawText) as Record<string, unknown>;
+      txRef = typeof parsed['tx_ref'] === 'string' ? parsed['tx_ref'] : '';
+    } catch {
+      txRef = '';
+    }
+    if (txRef.length === 0) {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    // The body said something. This asks Chapa.
+    const settled = await settleChapaDeposit(
+      options.api as never,
+      {
+        config: { secretKey: options.chapa.secretKey },
+        merchantEmail: options.chapa.merchantEmail,
+      },
+      txRef,
+      (prefix) => options.api.newId(prefix),
+    );
+
+    if (settled.kind === 'UNVERIFIABLE') {
+      // The one case worth retrying: Telga could not reach Chapa to check. §30 —
+      // an uncertain outcome is never a failure, and never a credit either.
+      process.stderr.write(`[telga-pos] chapa verify unreachable: ${settled.detail}\n`);
+      response.writeHead(503, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ ok: false }));
+      return;
+    }
+
+    response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (path === '/deposit' && method === 'POST') {
+    const form = await readFormBody(request, limit);
+    if (form === 'TOO_LARGE') {
+      response.writeHead(303, { location: '/deposit?error=AMOUNT_INVALID' });
+      response.end();
+      return;
+    }
+    const apiResponse = await handle(options.api, {
+      method: 'POST',
+      path: '/api/training/deposits/orders',
+      query: {},
+      headers: { cookie: cookieHeader ?? '' },
+      body: { csrfToken: form['csrfToken'], amountBirr: form['amountBirr'] },
+    });
+    const body = apiResponse.body as
+      | { ok: true; data: { reference: string } }
+      | { ok: false; error: { reasonCode: string } };
+    response.writeHead(303, {
+      // Straight to the slip on success: the shopkeeper pressed a button
+      // expecting paper, and an intermediate confirmation screen is one more
+      // tap between them and the counter.
+      location: body.ok ? '/deposit/slip' : `/deposit?error=${encodeURIComponent(body.error.reasonCode)}`,
+      ...securityHeaders({ config: transport, scheme, sessionSensitive: true }),
+    });
+    response.end();
+    return;
+  }
+
+  if (path === '/deposit/cancel' && method === 'POST') {
+    const form = await readFormBody(request, limit);
+    if (form === 'TOO_LARGE') {
+      response.writeHead(303, { location: '/deposit' });
+      response.end();
+      return;
+    }
+    await handle(options.api, {
+      method: 'POST',
+      path: '/api/training/deposits/orders/cancel',
+      query: {},
+      headers: { cookie: cookieHeader ?? '' },
+      body: { csrfToken: form['csrfToken'] },
+    });
+    response.writeHead(303, {
+      location: '/deposit',
       ...securityHeaders({ config: transport, scheme, sessionSensitive: true }),
     });
     response.end();

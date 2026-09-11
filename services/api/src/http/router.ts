@@ -42,7 +42,12 @@ import {
   postAuthorizeOrder,
   postCancelOrder,
   postDeposit,
+  getBankDepositOrder,
+  postBankDepositOrder,
+  postChapaDeposit,
+  postCancelBankDepositOrder,
   postProfitTransfer,
+  postShopTransferRequest,
   postChangePin,
   postOrder,
   postSale,
@@ -255,6 +260,62 @@ export const ROUTES: readonly Route[] = Object.freeze([
     write: true,
     rateScope: 'SALE',
     handler: (d, r, c, id) => postProfitTransfer(d, r, c, id),
+  },
+
+  // Sending balance to another shop — §19.1, and a **regulated** activity kept
+  // to a training simulation. Owner-only and rate-limited like a sale: it
+  // parts with the shop's own money, and an assistant must not be able to.
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/transfers`,
+    permission: 'POS_DEPOSIT_TRAINING_FUNDS',
+    write: true,
+    rateScope: 'SALE',
+    handler: (d, r, c, id) => postShopTransferRequest(d, r, c, id),
+  },
+
+  // Starting a Chapa payment — §20.2. Owner-only and rate-limited like a sale:
+  // it creates a reference Telga will honour, and a till that could mint them
+  // unboundedly is a till that can fill the table with payments nobody makes.
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/deposits/chapa`,
+    permission: 'POS_DEPOSIT_TRAINING_FUNDS',
+    write: true,
+    rateScope: 'SALE',
+    handler: (d, r, c, id) => postChapaDeposit(d, r, c, id),
+  },
+
+  // --- bank deposit slips — §20.1 -------------------------------------------
+  //
+  // Asking for a slip. Owner-only and rate-limited like a sale: it creates a
+  // reference Telga will later honour, and a till that could mint them
+  // unboundedly is a till that can fill the table with paper nobody pays.
+  //
+  // **A write that moves no money.** CSRF still applies, because it changes
+  // stored state and prints something a person acts on.
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/deposits/orders`,
+    permission: 'POS_DEPOSIT_TRAINING_FUNDS',
+    write: true,
+    rateScope: 'SALE',
+    handler: (d, r, c, id) => postBankDepositOrder(d, r, c, id),
+  },
+  {
+    method: 'GET',
+    pattern: `${TRAINING_PREFIX}/deposits/orders/open`,
+    permission: 'POS_DEPOSIT_TRAINING_FUNDS',
+    write: false,
+    handler: (d, r, c, id) => getBankDepositOrder(d, r, c, id),
+  },
+  {
+    method: 'POST',
+    pattern: `${TRAINING_PREFIX}/deposits/orders/cancel`,
+    permission: 'POS_DEPOSIT_TRAINING_FUNDS',
+    write: true,
+    rateScope: 'SALE',
+    handler: (d, r, c, id) => postCancelBankDepositOrder(d, r, c, id),
   },
 
   // Changing a transaction PIN. Owner-only, because it changes who can
