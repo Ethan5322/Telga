@@ -826,6 +826,122 @@ named in code or documentation until its NBE authorisation and contract are conf
 balance a shop already has. A consumer holding a Telga balance is a different product, forbidden
 by §2 until an authorised structure exists, and a decision the founder has not taken.
 
+### 20.2 Paying in through Chapa
+
+Chapa is an Ethiopian payment company. A shop pays money **to Chapa**, Chapa
+tells Telga, and Telga credits that shop's selling balance.
+
+**It is one *method*, not a second feature.** The founder's framing, kept
+deliberately: *"it's one kind of bank deposit method — keep the Chapa button
+inside bank deposit, another bank or provider I will find."* It sits beside the
+counter slip of §20.1 and produces the same thing: a top-up order, a unique
+reference, and a credit that arrives only when the payment is confirmed.
+
+| Step | Who acts | What happens |
+|---|---|---|
+| 1 | Shop operator | Presses **Deposit with Chapa**, enters the amount |
+| 2 | The backend | Creates a top-up order; its reference **is** Chapa's `tx_ref` |
+| 3 | Chapa | Returns a checkout page the shop is sent to |
+| 4 | The shop | Pays by card, mobile money or bank on Chapa's page |
+| 5 | Chapa | Posts a webhook to Telga |
+| 6 | Telga | **Re-queries Chapa's API**, and credits only on that answer |
+
+**One reference in both systems.** The code a shop would have quoted on a bank
+slip is the code Chapa knows the payment by, so a payment is traceable without a
+second mapping table to drift out of step.
+
+#### The webhook is a prompt to look, never a reason to credit
+
+Chapa's own documentation is explicit: *"Before giving value to a customer based
+on a webhook notification, always re-query our API to verify the transaction
+details."*
+
+That is §20.1's rule — *"an SMS alert may be a hint that a payment arrived; it is
+not evidence"* — reached independently by the people who run the payment
+network. What a webhook body says about an amount is a claim by whoever posted
+it. What `verify` says is Chapa's own record.
+
+#### Why this credits without a person, when a bank deposit does not
+
+§20 puts a second approver between a high-value bank deposit and a balance,
+because the evidence there is a human reading a statement and **retyping** an
+amount, a reference and an account. The typing is the weak step.
+
+Nothing is keyed in here. Telga asks Chapa over an authenticated channel and
+compares the answer against an order it created itself. The amount either equals
+what the order was for or it does not. A person would add a rubber stamp, not a
+check.
+
+#### Four facts must agree, or nothing moves
+
+Chapa says the payment succeeded · the currency is `ETB` · the reference is this
+order · the amount **exactly** matches. Any disagreement refuses and goes to a
+person — including **overpayment**, because crediting the larger figure would
+let the paying side choose the amount.
+
+**The order's figure is the authority, not Chapa's.** The opposite of §20.1,
+where the *bank's* figure wins, and the difference is deliberate: a bank
+statement records money that indisputably arrived, whereas this is a live
+exchange about an amount Telga specified up front.
+
+#### One payment credits once
+
+Chapa retries webhooks until they are acknowledged, so a repeat delivery is
+ordinary rather than exceptional.
+
+**The status update is the lock.** `UPDATE topup_orders SET status = 'PAID'
+WHERE status = 'OPEN'` is the only operation that reads and writes atomically, so
+exactly one caller can see it change a row — and only that caller credits.
+Checking before the transaction cannot work: the gap between reading and writing
+is precisely where a second caller fits.
+
+`ledger_entries.posting_id` is **not** unique, so nothing downstream would refuse
+a duplicate. The claim is the whole protection.
+
+#### Sandbox only, and not by a flag
+
+`deposit.chapa` is on for training, but a flag is one edit away from being wrong,
+so the guard sits where an edit cannot reach it: **the adapter refuses any key
+that is not `CHASECK_TEST-`**, and Telga refuses to start if the flag is on with a
+live key. No configuration of this build reaches live Chapa.
+
+`payments.acceptance` stays **off** and is a different question: that is Telga
+taking a *customer's* money on a shop's behalf. This is a shop paying in its own
+float.
+
+#### The webhook signature
+
+Chapa sends two headers. `x-chapa-signature` is an HMAC of the **event payload**;
+`chapa-signature` is an HMAC of **the secret itself** — the same constant on every
+webhook this account will ever receive.
+
+Chapa's documentation accepts either. **Telga does not.** The constant proves the
+sender once knew the secret and says nothing about whether *this* body was
+altered, so a request carrying only that header is treated as unsigned.
+Comparison is timing-safe, and the signature is checked against the **raw bytes**:
+re-serialising JSON reorders keys and would reject valid messages.
+
+#### `NOT YET CONFIRMED`
+
+Telga's Chapa agreement, its NBE authorisation (§21), and any Chapa fee. None may
+be assumed, and **no integration may be named as authorised until its contract is
+confirmed**.
+
+#### What was learned by calling the sandbox
+
+Three defects survived a full suite of tests written from the documentation and
+were found within minutes of the first real call:
+
+- `message` is not always a string — a validation failure sends an object keyed
+  by field, and the adapter discarded the only diagnostic.
+- An unknown reference is **HTTP 400**, not 404, so a definite answer was being
+  classified as "could not reach Chapa" — which retries forever.
+- A `.example` address fails Chapa's validation, so `CHAPA_MERCHANT_EMAIL` must
+  be real and deliverable.
+
+**A test passing is not a thing working.** The stubs encoded what the
+documentation said; the API differs in each case.
+
 ## 21. Provider agreement
 
 The first provider must be an authorized airtime provider, distributor, or integration partner.
@@ -903,6 +1019,49 @@ along with this flag.
 
 **It must be off before live money.** §8's "security and permissions tested"
 gate cannot close while it is on.
+
+#### The emailed sign-in code
+
+After email and password, Telga emails a six-digit code. It must be entered
+within **sixty seconds**. A wrong code is refused; a correct one signs the
+administrator in **regardless of where they are or what time it is** — founder
+instruction, and correct on the merits: an Ethiopian platform whose
+administrator travels, or works at night, must not be locked out by a rule that
+protects nothing a correct code does not already protect.
+
+**The session exists before the code is proved, and can do exactly one thing.**
+It has to: the code arrives on a second request, which must be recognisable as
+belonging to this sign-in. `requireMfa` keeps such a session from reaching any
+other route, so presenting a code is all it can do.
+
+**The sixty seconds is tight, deliberately, and has a cost.** Telga controls when
+the code is made and when it is checked, and nothing in between: Resend, the
+recipient's mail provider and any greylisting commonly spend five to thirty
+seconds. Two things make that survivable — the clock starts when Resend
+**accepts** the message, not when the code is generated, and the thirty-second
+resend interval sits inside the window so an expired code can always be
+replaced. A start-up assertion refuses to boot if those two numbers ever cross.
+
+If sign-in proves unreliable in practice, **the window is what to raise** — not
+the attempt limit, and not the code length.
+
+**Five wrong guesses kill the code, never the account.** Locking the account
+would hand anybody who knows an administrator's email a denial-of-service
+button. Killing the code costs the real administrator one more email and costs
+an attacker their whole budget.
+
+**The email contains no link.** A sign-in email with a clickable link teaches
+administrators to click links in sign-in emails, which is the entire mechanism
+of a phishing attack against this console. It also names nobody — no shop, no
+device, no operator — so a message in the wrong inbox leaks only that somebody
+tried to sign in.
+
+**Without `RESEND_API_KEY` and `RESEND_FROM` there is no emailed factor**, and
+the console says so at start-up. Half a configuration refuses to boot: Resend
+rejects a sender on an unverified domain, and a console that looked ready and
+failed at the one moment an administrator needed it is worse than one that
+admits it. **Verify the sending domain and see a code arrive before switching
+`--single-factor` off**, or the console becomes unreachable.
 
 ### 23.2 What Telga staff may see of a shop
 
