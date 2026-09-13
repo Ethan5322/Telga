@@ -874,3 +874,146 @@ export function reversalsScreen(props: ReversalsProps): El {
         ),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Shop-to-shop transfers awaiting approval — §19.1
+// ---------------------------------------------------------------------------
+
+export interface TransferRow {
+  readonly id: string;
+  readonly senderMerchantId: string;
+  readonly recipientMerchantId: string;
+  readonly recipientDeviceId: string;
+  readonly amountMinor: number;
+  readonly feeMinor: number;
+  readonly createdAt: string;
+}
+
+export interface TransfersProps {
+  readonly chrome: ConsoleChrome;
+  readonly rows: readonly TransferRow[];
+  readonly allowed: Allowed;
+  readonly notice?: string;
+}
+
+/**
+ * Transfers a shop has sent that Telga must approve — §19.1.
+ *
+ * ## Why this screen exists
+ *
+ * Reported from the deployment: *"I sent an amount from one shop to another
+ * yesterday and it still hasn't arrived."* A transfer above the approval
+ * threshold was saved `NEEDS_APPROVAL` with **no ledger entry**, and nothing in
+ * the console could act on it. `listTransferQueue` had existed since migration
+ * 019 with no caller.
+ *
+ * **Nothing has moved on these rows.** The sender still holds the money; the
+ * recipient has never seen it. Approving posts the pair, refusing posts
+ * nothing — which is why refusing returns nothing to anybody.
+ *
+ * Oldest first: a shop waiting on money it believes it sent is the case that
+ * sours fastest.
+ */
+export function transfersScreen(props: TransfersProps): El {
+  const { chrome, allowed } = props;
+  return page(
+    { ...chrome, section: 'transfers' },
+    'Shop transfers',
+    props.notice !== undefined &&
+      h('p', { class: 'console__note', role: 'status', 'data-testid': 'transfers-notice' }, props.notice),
+    h(
+      'p',
+      { class: 'console__note' },
+      'These are above the approval threshold, so nothing has moved yet — the sender still holds ' +
+        'the money and the recipient has never seen it. Approving posts both sides at once.',
+    ),
+    props.rows.length === 0
+      ? h('p', { 'data-testid': 'transfers-empty' }, 'No transfers waiting for approval.')
+      : h(
+          'table',
+          { class: 'console__table', 'data-testid': 'transfers-table' },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              h('th', { scope: 'col' }, 'Sent'),
+              h('th', { scope: 'col' }, 'From'),
+              h('th', { scope: 'col' }, 'To'),
+              h('th', { scope: 'col' }, 'Amount'),
+              h('th', { scope: 'col' }, ''),
+            ),
+          ),
+          h(
+            'tbody',
+            {},
+            ...props.rows.map((row) =>
+              h(
+                'tr',
+                { 'data-testid': `transfer-${row.id}` },
+                h('td', {}, row.createdAt.slice(0, 16).replace('T', ' ')),
+                h('td', {}, row.senderMerchantId),
+                h(
+                  'td',
+                  {},
+                  `${row.recipientMerchantId} (${row.recipientDeviceId})`,
+                ),
+                h('td', {}, money(row.amountMinor)),
+                h(
+                  'td',
+                  { class: 'console__actions' },
+                  !allowed.has('ADMIN_APPROVE_FUNDING')
+                    ? ''
+                    : h(
+                        'form',
+                        {
+                          method: 'post',
+                          action: `/transfers/${encodeURIComponent(row.id)}/approve`,
+                          'data-testid': `approve-transfer-form-${row.id}`,
+                        },
+                        h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                        h(
+                          'button',
+                          {
+                            type: 'submit',
+                            class: 'console__button',
+                            // §19.1: irreversible once settled, unless both
+                            // shops agree and an admin approves.
+                            'data-confirm':
+                              'Approve this transfer? It moves the money immediately and cannot be undone.',
+                            'data-testid': `approve-transfer-${row.id}`,
+                          },
+                          'Approve',
+                        ),
+                      ),
+                  !allowed.has('ADMIN_APPROVE_FUNDING')
+                    ? ''
+                    : h(
+                        'form',
+                        {
+                          method: 'post',
+                          action: `/transfers/${encodeURIComponent(row.id)}/refuse`,
+                          'data-testid': `refuse-transfer-form-${row.id}`,
+                        },
+                        h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+                        h('input', {
+                          type: 'text',
+                          name: 'reason',
+                          required: true,
+                          placeholder: 'Why you are refusing',
+                          'data-testid': `refuse-transfer-reason-${row.id}`,
+                        }),
+                        h(
+                          'button',
+                          { type: 'submit', class: 'console__button', 'data-testid': `refuse-transfer-${row.id}` },
+                          'Refuse',
+                        ),
+                      ),
+                ),
+              ),
+            ),
+          ),
+        ),
+  );
+}

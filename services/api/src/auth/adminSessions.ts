@@ -69,14 +69,67 @@ import { formatSecretForEntry, newTotpSecret, totpUri, verifyTotp } from './totp
  * an admin re-authenticating is an inconvenience rather than a lost sale.
  */
 export const ADMIN_AUTH_POLICY = Object.freeze({
-  /** Failed sign-ins before the account locks. */
-  lockAfterAttempts: 5,
-  lockForMs: 15 * 60 * 1000,
+  /** Failed sign-ins before the first hold. Founder decision, 2026-09-12. */
+  lockAfterAttempts: 4,
+  /** The first hold: short, because most of these are a typo. */
+  lockForMs: 10 * 60 * 1000,
+  /** Tries allowed after that hold before the long one. */
+  graceAttempts: 2,
+  /** The long hold. Whoever is still guessing after six is not the owner. */
+  longLockForMs: 24 * 60 * 60 * 1000,
   /** Inactivity before the session dies. */
   idleTimeoutMs: 15 * 60 * 1000,
   /** Hard ceiling, however active the session is. */
   absoluteTimeoutMs: 8 * 60 * 60 * 1000,
 });
+
+/**
+ * How long this failure holds the account, if at all — founder decision, D161.
+ *
+ * > *"trial limit 4 times, if trial failed must lock for 10 minute, give 2
+ * > chance, after that if it trial again 24 hour lock."*
+ *
+ * | Failures so far | What happens |
+ * |---|---|
+ * | 1-3 | Nothing. A typo is not an attack |
+ * | **4** | **10 minutes.** Long enough to stop a guessing run, short enough that a real administrator waits it out |
+ * | 5 | Nothing — the first of two second chances |
+ * | 6 | Nothing yet... |
+ * | **6+** | **24 hours.** Two chances were given and both were spent |
+ *
+ * ## Why the escalation needs the counter to survive the hold
+ *
+ * `failed_attempts` is cleared **only** by a successful sign-in. Under the old
+ * flat policy that was a trap: the hold expired, the counter still stood at the
+ * threshold, and the next single wrong guess re-locked immediately — an
+ * administrator who had forgotten their password could never get more than one
+ * try per fifteen minutes, forever.
+ *
+ * Here the same persistence is the mechanism rather than the bug: it is what
+ * lets the second tier know that a first tier already happened. The two grace
+ * attempts are exactly the room the old policy failed to leave.
+ *
+ * ## What still gets somebody back in
+ *
+ * A correct password on a grace attempt clears everything. Failing that,
+ * `TELGA_CONSOLE_OWNER_RESET` clears the hold and the counter together (D159) —
+ * which matters far more now that the second tier lasts a day.
+ *
+ * @param attemptsAfter the failure count **including** this one
+ */
+export function lockUntilAfterFailure(attemptsAfter: number, at: string): string | null {
+  const { lockAfterAttempts, lockForMs, graceAttempts, longLockForMs } = ADMIN_AUTH_POLICY;
+  const longThreshold = lockAfterAttempts + graceAttempts;
+
+  if (attemptsAfter >= longThreshold) {
+    return new Date(Date.parse(at) + longLockForMs).toISOString();
+  }
+  if (attemptsAfter === lockAfterAttempts) {
+    return new Date(Date.parse(at) + lockForMs).toISOString();
+  }
+  // Below the threshold, or inside the grace window.
+  return null;
+}
 
 export type AdminLoginRefusal =
   | 'INVALID_CREDENTIALS'
@@ -164,12 +217,14 @@ export async function adminLogin(
   if (!ok || row.status !== 'ACTIVE') {
     // A suspended account with the right password is still refused, and is
     // refused *identically* to a wrong one.
+    // The row was read before the password was checked, so `failed_attempts`
+    // is the count *before* this failure. The tier is decided from the count
+    // after it.
     recordAdminLoginFailure(
       ports.db,
       row.id,
       now,
-      ADMIN_AUTH_POLICY.lockAfterAttempts,
-      new Date(Date.parse(now) + ADMIN_AUTH_POLICY.lockForMs).toISOString(),
+      lockUntilAfterFailure(row.failed_attempts + 1, now),
     );
     return { kind: 'REFUSED', reason: 'INVALID_CREDENTIALS' };
   }

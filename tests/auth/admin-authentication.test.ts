@@ -112,33 +112,82 @@ describe('signing in', () => {
   });
 });
 
-describe('lockout', () => {
-  it('locks the account after the fifth failure', async () => {
-    for (let i = 0; i < ADMIN_AUTH_POLICY.lockAfterAttempts; i += 1) {
-      await adminLogin(ports(), { email: 'owner@telga.example', password: 'wrong' });
-    }
-    // The correct password now, and it is still refused.
-    const locked = await adminLogin(ports(), { email: 'owner@telga.example', password: PASSWORD });
+describe('lockout — four, then ten minutes, then two chances, then a day (D161)', () => {
+  const wrongOnce = async (): Promise<void> => {
+    await adminLogin(ports(), { email: 'owner@telga.example', password: 'wrong' });
+  };
+  const tryCorrect = async () =>
+    adminLogin(ports(), { email: 'owner@telga.example', password: PASSWORD });
+
+  it('does not lock on the first three failures', async () => {
+    for (let i = 0; i < 3; i += 1) await wrongOnce();
+    // Three typos is a person having a bad morning, not an attack.
+    expect((await tryCorrect()).kind).toBe('AUTHENTICATED');
+  });
+
+  it('holds the account on the fourth failure', async () => {
+    for (let i = 0; i < ADMIN_AUTH_POLICY.lockAfterAttempts; i += 1) await wrongOnce();
+    const locked = await tryCorrect();
+    // The correct password is refused too while a hold stands.
     expect(locked.kind).toBe('REFUSED');
     if (locked.kind === 'REFUSED') expect(locked.reason).toBe('ACCOUNT_LOCKED');
   });
 
-  it('lets the lock expire', async () => {
-    for (let i = 0; i < ADMIN_AUTH_POLICY.lockAfterAttempts; i += 1) {
-      await adminLogin(ports(), { email: 'owner@telga.example', password: 'wrong' });
-    }
+  it('holds for ten minutes, not fifteen', async () => {
+    for (let i = 0; i < 4; i += 1) await wrongOnce();
+    advance(9 * 60 * 1000);
+    expect((await tryCorrect()).kind, 'still held at nine minutes').toBe('REFUSED');
+    advance(2 * 60 * 1000);
+    expect((await tryCorrect()).kind, 'free at eleven').toBe('AUTHENTICATED');
+  });
+
+  it('gives two more chances after the hold, instead of re-locking at once', async () => {
+    for (let i = 0; i < 4; i += 1) await wrongOnce();
     advance(ADMIN_AUTH_POLICY.lockForMs + 1000);
-    const after = await adminLogin(ports(), { email: 'owner@telga.example', password: PASSWORD });
-    expect(after.kind).toBe('AUTHENTICATED');
+
+    // The fifth failure. Under the old flat policy this re-locked immediately,
+    // which is what made a forgotten password unrecoverable — one try per
+    // fifteen minutes, forever.
+    await wrongOnce();
+    expect((await tryCorrect()).kind, 'first chance').toBe('AUTHENTICATED');
+  });
+
+  it('locks for twenty-four hours once both chances are spent', async () => {
+    for (let i = 0; i < 4; i += 1) await wrongOnce();
+    advance(ADMIN_AUTH_POLICY.lockForMs + 1000);
+    await wrongOnce(); // fifth — the first chance
+    await wrongOnce(); // sixth — the second, and the last
+
+    const locked = await tryCorrect();
+    expect(locked.kind).toBe('REFUSED');
+    if (locked.kind === 'REFUSED') expect(locked.reason).toBe('ACCOUNT_LOCKED');
+
+    // Ten minutes is nowhere near enough now.
+    advance(60 * 60 * 1000);
+    expect((await tryCorrect()).kind, 'still held after an hour').toBe('REFUSED');
+
+    advance(24 * 60 * 60 * 1000);
+    expect((await tryCorrect()).kind, 'free after a day').toBe('AUTHENTICATED');
+  });
+
+  it('a correct password inside the grace window clears the whole escalation', async () => {
+    for (let i = 0; i < 4; i += 1) await wrongOnce();
+    advance(ADMIN_AUTH_POLICY.lockForMs + 1000);
+    expect((await tryCorrect()).kind).toBe('AUTHENTICATED');
+
+    // Back to a clean slate: four more failures are needed to hold it again,
+    // and the next tier is the ten-minute one, not the day.
+    for (let i = 0; i < 3; i += 1) await wrongOnce();
+    expect((await tryCorrect()).kind, 'three failures do not hold it').toBe('AUTHENTICATED');
   });
 
   it('clears the counter on a success, so failures do not accumulate forever', async () => {
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       await adminLogin(ports(), { email: 'owner@telga.example', password: 'wrong' });
     }
     await adminLogin(ports(), { email: 'owner@telga.example', password: PASSWORD });
-    // Four more would lock it if the counter had not been reset.
-    for (let i = 0; i < 4; i += 1) {
+    // A fourth in a row would hold it if the counter had not been reset.
+    for (let i = 0; i < 3; i += 1) {
       await adminLogin(ports(), { email: 'owner@telga.example', password: 'wrong' });
     }
     const ok = await adminLogin(ports(), { email: 'owner@telga.example', password: PASSWORD });

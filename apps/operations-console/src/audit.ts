@@ -92,6 +92,18 @@ export type AdminAuditEvent =
    */
   | 'ADMIN_FUNDING_SECOND_APPROVED'
   /**
+   * A supervisor decided a queued shop transfer — §19.1.
+   *
+   * `APPROVED` is the moment the money actually moves: until then the row said
+   * `NEEDS_APPROVAL` and no ledger entry existed at all. Recorded with both
+   * shops and the posting id, because *"where did this shop's money go"* is
+   * the question an operations desk gets asked and it must be answerable from
+   * one row.
+   */
+  | 'ADMIN_TRANSFER_APPROVED'
+  /** Refused. Nothing is returned, because nothing ever left the sender. */
+  | 'ADMIN_TRANSFER_REFUSED'
+  /**
    * A shop was stopped from selling, or allowed to again.
    *
    * The reason is recorded on the suspension, because it is the thing an

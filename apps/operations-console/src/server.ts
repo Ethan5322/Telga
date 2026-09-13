@@ -69,8 +69,11 @@ import {
   clearAdminMfaSecret,
   listAdminUsers,
   recordApplication,
+  approveShopTransfer,
   decideReversalRequest,
+  findShopTransfer,
   markTopupOrderPaid,
+  refuseShopTransfer,
   recordComplaintVerdict,
   revokeAdminSession,
   revokeAllAdminSessions,
@@ -81,6 +84,7 @@ import {
   complaintDetailScreen,
   complaintsScreen,
   reversalsScreen,
+  transfersScreen,
   issuedPinScreen,
   operatorsScreen,
   providerHealthScreen,
@@ -195,6 +199,26 @@ export interface ConsoleOptions {
     readonly amountMinor: number;
     readonly correlationId: string;
     readonly postingId: string;
+    readonly at: string;
+  }) => void;
+  /**
+   * Post both sides of an approved shop transfer — §19.1.
+   *
+   * A port for the same reason `creditMerchant` is one: this server holds a
+   * database handle, not a ledger driver, and a console that could assemble
+   * ledger entries itself would be a second place the double-entry rules live.
+   *
+   * **Absent means the transfers screen cannot approve**, which is the safe
+   * direction — better a queue that says it cannot act than one that appears to
+   * and posts nothing.
+   */
+  readonly postTransfer?: (input: {
+    readonly senderMerchantId: string;
+    readonly recipientMerchantId: string;
+    readonly amountMinor: number;
+    readonly feeMinor: number;
+    readonly postingId: string;
+    readonly correlationId: string;
     readonly at: string;
   }) => void;
   /**
@@ -869,7 +893,12 @@ export function createConsoleServer(options: ConsoleOptions): Server {
           response,
           200,
           document(
-            otpScreen(chromeFor(context, csrf), secondsLeft, url.searchParams.get('error') ?? undefined),
+            otpScreen(
+              chromeFor(context, csrf),
+              secondsLeft,
+              url.searchParams.get('error') ?? undefined,
+              context.user.email,
+            ),
             'Sign-in code',
           ),
         );
@@ -2533,6 +2562,148 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       });
       response.end();
       return;
+    }
+
+    // --- shop transfers awaiting approval — §19.1 ----------------------------
+
+    if (path === '/transfers' && method === 'GET') {
+      if (!guard('ADMIN_VIEW_MERCHANT')) return;
+      screen(
+        transfersScreen({
+          chrome: chromeFor(context, csrf),
+          allowed,
+          notice: url.searchParams.get('notice') ?? undefined,
+          rows: rows<{
+            id: string;
+            sender_merchant_id: string;
+            recipient_merchant_id: string;
+            recipient_device_id: string;
+            amount_minor: number;
+            fee_minor: number;
+            created_at: string;
+          }>(
+            `SELECT id, sender_merchant_id, recipient_merchant_id, recipient_device_id,
+                    amount_minor, fee_minor, created_at
+               FROM shop_transfers WHERE status = 'NEEDS_APPROVAL' ORDER BY created_at`,
+          ).map((r) => ({
+            id: r.id,
+            senderMerchantId: r.sender_merchant_id,
+            recipientMerchantId: r.recipient_merchant_id,
+            recipientDeviceId: r.recipient_device_id,
+            amountMinor: r.amount_minor,
+            feeMinor: r.fee_minor,
+            createdAt: r.created_at,
+          })),
+        }),
+        'Shop transfers',
+      );
+      return;
+    }
+
+    /**
+     * Decide a queued transfer — §19.1.
+     *
+     * **Approving is where the money moves.** Until now the row said
+     * `NEEDS_APPROVAL` and no ledger entry existed, so a shop that sent a large
+     * transfer saw it vanish: the sender still held it, the recipient never got
+     * it, and nothing in Telga could resolve that.
+     *
+     * The claim is the lock — `approveShopTransfer` updates
+     * `WHERE status = 'NEEDS_APPROVAL'`, so exactly one approver can ever see it
+     * change a row, and only that one posts the pair. Two people pressing at
+     * once cannot both move it.
+     */
+    const transferDecide = /^\/transfers\/([^/]+)\/(approve|refuse)$/.exec(path);
+    if (transferDecide && method === 'POST') {
+      if (!guard('ADMIN_APPROVE_FUNDING')) return;
+      const id = decodeURIComponent(transferDecide[1]);
+      const approving = transferDecide[2] === 'approve';
+      const form = await readForm(request);
+
+      const say = (message: string): void => {
+        response.writeHead(303, { location: `/transfers?notice=${encodeURIComponent(message)}` });
+        response.end();
+      };
+
+      const row = findShopTransfer(options.db as never, id);
+      if (row === undefined) return say('No such transfer.');
+      if (row.status !== 'NEEDS_APPROVAL') return say(`Already decided — this transfer is ${row.status}.`);
+
+      if (!approving) {
+        const reason = (form['reason'] ?? '').trim();
+        // A refusal with no reason is not a decision anybody can be asked about
+        // later, and the shop deserves something better than "no".
+        if (reason.length === 0) return say('A reason is required to refuse.');
+        refuseShopTransfer(options.db as never, {
+          id,
+          reason,
+          approvedBy: context.user.id,
+          at: options.now(),
+        });
+        record({
+          event: 'ADMIN_TRANSFER_REFUSED',
+          actorId: context.user.id,
+          actorRole: context.user.role,
+          entityType: 'SHOP_TRANSFER',
+          entityId: id,
+          merchantId: row.sender_merchant_id,
+          metadata: { reason },
+        });
+        // Nothing is returned to the sender because nothing ever left them.
+        return say('Refused. Nothing moved, and the sender still holds the money.');
+      }
+
+      if (options.postTransfer === undefined) {
+        return say('This console cannot post transfers. Nothing was moved.');
+      }
+
+      const at = options.now();
+      const posting = options.newId('post');
+      let moved = false;
+      try {
+        options.db.prepare('BEGIN').run();
+        // Claim first: whoever changes the row has won the right to post.
+        const claimed = approveShopTransfer(options.db as never, {
+          id,
+          postingId: posting,
+          approvedBy: context.user.id,
+          at,
+        });
+        if (claimed === 1) {
+          options.postTransfer({
+            senderMerchantId: row.sender_merchant_id,
+            recipientMerchantId: row.recipient_merchant_id,
+            amountMinor: row.amount_minor,
+            feeMinor: row.fee_minor,
+            postingId: posting,
+            correlationId: row.correlation_id,
+            at,
+          });
+          moved = true;
+        }
+        options.db.prepare('COMMIT').run();
+      } catch (error) {
+        options.db.prepare('ROLLBACK').run();
+        process.stderr.write(`[telga-console] transfer not posted: ${String(error)}\n`);
+        return say('The transfer could not be posted. Nothing moved.');
+      }
+
+      if (!moved) return say('Somebody else decided this transfer first.');
+
+      record({
+        event: 'ADMIN_TRANSFER_APPROVED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'SHOP_TRANSFER',
+        entityId: id,
+        merchantId: row.sender_merchant_id,
+        metadata: {
+          to: row.recipient_merchant_id,
+          amountMinor: row.amount_minor,
+          postingId: posting,
+        },
+      });
+      return say('Approved. The money has moved to the receiving shop.');
     }
 
     if (path === '/merchants') {

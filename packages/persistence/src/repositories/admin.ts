@@ -61,7 +61,13 @@ export const listAdminUsers = (db: Db): readonly AdminUserRow[] =>
   db.prepare(`SELECT * FROM admin_users ORDER BY created_at DESC`).all() as readonly AdminUserRow[];
 
 /**
- * Record a failed sign-in, and lock the account once the threshold is passed.
+ * Record a failed sign-in, and start a hold if this failure earns one.
+ *
+ * **Which tier applies is decided by the caller** (`lockUntilAfterFailure`),
+ * not here. The escalation is a policy question — four failures then ten
+ * minutes, two more chances, then twenty-four hours — and policy belongs beside
+ * the rest of the auth rules rather than inside a SQL `CASE` that nothing can
+ * unit-test.
  *
  * Counting failures on the **account** rather than only on the request is what
  * makes an offline guessing run expensive: an attacker who rotates IP
@@ -71,16 +77,71 @@ export function recordAdminLoginFailure(
   db: Db,
   id: string,
   at: string,
-  lockAfter: number,
-  lockUntil: string,
+  lockUntil: string | null,
 ): void {
   db.prepare(
     `UPDATE admin_users
         SET failed_attempts = failed_attempts + 1,
-            locked_until = CASE WHEN failed_attempts + 1 >= @lockAfter THEN @lockUntil ELSE locked_until END,
+            -- COALESCE, not a plain assignment: a null lockUntil means "this
+            -- failure does not start a hold", never "clear the hold that
+            -- stands". Only a successful sign-in or an operator reset clears
+            -- one.
+            locked_until = COALESCE(@lockUntil, locked_until),
             updated_at = @at
       WHERE id = @id`,
-  ).run({ id, at, lockAfter, lockUntil });
+  ).run({ id, at, lockUntil });
+}
+
+/**
+ * Set an existing administrator's password, and let them back in.
+ *
+ * ## Why this exists
+ *
+ * Until 2026-09-12 there was **no way to change an admin password in this
+ * product at all** — no console route, no CLI flag, nothing. `saveAdminUser`
+ * only inserts, and the Railway boot step that creates the first owner is a
+ * no-op ever after because the email is unique. A Railway container has no
+ * shell, so an administrator who did not know their password had no path back
+ * in and no way to be given one.
+ *
+ * ## Why it clears the lock and the status too
+ *
+ * Because the state that keeps somebody out is not only the password. Five
+ * wrong attempts set `locked_until`, and `failed_attempts` is **never reset
+ * except by a successful sign-in** — so after the first lockout a single wrong
+ * guess re-locks for another fifteen minutes, indefinitely. A reset that fixed
+ * the password and left the counter at five would appear not to have worked.
+ *
+ * `SUSPENDED` is cleared for the same reason: `adminLogin` refuses a suspended
+ * account *identically* to a wrong password, so leaving it would look like the
+ * new password had not taken.
+ *
+ * Returns rows changed: `0` means no account holds that email, which the caller
+ * must report rather than treat as success.
+ */
+export function setAdminPassword(
+  db: Db,
+  input: {
+    readonly email: string;
+    readonly passwordHash: string;
+    readonly passwordSalt: string;
+    readonly passwordParams: string;
+    readonly at: string;
+  },
+): number {
+  return db
+    .prepare(
+      `UPDATE admin_users
+          SET password_hash = @passwordHash,
+              password_salt = @passwordSalt,
+              password_params = @passwordParams,
+              failed_attempts = 0,
+              locked_until = NULL,
+              status = 'ACTIVE',
+              updated_at = @at
+        WHERE email = @email`,
+    )
+    .run({ ...input, email: normalizeEmail(input.email) }).changes;
 }
 
 /** A successful sign-in clears the counter and the lock in one statement. */

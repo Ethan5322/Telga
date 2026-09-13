@@ -1959,6 +1959,22 @@ export function deniedScreen(chrome: ConsoleChrome, reason: string): El {
 }
 
 /**
+ * Enough of an address to recognise, not enough to read over a shoulder.
+ *
+ * `information@telga.pro` becomes `in•••••••••@telga.pro`. The domain is kept
+ * whole deliberately: the confusion this exists to prevent was about *which
+ * mailbox*, and the domain is the part that answers it.
+ */
+function maskEmail(address: string): string {
+  const at = address.lastIndexOf('@');
+  if (at <= 0) return 'your email address';
+  const name = address.slice(0, at);
+  const domain = address.slice(at);
+  const shown = name.slice(0, Math.min(2, name.length));
+  return `${shown}${'•'.repeat(Math.max(1, name.length - shown.length))}${domain}`;
+}
+
+/**
  * The emailed sign-in code — §23.1.
  *
  * Reached only with a session whose password is satisfied and whose second
@@ -1968,15 +1984,29 @@ export function otpScreen(
   chrome: ConsoleChrome,
   expiresInSeconds: number,
   error?: string,
+  sentTo?: string,
 ): El {
   return page(
     { ...chrome, section: 'login' },
-    'Enter your sign-in code',
-    h('h1', {}, 'Check your email'),
+    // One heading, not two. `page()` already renders the title as the screen's
+    // h1, so the second one here said the same thing twice — visible the
+    // moment the screen was rendered and looked at rather than read.
+    'Check your email',
     h(
       'p',
       { class: 'console__note', 'data-testid': 'otp-lede' },
-      `Telga sent a ${String(6)}-digit code to your email address. ` +
+      // **Which address**, not just "your email address".
+      //
+      // It said the latter until 2026-09-12, and an administrator whose account
+      // email was a domain address with no mailbox behind it went looking in
+      // the wrong inbox entirely — the one on their mail *provider* account.
+      // A code goes to the address on the Telga account and nowhere else, and
+      // the screen is the only place that can say so.
+      //
+      // Masked: the password is already proven by the time anyone sees this, so
+      // the address discloses nothing they could not already get — but a
+      // console is often on a screen other people can see.
+      `Telga sent a 6-digit code to ${sentTo === undefined ? 'your email address' : maskEmail(sentTo)}. ` +
         `It expires in ${String(expiresInSeconds)} seconds.`,
     ),
     error !== undefined &&

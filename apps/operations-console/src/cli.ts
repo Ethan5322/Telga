@@ -31,9 +31,12 @@ import {
   assertMigrationsApplied,
   fundMerchant,
   postReversalAdjustment,
+  postShopTransfer,
+  findAdminUserByEmail,
   saveAdminUser,
+  setAdminPassword,
 } from '@telga/persistence';
-import { fromBirr, isEnabled, postingId } from '@telga/domain';
+import { isEnabled, money, postingId } from '@telga/domain';
 import { createConsoleServer } from './server';
 
 export const EXIT = Object.freeze({
@@ -226,6 +229,172 @@ export async function run(
   const now = (): string => new Date().toISOString();
   const newId = (prefix: string): string =>
     `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+  /**
+   * Report an administrator's state, then exit — why sign-in is refused.
+   *
+   * ## Why this exists
+   *
+   * `/login` answers **one sentence for three different refusals**, on purpose:
+   * a wrong password, an unknown email and a suspended account must look
+   * identical or the form becomes a way to discover which administrators exist.
+   * That is right for the browser and useless for the operator, who then cannot
+   * tell a typo from a lockout from an account that was never created.
+   *
+   * A Railway container has no shell, so "just look at the row" was not
+   * available either. This prints the state to the deployment log, where only
+   * the project's own people can read it.
+   *
+   * ## It prints no secret
+   *
+   * No hash, no salt, no session token, no MFA secret — only whether each
+   * exists. Everything here is operational fact an administrator needs to
+   * unstick themselves.
+   */
+  const statusFor = values.get('admin-status');
+  if (statusFor !== undefined && statusFor !== 'true') {
+    const found = findAdminUserByEmail(connection, statusFor);
+    const at = now();
+    if (found === undefined) {
+      write(`No administrator holds ${statusFor}.`);
+      write('Every sign-in with this email answers "Sign in refused" and always will.');
+      write('Set TELGA_CONSOLE_OWNER_EMAIL and TELGA_CONSOLE_OWNER_PASSWORD, then redeploy.');
+      connection.close();
+      return EXIT.ok;
+    }
+    const locked =
+      found.locked_until !== null && Date.parse(found.locked_until) > Date.parse(at);
+    write(`Administrator ${found.email} (${found.id})`);
+    write(`  status           ${found.status}`);
+    write(`  role             ${found.role}`);
+    write(`  failed attempts  ${String(found.failed_attempts)}`);
+    write(`  held             ${locked ? `YES, until ${String(found.locked_until)}` : 'no'}`);
+    write(`  second factor    ${found.mfa_secret_hash === null ? 'not enrolled' : 'enrolled'}`);
+    write(`  last sign-in     ${found.last_login_at ?? 'never'}`);
+    write(`  password set at  ${found.updated_at}`);
+
+    // The point of the command: say which refusal this account would produce.
+    if (locked) {
+      write('');
+      write('SIGN-IN IS REFUSED BECAUSE THE ACCOUNT IS HELD.');
+      write('The correct password is refused too while a hold stands.');
+      // Which tier they are on changes what they should do: wait ten minutes,
+      // or stop waiting and reset.
+      write(
+        found.failed_attempts >= 6
+          ? 'This is the 24-hour hold — six failures. Waiting is not practical; reset instead.'
+          : 'This is the 10-minute hold — four failures. Two more tries follow it, then 24 hours.',
+      );
+      write('Set TELGA_CONSOLE_OWNER_RESET=true with TELGA_CONSOLE_NEW_PASSWORD to clear it now.');
+    } else if (found.status !== 'ACTIVE') {
+      write('');
+      write(`SIGN-IN IS REFUSED BECAUSE THE ACCOUNT IS ${found.status}.`);
+      write('It is refused identically to a wrong password, which is why it looks like one.');
+    } else if (found.failed_attempts > 0) {
+      write('');
+      write(`Not held, but ${String(found.failed_attempts)} failed attempt(s) stand against it.`);
+      write(
+        found.failed_attempts >= 4
+          ? 'In the grace window: two tries after the 10-minute hold, then 24 hours.'
+          : `${String(4 - found.failed_attempts)} more failure(s) starts a 10-minute hold.`,
+      );
+      write('The password last set at the time above is the only one that will work.');
+    }
+    connection.close();
+    return EXIT.ok;
+  }
+
+  /**
+   * Set an existing administrator's password, then exit — the way back in.
+   *
+   * ## The gap this closes
+   *
+   * Reported after the first deployment: *"Admin console login refuses my
+   * email/password every time — never lets me in."*
+   *
+   * There was no way to change an admin password **anywhere in this product**.
+   * The console has no account screen, `saveAdminUser` only inserts, and the
+   * Railway boot step that creates the first owner is a no-op ever after
+   * because the email is unique. A Railway container has no shell. So an
+   * administrator whose password did not match had no path back in, and nobody
+   * could give them one — the deployment was one forgotten password away from
+   * being permanently unadministrable.
+   *
+   * ## The password is read from the environment, never from a flag
+   *
+   * `--owner-password` above takes it as an argument, which puts it in shell
+   * history, in `ps` output, and in the argv captured by a crash reporter. This
+   * path does not repeat that: it reads `TELGA_CONSOLE_NEW_PASSWORD`, so the
+   * secret is in the process environment and nowhere a bystander or a log
+   * scraper can read it.
+   *
+   * ## What it deliberately does not do
+   *
+   * It does not create an account. An email that holds none is reported as
+   * such, because silently creating a Platform Owner from a typo in an
+   * environment variable is how an unintended administrator appears. Use
+   * `--create-owner` for that, deliberately.
+   */
+  const setPasswordFor = values.get('set-password');
+  if (setPasswordFor !== undefined && setPasswordFor !== 'true') {
+    /**
+     * Which variable holds the password, said out loud.
+     *
+     * **This ambiguity caused a real lockout**, 2026-09-12. Creating an account
+     * reads `TELGA_CONSOLE_OWNER_PASSWORD`; resetting one read only
+     * `TELGA_CONSOLE_NEW_PASSWORD`. On a boot where both steps ran, the create
+     * used one value and the reset immediately overwrote it with the other —
+     * so the operator typed the password they had just set and was refused,
+     * with nothing in the log to say two different secrets were in play.
+     *
+     * `TELGA_CONSOLE_NEW_PASSWORD` still wins when set, because a deliberate
+     * reset should be able to differ from the seed. But it now **falls back**
+     * to the owner password rather than failing, and the log always names the
+     * variable it used — never the value.
+     */
+    const explicit = process.env['TELGA_CONSOLE_NEW_PASSWORD'] ?? '';
+    const seeded = process.env['TELGA_CONSOLE_OWNER_PASSWORD'] ?? '';
+    const next = explicit.length > 0 ? explicit : seeded;
+    const source =
+      explicit.length > 0 ? 'TELGA_CONSOLE_NEW_PASSWORD' : 'TELGA_CONSOLE_OWNER_PASSWORD';
+
+    if (next.length < 12) {
+      writeError(
+        'Set TELGA_CONSOLE_NEW_PASSWORD (or TELGA_CONSOLE_OWNER_PASSWORD) to the ' +
+          'new password, 12+ characters. It is read from the environment, not ' +
+          'passed as an argument, so it stays out of shell history and process ' +
+          'listings.',
+      );
+      connection.close();
+      return EXIT.badArguments;
+    }
+
+    if (explicit.length > 0 && seeded.length > 0 && explicit !== seeded) {
+      // Not a refusal — but the operator must know which one they now type.
+      write('WARNING: TELGA_CONSOLE_NEW_PASSWORD and TELGA_CONSOLE_OWNER_PASSWORD differ.');
+      write('  The account will hold TELGA_CONSOLE_NEW_PASSWORD. Sign in with that one.');
+      write('  Remove TELGA_CONSOLE_NEW_PASSWORD to keep a single source of truth.');
+    }
+    const derived = await hashAdminSecret(next);
+    const changed = setAdminPassword(connection, {
+      email: setPasswordFor,
+      passwordHash: derived.hash,
+      passwordSalt: derived.salt,
+      passwordParams: derived.params,
+      at: now(),
+    });
+    connection.close();
+    if (changed === 0) {
+      // Named plainly. This runs on a machine an operator already controls, so
+      // there is nothing to disclose to an attacker and everything to gain
+      // from saying which of the two things went wrong.
+      writeError(`No administrator holds ${setPasswordFor}. Nothing was changed.`);
+      return EXIT.configurationInvalid;
+    }
+    write(`Password set for ${setPasswordFor}, from ${source}.`);
+    write('Any lockout and failed-attempt count were cleared, and the account is ACTIVE.');
+    return EXIT.ok;
+  }
 
   // --- create the first administrator, then exit -------------------------
   const createOwner = values.get('create-owner');
@@ -483,10 +652,41 @@ export async function run(
      * the original entries: §13 invariant 8, and the ledger is append-only, so
      * the history of what happened stays readable after the correction.
      */
+    /**
+     * Both sides of an approved shop transfer — §19.1.
+     *
+     * One balanced posting: the sender debited the amount plus any fee, the
+     * recipient credited the amount. A transfer that debited without crediting
+     * is money destroyed, which is why `postShopTransfer` does both inside one
+     * driver transaction rather than leaving the caller to remember.
+     */
+    /**
+     * Every amount crossing this boundary is already **minor units**, so it is
+     * handed to `money()` unchanged.
+     *
+     * These four ports read `fromBirr(minor / 100)` until 2026-09-12, which
+     * **threw on any amount carrying santim**: `fromBirr` requires whole birr
+     * by design — *"there is no float path into Money"* — so 1 500.50 birr
+     * became `fromBirr(1500.5)` and an `InvalidMoneyError`. The route caught it
+     * and said *"could not be posted"*, so a transfer, a reversal or a deposit
+     * of anything but a round figure was simply undecidable, with nothing in
+     * the message to say why. §13 invariant 9 is the rule it broke.
+     */
+    postTransfer: (input) => {
+      postShopTransfer(ledgerDriver, {
+        senderMerchantId: input.senderMerchantId as never,
+        recipientMerchantId: input.recipientMerchantId as never,
+        amount: money(input.amountMinor),
+        fee: money(input.feeMinor),
+        at: input.at as never,
+        correlationId: input.correlationId,
+        postingId: postingId(input.postingId),
+      });
+    },
     postReversal: (input) => {
       postReversalAdjustment(ledgerDriver, {
         merchantId: input.merchantId as never,
-        amount: fromBirr(input.amountMinor / 100),
+        amount: money(input.amountMinor),
         at: input.at as never,
         correlationId: input.correlationId,
         postingId: postingId(input.postingId),
@@ -496,7 +696,7 @@ export async function run(
     creditMerchant: (input) => {
       fundMerchant(ledgerDriver, {
         merchantId: input.merchantId as never,
-        amount: fromBirr(input.amountMinor / 100),
+        amount: money(input.amountMinor),
         at: input.at as never,
         correlationId: input.correlationId,
         postingId: postingId(input.postingId),

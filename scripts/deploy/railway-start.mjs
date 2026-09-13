@@ -353,6 +353,72 @@ if (serveConsole) {
     );
   }
 
+  /**
+   * Set an administrator's password, when the operator explicitly asks.
+   *
+   * ## Why this is here
+   *
+   * The step above cannot do it: `saveAdminUser` inserts, and the email is
+   * unique, so it is a no-op ever after. There is no shell on a Railway
+   * container and no account screen in the console, so without this an
+   * administrator who cannot sign in has no route back and nobody can give
+   * them one.
+   *
+   * ## Why it is gated on its own variable
+   *
+   * Because a reset that ran on every boot would silently re-apply whatever is
+   * in the environment, forever, and would quietly undo a password changed by
+   * any other means later. `TELGA_CONSOLE_OWNER_RESET` must be set to `true`
+   * deliberately; **remove it once you are in**, so the next deploy does not
+   * reset the password again.
+   *
+   * The new password travels in `TELGA_CONSOLE_NEW_PASSWORD` and is read by the
+   * console from its own environment — it is never passed as an argument, so it
+   * does not appear in a process listing.
+   */
+  if ((process.env.TELGA_CONSOLE_OWNER_RESET ?? '').toLowerCase() === 'true') {
+    const resetEmail = (process.env.TELGA_CONSOLE_OWNER_EMAIL ?? '').trim();
+    if (resetEmail.length === 0) {
+      console.log('[telga] TELGA_CONSOLE_OWNER_RESET is set but TELGA_CONSOLE_OWNER_EMAIL is not — nothing to reset.');
+    } else {
+      console.log(`[telga] TELGA_CONSOLE_OWNER_RESET is on — setting the password for ${resetEmail}…`);
+      const resetCode = await run([
+        'apps/operations-console/dist/cli.js',
+        '--db', dbPath,
+        '--set-password', resetEmail,
+      ]);
+      console.log(
+        resetCode === 0
+          ? '[telga] password set. REMOVE TELGA_CONSOLE_OWNER_RESET now, or the next deploy will set it again.'
+          : '[telga] password NOT set — the console printed the reason above.',
+      );
+    }
+  }
+
+  /**
+   * Say why sign-in would be refused, on every boot.
+   *
+   * `/login` gives one sentence for a wrong password, an unknown email and a
+   * suspended account, because telling them apart in the browser would turn the
+   * form into a way to discover which administrators exist. That leaves the
+   * operator with nothing to work from, and there is no shell here to inspect
+   * the row.
+   *
+   * So the state goes to the deployment log, which only this project's people
+   * can read: whether the account exists, whether it is locked, whether a
+   * second factor is enrolled. No hash, no token, no secret of any kind.
+   *
+   * Unconditional, because the one time it is wanted is the time nobody can get
+   * in to switch it on.
+   */
+  if (ownerEmail.length > 0) {
+    await run([
+      'apps/operations-console/dist/cli.js',
+      '--db', dbPath,
+      '--admin-status', ownerEmail,
+    ]);
+  }
+
   start('console', [
     'apps/operations-console/dist/cli.js',
     '--db', dbPath,
