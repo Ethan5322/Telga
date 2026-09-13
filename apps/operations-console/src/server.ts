@@ -549,6 +549,23 @@ export function createConsoleServer(options: ConsoleOptions): Server {
   });
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    /**
+     * Nothing this console returns may sit in a cache — redirects included.
+     *
+     * The rendered pages carried `no-store, private` already. The 49 `303`s
+     * did not: each writes its own head with only a `location`, so a redirect
+     * was the one kind of response a shared cache was free to keep. That is
+     * thin but real — the redirect after sign-in reveals whether an account
+     * cleared its second factor, and the ones out of `/mfa` say where an
+     * authenticated admin was trying to go.
+     *
+     * Set once here rather than at forty-nine call sites: `writeHead` merges
+     * with what `setHeader` has already put on the response, so every route
+     * inherits it and a route added tomorrow inherits it too. A header that
+     * has to be remembered is a header that will eventually be forgotten.
+     */
+    response.setHeader('cache-control', 'no-store, private');
+
     const url = new URL(request.url ?? '/', 'http://console.local');
     const path = url.pathname;
     const method = request.method ?? 'GET';
