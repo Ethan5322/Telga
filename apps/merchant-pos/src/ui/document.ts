@@ -343,7 +343,7 @@ section { border-top: 1px solid currentColor; padding-block: var(--gap); }
    and a plain-words certainty line beside it. */
 [data-tone="POSITIVE"] { --tone: var(--telga-vellum-rubric); }
 [data-tone="NEGATIVE"] { --tone: var(--telga-vellum-ink); }
-[data-tone="CAUTION"]  { --tone: var(--telga-vellum-ochre); }
+[data-tone="CAUTION"]  { --tone: var(--telga-vellum-ochre-ink); }
 [data-tone="PROGRESS"] { --tone: var(--telga-vellum-indigo); }
 [data-tone] .status__headline, [data-tone].banner--training { color: var(--tone, inherit); }
 ul.actions { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: var(--gap); }
@@ -758,7 +758,7 @@ dd { margin: 0; }
 .service-state__reassure { margin: 0 auto; max-width: 30rem; font-weight: 600; }
 .service-state__detail { margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
 .service-state--outage {
-  border: var(--telga-size-rule-major) solid var(--telga-vellum-ochre);
+  border: var(--telga-size-rule-major) solid var(--telga-vellum-ochre-ink);
   background: var(--telga-vellum-ground-pale);
   color: var(--telga-vellum-ink);
 }
@@ -1067,7 +1067,7 @@ main {
 [data-phase="settled"]  { border-bottom-style: solid;  color: var(--telga-vellum-rubric); }
 [data-phase="working"]  { border-bottom-style: dotted; color: var(--telga-vellum-indigo); }
 [data-phase="pending"]  { border-bottom-style: dashed; color: var(--telga-vellum-indigo); }
-[data-phase="review"]   { border-bottom-style: double; color: var(--telga-vellum-ochre); }
+[data-phase="review"]   { border-bottom-style: double; color: var(--telga-vellum-ochre-ink); }
 [data-phase="failed"]   { border-bottom-style: solid;  color: var(--telga-vellum-ink); text-decoration: line-through; }
 [data-phase="reversed"] { border-bottom-style: double; color: var(--telga-vellum-rubric); text-decoration: line-through; }
 

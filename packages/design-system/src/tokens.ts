@@ -70,13 +70,40 @@ export const VELLUM = Object.freeze({
    * Secondary text, tinted from the ground rather than greyed.
    * Grey on a warm ground reads as dirt; this is the same ink thinned.
    */
-  inkThin: '#6B5636',
-  /** Minium. Rubrication: units, section marks, the primary action's rule. */
-  rubric: '#C0341F',
+  /**
+   * Darkened from `#6B5636` on 2026-09-13: that scored 4.42 against the
+   * ground, just under WCAG's 4.5 floor for body text, and this ink carries
+   * "Available balance" and every other secondary line. This is 4.89.
+   */
+  inkThin: '#63502F',
+  /**
+   * Minium. Rubrication: units, section marks, the primary action's rule.
+   *
+   * Darkened from #C0341F on 2026-09-13. That scored 3.55 against the ground,
+   * which fails body text — and the ETB unit beside the balance is small text
+   * in exactly this ink. It also lifts the primary button's pale label from
+   * 4.15 to 5.37. Still minium: darker, not browner.
+   */
+  rubric: '#A32A16',
   /** Harag blue. The second structural ink, for quiet emphasis. */
   indigo: '#23375E',
-  /** Harag yellow. The third, used sparingly and never for text. */
+  /**
+   * Harag yellow. **Decoration only — never text, never a border.**
+   *
+   * It scores 1.87 against the ground, so anything that has to be *read* or
+   * that bounds a control needs `ochreInk` below. The harag band is a painted
+   * stripe and this is the right colour for it; the TRAINING banner was
+   * painted in it by mistake and was the least legible text in the app.
+   */
   ochre: '#C98A14',
+  /**
+   * The same third ink, dark enough to read.
+   *
+   * 5.11 against the ground. Caution text and any ochre-family border use this
+   * — including the TRAINING banner, which §8 requires to be unmissable and
+   * which spent one deploy at 1.87.
+   */
+  ochreInk: '#6B4A00',
   /** A minor rule: the faint ruling a scribe lays down before writing. */
   rule: '#A8916A',
 });
