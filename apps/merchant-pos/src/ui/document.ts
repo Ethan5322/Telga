@@ -306,18 +306,26 @@ body {
    arrangement was modelled on; the world that replaced it has no cards,
    because the page is the skin and ruling is what separates content. */
 
-/* Every action is a pill. Black by default, brand for the primary one. */
+/* An action is ruled, not filled. Only the primary one is rubricated.
+   
+   This read "every action is a pill, black by default" and filled every
+   .voucher__button and every submit. Once the fill became vermilion, a screen
+   whose content was one link had a shouting MAIN block on it and navigation
+   outranked the task — §22 asks for one primary action per screen, and that
+   rule gave every screen four. Default is now outlined; --primary and --print
+   opt in to the fill, and the shell's own rule still rubricates the single
+   submit inside main. */
 .voucher__button,
 button[type="submit"] {
-  border-radius: var(--r-pill);
-  border: none;
-  background: var(--pill);
-  color: var(--pill-ink);
+  border-radius: var(--telga-size-radius-sm);
+  border: var(--telga-size-rule-major) solid var(--telga-vellum-ink);
+  background: transparent;
+  color: var(--telga-vellum-ink);
   font-weight: 700;
   padding: 0.9rem 1.6rem;
   justify-content: center;
 }
-.voucher__button--primary { background: var(--brand); }
+.voucher__button--primary { background: var(--telga-vellum-rubric); color: var(--telga-vellum-ground-pale); }
 .voucher__button--cancel { background: transparent; color: var(--ink); border: 2px solid var(--line); }
 .voucher__button:hover, button[type="submit"]:hover { filter: brightness(1.12); }
 .banner--training { border: 3px solid currentColor; padding: var(--gap); display: flex; flex-direction: column; gap: 0.25rem; font-weight: 600; }
@@ -328,10 +336,15 @@ h2 { font-size: 1.1rem; margin-block: var(--gap) 0.25rem; }
 section { border-top: 1px solid currentColor; padding-block: var(--gap); }
 .instruction--urgent { font-weight: 700; border: 2px solid currentColor; padding: var(--gap); }
 .status__headline { font-size: 1.2rem; font-weight: 600; }
-[data-tone="POSITIVE"] { --tone: #0b6b34; }
-[data-tone="NEGATIVE"] { --tone: #8a1c1c; }
-[data-tone="CAUTION"] { --tone: #8a5a00; }
-[data-tone="PROGRESS"] { --tone: #17416b; }
+/* The four tones, taken from the phase inks rather than from a separate
+   green/amber/red scale. A second colour vocabulary for the same facts is how
+   two parts of one screen end up disagreeing about what "caution" looks like.
+   Colour is never the only carrier here: statusBlock renders an icon, a label
+   and a plain-words certainty line beside it. */
+[data-tone="POSITIVE"] { --tone: var(--telga-vellum-rubric); }
+[data-tone="NEGATIVE"] { --tone: var(--telga-vellum-ink); }
+[data-tone="CAUTION"]  { --tone: var(--telga-vellum-ochre); }
+[data-tone="PROGRESS"] { --tone: var(--telga-vellum-indigo); }
 [data-tone] .status__headline, [data-tone].banner--training { color: var(--tone, inherit); }
 ul.actions { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: var(--gap); }
 a, button { min-height: 3rem; min-width: 3rem; padding: 0.75rem 1rem; display: inline-flex; align-items: center; }
@@ -368,12 +381,12 @@ dd { margin: 0; }
 .launcher__telga {
   display: flex; flex-direction: column; align-items: center; gap: 0.9rem;
   padding: 2.5rem 3rem 2rem; border-radius: 1.75rem; text-decoration: none;
-  color: #f4f7f7;
+  color: var(--telga-vellum-ground-pale);
   /* A soft radial pool behind the mark, so the artwork sits in light rather
      than on a flat panel. */
   background:
     radial-gradient(120% 90% at 50% 18%, rgba(143,196,189,0.16) 0%, rgba(143,196,189,0) 62%),
-    linear-gradient(180deg, #16383b 0%, #102a2d 100%);
+    linear-gradient(180deg, var(--telga-vellum-ink) 0%, var(--telga-leather-ground) 100%);
   border: 1px solid rgba(143,196,189,0.28);
   box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 28px -14px rgba(0,0,0,0.75);
   min-width: 17rem; max-width: 22rem;
@@ -384,7 +397,7 @@ dd { margin: 0; }
   box-shadow: 0 1px 0 rgba(255,255,255,0.09) inset, 0 18px 36px -14px rgba(0,0,0,0.8);
   transform: translateY(-3px);
 }
-.launcher__telga:focus-visible { outline: 3px solid #8FC4BD; outline-offset: 4px; }
+.launcher__telga:focus-visible { outline: var(--telga-size-rule-heavy) solid var(--telga-vellum-rubric); outline-offset: 4px; }
 .launcher__telga:active { transform: translateY(-1px) scale(0.99); }
 .launcher__telga-icon { line-height: 0; }
 .launcher__telga-icon img { max-width: 100%; height: auto; }
@@ -396,7 +409,7 @@ dd { margin: 0; }
 /* Says what pressing it does. A mark on its own is a picture. */
 .launcher__telga-cue {
   font-size: 0.78rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
-  color: #8FC4BD;
+  color: var(--telga-vellum-ochre);
   padding: 0.45rem 1.1rem; border-radius: 999px;
   border: 1px solid rgba(143,196,189,0.35);
 }
@@ -405,9 +418,9 @@ dd { margin: 0; }
 /* The flat mark. Its colours are tokens so the glyph follows the theme rather
    than carrying three hardcoded fills. */
 .telga-glyph {
-  --glyph-teal: #17858a;
-  --glyph-teal-deep: #116a70;
-  --glyph-bone: #eee7d8;
+  --glyph-teal: var(--telga-vellum-rubric);
+  --glyph-teal-deep: var(--telga-vellum-ink);
+  --glyph-bone: var(--telga-vellum-ground-pale);
   display: block;
 }
 
@@ -423,27 +436,23 @@ dd { margin: 0; }
 @media (max-width: 26rem) { .dashboard__grid { grid-template-columns: repeat(3, 1fr); } }
 .dashboard__tile {
   flex-direction: column; align-items: center; justify-content: flex-start; gap: 0.3rem;
-  background: #fff; color: #14151a; border: 1px solid #d8dce3; border-radius: 0.7rem;
+  background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule); border-radius: 0.7rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.12); text-align: center; position: relative;
   padding: 0.5rem 0.25rem; min-height: 5.25rem;
 }
 .dashboard__tile-icon {
   font-size: 1.35rem; width: 2.25rem; height: 2.25rem; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center; background: #eef1f6;
+  display: flex; align-items: center; justify-content: center; background: var(--telga-vellum-ground-deep);
 }
 .dashboard__tile-label { font-size: 0.7rem; font-weight: 600; line-height: 1.1; }
 .dashboard__tile-badge { font-size: 0.6rem; opacity: 0.7; line-height: 1; }
 .dashboard__tile[data-status="COMING_SOON"] { opacity: 0.72; }
-.dashboard__tile--blue .dashboard__tile-icon { background: #dbeafe; }
-.dashboard__tile--red .dashboard__tile-icon { background: #fde2e2; }
-.dashboard__tile--purple .dashboard__tile-icon { background: #ece3fb; }
-.dashboard__tile--yellow .dashboard__tile-icon { background: #fdf1c8; }
-.dashboard__tile--green .dashboard__tile-icon { background: #d9f2e3; }
-.dashboard__tile--cyan .dashboard__tile-icon { background: #cdeef5; }
-.dashboard__tile--navy .dashboard__tile-icon { background: #d5dcf0; }
-.dashboard__tile--orange .dashboard__tile-icon { background: #fde3cd; }
-.dashboard__tile--sky .dashboard__tile-icon { background: #d8eefb; }
-.dashboard__tile--charcoal .dashboard__tile-icon { background: #dfe2e6; }
+/* The icon chips were ten pastels — blue, red, purple, yellow, green, cyan,
+   navy, orange, sky, charcoal — inside a world capped at five inks. They
+   encoded nothing: no tile's meaning could be read from its colour, so the
+   rainbow was decoration carrying a tenth of a palette each. One ground for
+   all of them; the label is what distinguishes a tile, as it always was. */
+.dashboard__tile-icon { background: var(--telga-vellum-ground-deep); }
 .dashboard__launcher-link { text-align: center; font-size: 0.85rem; }
 
 /* The Balance / Profit pill row, side by side, pill-shaped, matching the
@@ -476,11 +485,11 @@ dd { margin: 0; }
 @media (max-width: 24rem) { .voucher__grid { grid-template-columns: repeat(2, 1fr); } }
 .voucher__grid-card {
   flex-direction: column; align-items: center; gap: 0.4rem; padding: 0.9rem 0.5rem;
-  background: #fff; color: #14151a; border: 1px solid #d8dce3; border-radius: 0.85rem;
+  background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule); border-radius: 0.85rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.12); text-align: center;
 }
 .voucher__grid-icon {
-  font-size: 1.5rem; width: 2.6rem; height: 2.6rem; border-radius: 50%; background: #eef1f6;
+  font-size: 1.5rem; width: 2.6rem; height: 2.6rem; border-radius: 50%; background: var(--telga-vellum-ground-deep);
   display: flex; align-items: center; justify-content: center;
 }
 .voucher__grid-label { font-size: 0.82rem; font-weight: 600; line-height: 1.2; }
@@ -497,53 +506,67 @@ dd { margin: 0; }
 .voucher__custom { display: flex; align-items: center; gap: var(--gap); flex-wrap: wrap; margin-top: var(--gap); }
 .voucher__amount-card--custom { flex: 0 0 auto; min-width: 9rem; }
 .voucher__custom-field { display: flex; align-items: center; gap: 0.5rem; }
-.voucher__custom-field input { font-size: 1.1rem; font-weight: 700; width: 7rem; padding: 0.5rem; border: 2px solid #d8dce3; border-radius: 0.5rem; }
+.voucher__custom-field input { font-size: 1.1rem; font-weight: 700; width: 7rem; padding: 0.5rem; border: var(--telga-size-rule-major) solid var(--telga-vellum-rule); border-radius: 0.5rem; }
 .voucher__custom-hint { flex-basis: 100%; margin: 0; font-size: 0.8rem; opacity: 0.75; }
 .voucher__amount-card {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem;
   min-height: 4.5rem; padding: 0.75rem 0.5rem; cursor: pointer;
-  background: #fff; color: #14151a; border: 2px solid #d8dce3; border-radius: 0.85rem;
+  background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border: var(--telga-size-rule-major) solid var(--telga-vellum-rule); border-radius: 0.85rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.12); text-align: center;
 }
 .voucher__amount-radio { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.voucher__amount-card:has(.voucher__amount-radio:checked) { border-color: #0b6b34; background: #d9f2e3; font-weight: 700; }
+.voucher__amount-card:has(.voucher__amount-radio:checked) { border-color: var(--telga-vellum-rubric); background: var(--telga-vellum-ground-deep); font-weight: 700; }
 .voucher__amount-card:has(.voucher__amount-radio:focus-visible) { outline: 3px solid currentColor; outline-offset: 2px; }
 .voucher__amount-card:has(.voucher__amount-radio:disabled) { opacity: 0.5; cursor: not-allowed; }
 .voucher__amount-value { font-size: 1.1rem; font-weight: 700; }
 .voucher__amount-note { font-size: 0.7rem; opacity: 0.75; }
 
 .voucher__summary-card {
-  background: #fff; color: #14151a; border: 1px solid #d8dce3; border-radius: 0.85rem;
+  background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule); border-radius: 0.85rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.12); overflow: hidden; margin-block: var(--gap);
 }
-.voucher__summary-card th, .voucher__summary-card td { border-bottom: 1px solid #eef1f6; }
+.voucher__summary-card th, .voucher__summary-card td { border-bottom: var(--telga-size-rule-hair) solid var(--telga-vellum-rule); }
 
 .voucher__actions { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: center; }
 .voucher__actions--stacked { display: block; }
 .voucher__button { border: 2px solid currentColor; border-radius: 0.6rem; font-weight: 700; justify-content: center; }
-.voucher__button--primary { background: #17416b; color: #fff; border-color: #17416b; }
-.voucher__button--print { background: #0b6b34; color: #fff; border-color: #0b6b34; width: 100%; font-size: 1.2rem; padding: 1rem; }
-.voucher__button--cancel { background: #8a1c1c; color: #fff; border-color: #8a1c1c; }
+.voucher__button--primary { background: var(--telga-vellum-rubric); color: var(--telga-vellum-ground-pale); border-color: var(--telga-vellum-ink); }
+.voucher__button--print { background: var(--telga-vellum-ink); color: var(--telga-vellum-ground-pale); border-color: var(--telga-vellum-ink); width: 100%; font-size: 1.2rem; padding: 1rem; }
+.voucher__button--cancel { background: transparent; color: var(--telga-vellum-ink); border-color: var(--telga-vellum-ink); }
 
 .voucher__pin-heading { font-size: 1.15rem; font-weight: 700; text-align: center; }
 .voucher__card {
-  background: #fff; color: #14151a; border: 1px solid #d8dce3; border-radius: 0.85rem;
+  background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule); border-radius: 0.85rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.12); padding: var(--gap); text-align: center; margin-block: var(--gap);
 }
-.voucher__card--ok { border-left: 6px solid #0b6b34; }
-.voucher__card--failed { border-left: 6px solid #8a1c1c; }
+/* A 6px coloured left border is a stripe standing in for a state, and it says
+   nothing without its hue. These now use the system's own phase vocabulary: a
+   ruled bottom edge whose PATTERN carries the state — solid settled, dashed
+   and short for pending, struck for failed — so the signal survives a
+   monochrome screen and a photocopied statement. */
+.voucher__card--ok {
+  border-bottom: var(--telga-size-rule-heavy) solid var(--telga-vellum-rubric);
+}
+.voucher__card--failed {
+  border-bottom: var(--telga-size-rule-heavy) solid var(--telga-vellum-ink);
+  text-decoration-line: line-through;
+  text-decoration-thickness: 1px;
+}
 /* Uncertain. Amber, and deliberately neither the green nor the red: an
    operator glancing at the edge colour must not read it as either outcome. */
-.voucher__card--pending { border-left: 6px solid #9a6700; background: #fffdf5; }
+.voucher__card--pending {
+  border-bottom: var(--telga-size-rule-heavy) dashed var(--telga-vellum-indigo);
+  background: var(--telga-vellum-ground-pale);
+}
 /* Still loading. Grey — no outcome has been reported yet. */
-.voucher__card--loading { border-left: 6px solid #6b7280; }
+.voucher__card--loading { border-bottom: var(--telga-size-rule-heavy) dotted var(--telga-vellum-ink-thin); }
 .voucher__card-icon { font-size: 2.5rem; margin: 0; }
 .voucher__card-headline { font-size: 1.05rem; font-weight: 700; margin: 0.35rem 0 0; }
 .voucher__notice { text-align: center; opacity: 0.85; font-size: 0.9rem; }
 
 /* Transaction history: a real table, newest first. */
-.history__table { background: #fff; color: #14151a; border-radius: 0.6rem; overflow: hidden; font-size: 0.85rem; }
-.history__table th { background: #eef1f6; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.history__table { background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border-radius: 0.6rem; overflow: hidden; font-size: 0.85rem; }
+.history__table th { background: var(--telga-vellum-ground-deep); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
 .history__table td, .history__table th { padding: 0.5rem 0.6rem; }
 .history__time { opacity: 0.7; }
 
@@ -607,7 +630,7 @@ dd { margin: 0; }
   border: none; background: var(--brand); color: #fff;
   font-size: 1.6rem; font-weight: 700; line-height: 1; text-decoration: none; }
 .dashboard__add:hover { background: var(--brand-bright); }
-.dashboard__add:focus-visible { outline: 3px solid #8FC4BD; outline-offset: 2px; }
+.dashboard__add:focus-visible { outline: var(--telga-size-rule-heavy) solid var(--telga-vellum-rubric); outline-offset: 2px; }
 
 /* Top-up: three full-width choices, stacked. */
 .topup__mark { text-align: center; line-height: 0; margin-bottom: 0.5rem; }
@@ -618,7 +641,7 @@ dd { margin: 0; }
   background: var(--card); color: var(--ink); text-decoration: none; font-size: 1.05rem;
   box-shadow: var(--shadow); }
 .topup__option:hover { background: var(--card-sunken); }
-.topup__option:focus-visible { outline: 3px solid #8FC4BD; outline-offset: 2px; }
+.topup__option:focus-visible { outline: var(--telga-size-rule-heavy) solid var(--telga-vellum-rubric); outline-offset: 2px; }
 .topup__icon { font-size: 1.5rem; }
 
 /* Learning steps and policy text: comfortable measure, generous spacing. */
@@ -636,8 +659,8 @@ dd { margin: 0; }
   border-radius: var(--r-md); border: none; background: var(--card); color: var(--ink);
   box-shadow: var(--shadow); }
 .menu__button::-webkit-details-marker { display: none; }
-.menu__button:hover { background: #22304a; }
-.menu__button:focus-visible { outline: 3px solid #8FC4BD; outline-offset: 2px; }
+.menu__button:hover { background: var(--telga-vellum-ground-deep); }
+.menu__button:focus-visible { outline: var(--telga-size-rule-heavy) solid var(--telga-vellum-rubric); outline-offset: 2px; }
 .menu__bars { display: inline-flex; flex-direction: column; gap: 4px; }
 .menu__bars i { display: block; width: 22px; height: 3px; border-radius: 2px; background: currentColor; }
 .menu__panel { position: absolute; right: 0; top: calc(100% + 0.4rem); z-index: 20;
@@ -652,10 +675,10 @@ dd { margin: 0; }
   color: inherit; text-decoration: none; background: none; border: none;
   font: inherit; text-align: left; cursor: pointer; }
 .menu__item:hover, .menu__item:focus-visible { background: var(--card-sunken); }
-.menu__item:focus-visible { outline: 2px solid #8FC4BD; outline-offset: -2px; }
+.menu__item:focus-visible { outline: var(--telga-size-rule-major) solid var(--telga-vellum-rubric); outline-offset: -2px; }
 .menu__item[aria-current="page"] { background: var(--card-sunken); font-weight: 700; }
 .menu__item-icon { font-size: 1.15rem; width: 1.5rem; text-align: center; }
-.menu__item--logout { color: #A8332A; font-weight: 600; }
+.menu__item--logout { color: var(--telga-vellum-rubric); font-weight: 600; }
 .menu__logout { margin: 0.5rem 0 0; padding-top: 0.5rem; border-top: 1px solid var(--line); }
 /* Lock: a black pill at the foot of the sheet, as the reference terminal has
    it. Deliberately the heaviest thing in the menu — it is what an operator
@@ -734,8 +757,12 @@ dd { margin: 0; }
 .service-state__headline { font-size: 1.2rem; font-weight: 700; margin: 0 0 0.5rem; }
 .service-state__reassure { margin: 0 auto; max-width: 30rem; font-weight: 600; }
 .service-state__detail { margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
-.service-state--outage { border: 2px solid #E8C878; background: #FFF4DA; color: #6B4A00; }
-.service-state--offline { border: 2px solid #C9D2D1; }
+.service-state--outage {
+  border: var(--telga-size-rule-major) solid var(--telga-vellum-ochre);
+  background: var(--telga-vellum-ground-pale);
+  color: var(--telga-vellum-ink);
+}
+.service-state--offline { border: var(--telga-size-rule-major) dotted var(--telga-vellum-rule); }
 
 .slip__barcode { text-align: center; margin: 0.6rem 0 0.2rem; }
 .slip__barcode-bars { display: flex; justify-content: center; align-items: flex-end;
