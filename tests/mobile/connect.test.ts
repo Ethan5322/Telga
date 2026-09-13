@@ -210,8 +210,7 @@ describe('the page and the config agree', () => {
     // **No unregistered domain may sit in this list.** `telga.et` and
     // `mulesoo.et` were never bought; a name nobody owns is a name somebody
     // else can buy, and this list is what decides where a PIN may be typed.
-    // `telga.pro` was bought but is not attached to anything, so it is absent
-    // too — it goes in when it is attached, as its own decision. A102, D113.
+    // A102, D113.
     for (const host of config.allowedHosts) {
       expect(host, `${host} must not be an unregistered domain`).not.toMatch(
         /telga\.et$|mulesoo\.et$/,
@@ -219,6 +218,20 @@ describe('the page and the config agree', () => {
     }
     expect(shipped('https://telga.et').origin).toBeUndefined();
     expect(shipped('https://mulesoo.et').origin).toBeUndefined();
+
+    // `telga.pro` is registered and attached as of 2026-09-12 — D158. It was
+    // absent until it resolved to something, on the rule above.
+    expect(shipped('https://telga.pro').origin).toBe('https://telga.pro');
+    expect(shipped('https://nottelga.pro').origin).toBeUndefined();
+    expect(shipped('https://telga.pro.evil.com').origin).toBeUndefined();
+
+    // **The staff console is not reachable from the merchant app.**
+    // `admin.telga.pro` serves the operations console — different users,
+    // different auth, different threat model (§18.0). A merchant WebView that
+    // could open it is one pointed at the wrong product. Listing a bare host
+    // never admits its subdomains, so this holds by construction; asserted
+    // because the protection is worth naming.
+    expect(shipped('https://admin.telga.pro').origin).toBeUndefined();
 
     // A default server spares the operator typing an address at a counter. It
     // must be https: the shell refuses cleartext and the manifest sets

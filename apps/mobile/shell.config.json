@@ -19,15 +19,27 @@
     "WHY telga.et AND mulesoo.et WERE REMOVED, rather than kept alongside:",
     "neither was ever registered. An unregistered domain sitting in an allow",
     "list is a name somebody else can buy, and this list is precisely what",
-    "decides where a merchant may type a PIN. The domain that was purchased is",
-    "telga.pro, and it is deliberately absent too: it is not attached to",
-    "anything yet, and it goes in here only when it is, as its own decision.",
-    "See ASSUMPTIONS A102 and Decision Log D113."
+    "decides where a merchant may type a PIN. See ASSUMPTIONS A102 and D113.",
+    "",
+    "telga.pro IS NOW ATTACHED, and so is now listed. It was deliberately",
+    "absent while it resolved to nothing, on the rule above: the condition was",
+    "that it goes in when it is attached, as its own decision. It resolves to",
+    "the Telga deployment as of 2026-09-12. Decision Log D158.",
+    "",
+    "admin.telga.pro IS DELIBERATELY NOT HERE. That host serves the operations",
+    "console - Telga staff, different users, different auth (18.0). This list",
+    "is the merchant app's, and a merchant WebView that could open the staff",
+    "console is a merchant WebView pointed at the wrong threat model. Staff",
+    "reach the console in a browser, not through this app.",
+    "",
+    "The Railway address stays listed because it still serves: every APK",
+    "already in a shop's hands has it baked into www/config.js, and removing",
+    "it here would strand those installs at the connect screen."
   ],
 
-  "allowedHosts": ["telga-backend-production.up.railway.app"],
+  "allowedHosts": ["telga.pro", "telga-backend-production.up.railway.app"],
 
-  "defaultServer": "https://telga-backend-production.up.railway.app",
+  "defaultServer": "https://telga.pro",
 
   "supportContact": "MuleSoo Digital Services"
 }
