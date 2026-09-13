@@ -154,24 +154,45 @@ export const findTopupOrderByReference = (
     | undefined;
 
 /**
- * The shop's live slip, if it has one.
+ * The shop's live order **for one method**, if it has one.
  *
  * `OPEN` and not yet past its expiry. An order whose window has passed does not
- * block a new one — the shop is meant to print a fresh slip, which is the whole
- * reason expiry exists.
+ * block a new one — the shop is meant to start again, which is the whole reason
+ * expiry exists.
+ *
+ * ## Why the method matters
+ *
+ * Reported from the deployment, 2026-09-12: *"Chapa payment button doesn't
+ * process — when I enter an amount and confirm, it just asks me to enter the
+ * amount again."*
+ *
+ * This originally matched on merchant alone, so **an unpaid bank slip blocked a
+ * Chapa payment entirely**. The shop was refused with `ORDER_ALREADY_OPEN` and
+ * bounced back to the amount screen.
+ *
+ * The one-at-a-time rule was written for §20.1 and is right *there*: two paper
+ * slips is a shopkeeper at a bank counter guessing which reference to quote.
+ * **It never applied across methods.** A slip in a pocket says nothing about
+ * whether a shop may also pay by card, and the two settle by completely
+ * separate paths.
+ *
+ * Omitting `method` keeps the old behaviour — any open order — which is what a
+ * caller asking "is this shop waiting on anything" wants.
  */
 export const findOpenTopupOrder = (
   db: Db,
   merchantId: string,
   nowIso: string,
+  method?: 'BANK_COUNTER' | 'CHAPA',
 ): TopupOrderRow | undefined =>
   db
     .prepare(
       `SELECT * FROM topup_orders
         WHERE merchant_id = ? AND status = 'OPEN' AND expires_at > ?
+          AND (? IS NULL OR method = ?)
         ORDER BY created_at DESC`,
     )
-    .get(merchantId, nowIso) as TopupOrderRow | undefined;
+    .get(merchantId, nowIso, method ?? null, method ?? null) as TopupOrderRow | undefined;
 
 /** A shop's own history, newest first. */
 export const listTopupOrdersFor = (

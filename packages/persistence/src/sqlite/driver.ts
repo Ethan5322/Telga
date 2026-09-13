@@ -676,8 +676,12 @@ export class SqliteLedgerDriver implements LedgerDriver {
   }
 
   /** The shop's live slip, if it is holding one. */
-  findOpenTopupOrder(merchantId: string, nowIso: string): topupOrders.TopupOrderRow | undefined {
-    return topupOrders.findOpenTopupOrder(this.handle(), merchantId, nowIso);
+  findOpenTopupOrder(
+    merchantId: string,
+    nowIso: string,
+    method?: 'BANK_COUNTER' | 'CHAPA',
+  ): topupOrders.TopupOrderRow | undefined {
+    return topupOrders.findOpenTopupOrder(this.handle(), merchantId, nowIso, method);
   }
 
   listTopupOrdersFor(merchantId: string, limit?: number): readonly topupOrders.TopupOrderRow[] {
@@ -755,6 +759,19 @@ export class SqliteLedgerDriver implements LedgerDriver {
 
   listTransfersFor(merchantId: string, limit?: number): readonly extensions.ShopTransferRow[] {
     return extensions.listTransfersFor(this.handle(), merchantId, limit);
+  }
+
+  /** Approve a queued transfer — §19.1. The claim is the lock. */
+  approveShopTransfer(input: Parameters<typeof extensions.approveShopTransfer>[1]): number {
+    return extensions.approveShopTransfer(this.handle(), input);
+  }
+
+  refuseShopTransfer(input: Parameters<typeof extensions.refuseShopTransfer>[1]): number {
+    return extensions.refuseShopTransfer(this.handle(), input);
+  }
+
+  findShopTransfer(id: string): extensions.ShopTransferRow | undefined {
+    return extensions.findShopTransfer(this.handle(), id);
   }
 
   listTransferQueue(): readonly extensions.ShopTransferRow[] {

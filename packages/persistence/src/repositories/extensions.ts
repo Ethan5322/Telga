@@ -357,3 +357,77 @@ export const listTransferQueue = (db: Db): readonly ShopTransferRow[] =>
       `SELECT * FROM shop_transfers WHERE status = 'NEEDS_APPROVAL' ORDER BY created_at`,
     )
     .all() as ShopTransferRow[];
+
+/**
+ * Approve a queued transfer — §19.1.
+ *
+ * ## The gap this closes
+ *
+ * Reported from the deployment, 2026-09-12: *"I sent an amount from one shop to
+ * another yesterday and it still hasn't arrived."*
+ *
+ * A transfer above the approval threshold is saved `NEEDS_APPROVAL` with **no
+ * ledger entry** — nothing has moved, which is what "awaiting approval" has to
+ * mean. `listTransferQueue` has existed since migration 019 and **had no
+ * caller**: no console route read `shop_transfers` at all, so a queued transfer
+ * could never be approved and sat forever.
+ *
+ * The same shape as the stranded high-value deposit: a status that only a
+ * control could move, and the control was never built.
+ *
+ * ## The claim is the lock
+ *
+ * `WHERE status = 'NEEDS_APPROVAL'` is the only operation that reads and writes
+ * atomically, so exactly one caller can see it change a row — and only that
+ * caller posts the ledger pair. Two approvers pressing at once cannot both
+ * move the money.
+ *
+ * Returns rows changed: `0` means somebody else decided it first, which is not
+ * an error.
+ */
+export function approveShopTransfer(
+  db: Db,
+  input: {
+    readonly id: string;
+    readonly postingId: string;
+    readonly approvedBy: string;
+    readonly at: string;
+  },
+): number {
+  return db
+    .prepare(
+      `UPDATE shop_transfers
+          SET status = 'SETTLED', posting_id = ?, approved_by = ?, approved_at = ?, updated_at = ?
+        WHERE id = ? AND status = 'NEEDS_APPROVAL'`,
+    )
+    .run(input.postingId, input.approvedBy, input.at, input.at, input.id).changes;
+}
+
+/**
+ * Refuse a queued transfer.
+ *
+ * Nothing is returned to the sender because nothing left them: a queued
+ * transfer posted no entry. The reason is recorded so the shop can be told
+ * something better than "no".
+ */
+export function refuseShopTransfer(
+  db: Db,
+  input: {
+    readonly id: string;
+    readonly reason: string;
+    readonly approvedBy: string;
+    readonly at: string;
+  },
+): number {
+  return db
+    .prepare(
+      `UPDATE shop_transfers
+          SET status = 'REFUSED', refusal_reason = ?, approved_by = ?, approved_at = ?, updated_at = ?
+        WHERE id = ? AND status = 'NEEDS_APPROVAL'`,
+    )
+    .run(input.reason, input.approvedBy, input.at, input.at, input.id).changes;
+}
+
+/** One queued transfer, for the screen that decides it. */
+export const findShopTransfer = (db: Db, id: string): ShopTransferRow | undefined =>
+  db.prepare(`SELECT * FROM shop_transfers WHERE id = ?`).get(id) as ShopTransferRow | undefined;

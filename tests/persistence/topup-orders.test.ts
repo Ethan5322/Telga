@@ -335,3 +335,71 @@ describe('settling an order', () => {
     expect(entries.n).toBe(0);
   });
 });
+
+describe('one open order per method, not per shop', () => {
+  /**
+   * Reported from the deployment, 2026-09-12: *"Chapa payment button doesn't
+   * process — it just asks me to enter the amount again."*
+   *
+   * An unpaid bank slip was blocking Chapa. The one-at-a-time rule was written
+   * for §20.1 and is right there — two paper slips is a shopkeeper at a bank
+   * counter guessing which reference to quote. It never applied across methods:
+   * a slip in a pocket says nothing about whether a shop may also pay by card,
+   * and the two settle by completely separate paths.
+   */
+  it('an open bank slip does not block a Chapa payment', () => {
+    seedShop('mch_a');
+    saveTopupOrder(
+      db,
+      {
+        id: 'top_bank',
+        merchantId: 'mch_a',
+        deviceId: 'device_a',
+        operatorId: 'op_a',
+        amountMinor: 250_000,
+        correlationId: 'corr_bank',
+        mode: 'TRAINING',
+        at: AT,
+        expiresAt: EXPIRES,
+        method: 'BANK_COUNTER',
+      },
+      newDepositReference,
+      normalizeDepositReference,
+    );
+
+    // The bank slip is out...
+    expect(findOpenTopupOrder(db, 'mch_a', AT, 'BANK_COUNTER')).toBeDefined();
+    // ...and Chapa is unaffected, which is the whole fix.
+    expect(findOpenTopupOrder(db, 'mch_a', AT, 'CHAPA')).toBeUndefined();
+  });
+
+  it('still refuses a second order of the same method', () => {
+    seedShop('mch_a');
+    saveTopupOrder(
+      db,
+      {
+        id: 'top_chapa',
+        merchantId: 'mch_a',
+        deviceId: 'device_a',
+        operatorId: 'op_a',
+        amountMinor: 250_000,
+        correlationId: 'corr_chapa',
+        mode: 'TRAINING',
+        at: AT,
+        expiresAt: EXPIRES,
+        method: 'CHAPA',
+      },
+      newDepositReference,
+      normalizeDepositReference,
+    );
+    // The rule still holds within a method.
+    expect(findOpenTopupOrder(db, 'mch_a', AT, 'CHAPA')).toBeDefined();
+  });
+
+  it('without a method, reports any open order', () => {
+    seedShop('mch_a');
+    order('mch_a', 250_000, 1);
+    // "Is this shop waiting on anything" — what the deposits desk asks.
+    expect(findOpenTopupOrder(db, 'mch_a', AT)).toBeDefined();
+  });
+});

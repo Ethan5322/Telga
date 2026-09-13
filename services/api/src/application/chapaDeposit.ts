@@ -125,7 +125,10 @@ export async function startChapaDeposit(
     {
       shopStatus: merchant?.status ?? 'UNKNOWN',
       amount: money(request.amountMinor),
-      hasOpenOrder: deps.driver.findOpenTopupOrder(context.merchantId, at) !== undefined,
+      // Scoped to this method: an unpaid bank slip must not block a Chapa
+      // payment, and the reverse. See `findOpenTopupOrder`.
+      hasOpenOrder:
+        deps.driver.findOpenTopupOrder(context.merchantId, at, 'CHAPA') !== undefined,
       depositsEnabled: true,
     },
     policy,

@@ -84,6 +84,7 @@ export {
   saveAdminSession,
   saveAdminUser,
   setAdminMfaSecret,
+  setAdminPassword,
   setAdminStatus,
   touchAdminSession,
 } from './repositories/admin';

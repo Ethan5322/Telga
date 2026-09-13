@@ -83,7 +83,10 @@ export function orderBankDeposit(
       // investigate, not a different fact to disclose.
       shopStatus: merchant?.status ?? 'UNKNOWN',
       amount: money(request.amountMinor),
-      hasOpenOrder: deps.driver.findOpenTopupOrder(context.merchantId, at) !== undefined,
+      // Scoped to this method: an unpaid bank slip must not block a Chapa
+      // payment, and the reverse. See `findOpenTopupOrder`.
+      hasOpenOrder:
+        deps.driver.findOpenTopupOrder(context.merchantId, at, 'BANK_COUNTER') !== undefined,
       // §20.1 is a training simulation until a bank feed exists, so the flag
       // that gates training deposits gates this too.
       depositsEnabled: true,
