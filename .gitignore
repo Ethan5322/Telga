@@ -89,3 +89,36 @@ apps/mobile/android/app/src/main/assets/capacitor.plugins.json
 # Backup output and its manifests are operational artifacts, not source.
 backups/
 *.sqlite.manifest.json
+
+# --- Scanned documents and screenshots -------------------------------------
+#
+# A 2 MB Adobe Scan sat untracked at the root of this repository. Nobody opened
+# it to find out what it held, and that is the point: this project handles
+# trade licences and owner identity documents, §18.1 refuses photograph uploads
+# outright, and a scan pushed to a remote is in the history permanently even
+# after it is deleted. Scans and screenshots go nowhere near the repository.
+*.pdf
+!docs/**/*.pdf
+Adobe Scan*.pdf
+gpt.png
+*.screenshot.png
+
+# --- Scratch ---------------------------------------------------------------
+#
+# `verify-training.cjs` is a stale one-off: it selects on `merchant_key`, a
+# column no migration creates, so it throws; it asserts migration 007 when the
+# schema is at 022; and it sums `amount_minor` without reading `direction`,
+# which on a double-entry ledger produces a figure that means nothing. Left on
+# disk for its author to remove, kept out of the repository so nobody runs it
+# and trusts the number.
+verify-training.cjs
+docs/fs-read-write-writev.md
+
+# Design review captures are disposable evidence, regenerated on demand. The
+# token sidecar and the surface briefs are not: later sessions reload them.
+.impeccable/review/
+.impeccable/mocks/
+
+# Decision-page transcripts: one session's question-and-answer log, superseded
+# by the Decision Log entry the choice produced.
+.impeccable/questions/
