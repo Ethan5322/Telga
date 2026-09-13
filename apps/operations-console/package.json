@@ -2,7 +2,7 @@
   "name": "@telga/operations-console",
   "version": "0.0.0",
   "private": true,
-  "description": "Telga Operations Console. Authorised Telga staff only — never a merchant, never an operator. Separate application from the merchant POS and from Telga Pay.",
+  "description": "Telga Operations Console. Authorised Telga staff only \u2014 never a merchant, never an operator. Separate application from the merchant POS and from Telga Pay.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,6 +15,7 @@
   "dependencies": {
     "@telga/api": "*",
     "@telga/domain": "*",
-    "@telga/persistence": "*"
+    "@telga/persistence": "*",
+    "@telga/design-system": "*"
   }
 }

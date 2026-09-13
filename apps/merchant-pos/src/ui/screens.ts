@@ -83,16 +83,43 @@ function balanceTable(balance: BalanceDto, locale: Locale): El {
       h('td', { 'data-testid': id }, value),
     );
 
+  /**
+   * The available figure leads; the other two are context.
+   *
+   * It is the one number a shopkeeper opens this app to read, and rendering
+   * all three as equal rows made the headline the same size as its own
+   * context. Found on 2026-09-12 by rendering the screen at 390px and looking
+   * at it, not by reading the code.
+   *
+   * The unit is **rubricated** — red ink marks what kind of thing a number is,
+   * which is what rubrication is for, and it keeps the figure and its currency
+   * from reading as one quantity. Figures are tabular, so a balance never
+   * changes width as it changes.
+   *
+   * Reserved and under-review stay a ruled table. §15 requires them visible;
+   * it does not require them to be the headline.
+   *
+   * Every test id is unchanged — only prominence moved.
+   */
   return h(
-    'table',
-    { 'data-testid': 'balance-table' },
-    h('caption', {}, t(locale, 'screen.balance')),
+    'section',
+    { 'data-testid': 'balance-table', 'aria-label': t(locale, 'screen.balance') },
     h(
-      'tbody',
+      'p',
+      { class: 'balance__lead' },
+      h('span', { 'data-testid': 'balance-available' }, balance.available.formatted),
+      h('span', { class: 'balance__unit' }, balance.available.currency),
+    ),
+    h('p', { class: 'balance__caption' }, t(locale, 'balance.available')),
+    h(
+      'table',
       {},
-      row('balance.available', balance.available.formatted, 'balance-available'),
-      row('balance.reserved', balance.reserved.formatted, 'balance-reserved'),
-      row('balance.under_review', balance.underReview.formatted, 'balance-under-review'),
+      h(
+        'tbody',
+        {},
+        row('balance.reserved', balance.reserved.formatted, 'balance-reserved'),
+        row('balance.under_review', balance.underReview.formatted, 'balance-under-review'),
+      ),
     ),
   );
 }

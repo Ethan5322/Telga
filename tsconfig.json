@@ -34,6 +34,9 @@
       "@telga/localization": [
         "./packages/localization/src/index.ts"
       ],
+      "@telga/design-system": [
+        "./packages/design-system/src/index.ts"
+      ],
       "@telga/pos-view-model": [
         "./packages/pos-view-model/src/index.ts"
       ],

@@ -17,6 +17,7 @@
     "@telga/domain": "*",
     "@telga/localization": "*",
     "@telga/persistence": "*",
-    "@telga/pos-view-model": "*"
+    "@telga/pos-view-model": "*",
+    "@telga/design-system": "*"
   }
 }

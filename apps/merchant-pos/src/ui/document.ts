@@ -18,6 +18,7 @@
  * the header is the authority and the tag is the copy.
  */
 
+import { cssVariables } from '@telga/design-system';
 import { escapeText } from './element';
 import type { Chrome } from './chrome';
 import { contentSecurityPolicy } from '../transport/headers';
@@ -256,31 +257,37 @@ const STYLES = `
   color-scheme: light;
   --gap: 0.75rem;
 
-  /* Brand */
-  --brand: #14746F;
-  --brand-deep: #0E5450;
-  --brand-bright: #1D9A93;
-  --brand-ink: #06302E;
+  /* Every value below resolves to a token emitted above. The old names are
+     kept as the binding layer so the component rules further down this file
+     inherit the world without each one being rewritten by hand. */
 
-  /* Surfaces */
-  --card: #FFFFFF;
-  --card-sunken: #F2F5F5;
-  --ink: #10201F;
-  --ink-soft: #5A6B6A;
-  --line: #DDE5E4;
+  /* Ground. The page IS the skin: there is no second material floating on it. */
+  --brand: var(--telga-vellum-ground);
+  --brand-deep: var(--telga-vellum-ink);
+  --brand-bright: var(--telga-vellum-rubric);
+  --brand-ink: var(--telga-vellum-ink);
 
-  /* Action */
-  --pill: #10201F;
-  --pill-ink: #FFFFFF;
+  --card: var(--telga-vellum-ground-pale);
+  --card-sunken: var(--telga-vellum-ground-deep);
+  --ink: var(--telga-vellum-ink);
+  --ink-soft: var(--telga-vellum-ink-thin);
+  --line: var(--telga-vellum-rule);
 
-  /* Shape. One radius scale — a card and a tile that disagree look accidental. */
-  --r-sm: 0.5rem;
-  --r-md: 0.9rem;
-  --r-lg: 1.4rem;
-  --r-pill: 999px;
+  /* Rubrication carries the primary action. */
+  --pill: var(--telga-vellum-rubric);
+  --pill-ink: var(--telga-vellum-ground-pale);
 
-  --shadow: 0 2px 10px rgba(6, 48, 46, 0.10);
-  --shadow-lifted: 0 6px 20px rgba(6, 48, 46, 0.16);
+  /* A folio is cut, not rounded. The radius only stops a rule looking chipped
+     where two of them meet. */
+  --r-sm: var(--telga-size-radius-sm);
+  --r-md: var(--telga-size-radius-md);
+  --r-lg: var(--telga-size-radius-lg);
+  --r-pill: var(--telga-size-radius-lg);
+
+  /* A manuscript has ruling and impression, not drop shadows. What remains is
+     the edge a fixed bar needs over scrolling content. */
+  --shadow: none;
+  --shadow-lifted: var(--telga-shadow-app-bar);
 }
 
 body {
@@ -293,15 +300,11 @@ body {
   background: var(--brand);
 }
 
-.pos { max-width: 44rem; margin: 0 auto; padding: var(--gap); }
-
-/* Content sits on white cards, the way the reference terminal does it. */
-main {
-  background: var(--card);
-  border-radius: var(--r-lg);
-  padding: 1.1rem 1rem;
-  box-shadow: var(--shadow);
-}
+/* The shell and the page are defined once, in the scribal shell block at the
+   foot of this file. They were a full-bleed brand field carrying white cards
+   until 2026-09-12, when the founder released the reference terminal that
+   arrangement was modelled on; the world that replaced it has no cards,
+   because the page is the skin and ruling is what separates content. */
 
 /* Every action is a pill. Black by default, brand for the primary one. */
 .voucher__button,
@@ -339,7 +342,6 @@ th, td { text-align: start; padding: 0.5rem; border-bottom: 1px solid currentCol
 dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem var(--gap); }
 dt { font-weight: 600; }
 dd { margin: 0; }
-.pos__nav { display: flex; gap: var(--gap); flex-wrap: wrap; }
 [aria-current="page"] { font-weight: 700; text-decoration-thickness: 3px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
@@ -596,7 +598,6 @@ dd { margin: 0; }
 
 /* The three-bar menu. A <details> element, so open/close is the browser's job
    and the menu still works with scripting off. */
-.pos__topbar { display: flex; justify-content: flex-end; padding: 0.25rem 0.5rem 0; }
 
 /* The "+" beside the balance. A real target, not a decoration: 2.75rem square
    is comfortably tappable on a counter screen with a thumb. */
@@ -907,6 +908,394 @@ dd { margin: 0; }
    tap/insert/swipe methods, so an operator cannot mistake a
    training-outcome shortcut for a real card action. */
 .pay__practice { border-top: 1px dashed currentColor; padding-top: var(--gap); margin-top: var(--gap); text-align: center; }
+
+/* ==========================================================================
+   The scribal shell
+   ==========================================================================
+
+   The page is the skin. Content is separated by ruling, the way a folio is,
+   and nothing floats on a ground: a card would be a second material this world
+   does not contain. Rules reach the page edge, because a rule that stops short
+   means something here.
+
+   WHY THE TAB BAR IS TEXT AND NOT ICONS. Amharic labels are longer than their
+   English equivalents and Ethiopic glyphs need the height; an icon above an
+   Amharic word either clips the word or halves the tap target. Readable
+   Amharic outranks anything decorative.
+
+   WHY THE TAB BAR IS NOT ON EVERY SCREEN. It is drawn by nav(), which the
+   dashboard, transactions and queue call and the vending flow does not. Tabs
+   are for the places you return to; a checkout flow hides them so the only
+   ways out are finish and back.
+   ========================================================================== */
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--telga-vellum-ground);
+  color: var(--telga-vellum-ink);
+  font-family: var(--telga-type-body);
+  font-size: var(--telga-type-base);
+}
+
+.pos {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 0 calc(var(--telga-size-tab-bar) + max(env(safe-area-inset-bottom, 0px), 6px)) 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--telga-vellum-ground);
+}
+
+/* --- the app bar ---------------------------------------------------------
+   Sticky rather than fixed: it scrolls with a keyboard open, which fixed
+   positioning gets wrong on Android when the viewport shrinks. */
+.pos__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gap);
+  min-height: var(--telga-size-app-bar);
+  padding: env(safe-area-inset-top, 0px) var(--gap) 0 var(--gap);
+  background: var(--telga-vellum-ground);
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-vellum-ink);
+}
+
+/* --- the harag band ------------------------------------------------------
+   The interlace a scribe rules across the head of a section, drawn from the
+   three structural inks. It is the one ornament in this world and it is
+   structural: it says a new section begins. */
+main::before {
+  content: "";
+  display: block;
+  height: 10px;
+  /* Full bleed. A harag runs the width of the folio; one inset by the page
+     padding reads as a decorative strip rather than a ruled opening, which is
+     what it looked like in the first render. */
+  margin: 0 calc(var(--telga-space-lg) * -1) var(--telga-space-lg);
+  background:
+    repeating-linear-gradient(135deg, var(--telga-vellum-rubric) 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(45deg, var(--telga-vellum-indigo) 0 6px, transparent 6px 12px),
+    var(--telga-vellum-ochre);
+  border-block: var(--telga-size-rule-hair) solid var(--telga-vellum-ink);
+}
+
+/* The page, not a card. */
+main {
+  flex: 1 1 auto;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0 var(--telga-space-lg);
+}
+
+.screen__title {
+  font-family: var(--telga-type-display);
+  font-size: var(--telga-type-xl);
+  font-weight: 600;
+  margin: 0 0 var(--telga-space-md) 0;
+  padding-bottom: var(--telga-space-sm);
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-vellum-ink);
+}
+
+/* --- money ---------------------------------------------------------------
+   Fixed decimal positions, so a figure never changes width as it changes and a
+   column of them lines up digit for digit. The unit is rubricated and set
+   small beside it: red ink marks what kind of thing a number is, which is what
+   rubrication is for. */
+.amount,
+[data-amount] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: 0.01em;
+}
+
+.amount--lead {
+  font-family: var(--telga-type-display);
+  font-size: var(--telga-type-amount);
+  line-height: 1.1;
+}
+
+.amount__unit {
+  color: var(--telga-vellum-rubric);
+  font-size: var(--telga-type-sm);
+  font-family: var(--telga-type-body);
+  margin-inline-start: 0.35ch;
+}
+
+/* --- phases --------------------------------------------------------------
+   A phase is a name, a rule pattern and an ink. Three carriers, because the
+   pattern survives a monochrome thermal print, a photocopied statement, and a
+   reader who cannot separate red from green. */
+[data-phase] {
+  border-bottom-width: var(--telga-size-rule-major);
+  border-bottom-color: currentColor;
+  padding-bottom: 2px;
+}
+[data-phase="settled"]  { border-bottom-style: solid;  color: var(--telga-vellum-rubric); }
+[data-phase="working"]  { border-bottom-style: dotted; color: var(--telga-vellum-indigo); }
+[data-phase="pending"]  { border-bottom-style: dashed; color: var(--telga-vellum-indigo); }
+[data-phase="review"]   { border-bottom-style: double; color: var(--telga-vellum-ochre); }
+[data-phase="failed"]   { border-bottom-style: solid;  color: var(--telga-vellum-ink); text-decoration: line-through; }
+[data-phase="reversed"] { border-bottom-style: double; color: var(--telga-vellum-rubric); text-decoration: line-through; }
+
+/* --- ledger rows ---------------------------------------------------------
+   A settled row's rule runs the full width; a pending one stops short of the
+   margin, which is the whole signal: the line is not finished being written. */
+.ledger__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--telga-space-md);
+  min-height: var(--telga-size-control);
+  padding: var(--telga-space-sm) 0;
+  border-bottom: var(--telga-size-rule-hair) solid var(--telga-vellum-rule);
+}
+
+.ledger__row[data-phase="pending"] {
+  border-bottom: 0;
+  position: relative;
+}
+.ledger__row[data-phase="pending"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 62%;
+  border-bottom: var(--telga-size-rule-hair) dashed var(--telga-vellum-indigo);
+}
+
+/* A row an operator has worked carries a scribal strike that persists. */
+.ledger__row[data-worked="true"] { color: var(--telga-vellum-ink-thin); }
+.ledger__row[data-worked="true"] .ledger__label { text-decoration: line-through; }
+
+/* --- the primary action --------------------------------------------------
+   One per screen. A rubricated block, not a pill: this world rules and fills,
+   it does not round. */
+.pos main button[type="submit"],
+.button--primary {
+  min-height: var(--telga-size-primary);
+  background: var(--telga-vellum-rubric);
+  color: var(--telga-vellum-ground-pale);
+  border: 0;
+  border-bottom: var(--telga-size-rule-heavy) solid var(--telga-vellum-ink);
+  border-radius: var(--telga-size-radius-sm);
+  font-family: var(--telga-type-body);
+  font-size: var(--telga-type-lg);
+  font-weight: 600;
+  transition: transform var(--telga-motion-instant) var(--telga-motion-standard);
+}
+
+/* Press feedback: the block seats itself against its rule. */
+.pos main button[type="submit"]:active,
+.button--primary:active { transform: translateY(1px); }
+
+/* --- the bottom tab bar --------------------------------------------------
+   Fixed to the bottom edge, above the gesture area. A bar that ignores the
+   safe-area inset sits underneath the Android gesture bar, where its buttons
+   either cannot be hit or fire the system gesture instead of the link. */
+.pos__nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  gap: 0;
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 0 0 max(env(safe-area-inset-bottom, 0px), 6px) 0;
+  background: var(--telga-vellum-ground-pale);
+  border-top: var(--telga-size-rule-major) solid var(--telga-vellum-ink);
+  box-shadow: var(--telga-shadow-tab-bar);
+}
+
+.pos__nav a {
+  flex: 1 1 0;
+  min-height: var(--telga-size-touch-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.4rem 0.25rem;
+  font-size: var(--telga-type-sm);
+  line-height: 1.2;
+  text-decoration: none;
+  color: var(--telga-vellum-ink);
+}
+
+/* The active tab is inverted, not tinted: rank is inversion in this world, and
+   inversion survives a monochrome screen where a tint does not. */
+.pos__nav a[aria-current="page"] {
+  background: var(--telga-vellum-ink);
+  color: var(--telga-vellum-ground-pale);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* --- touch targets ------------------------------------------------------ */
+button,
+.button,
+.menu__link,
+select,
+textarea,
+/* Every text-entry input, named by exclusion rather than by listing types.
+   Listing them put a password type-selector into the stylesheet, and so onto
+   every page, which tripped the guard asserting the registration screen never
+   asks for one. The guard was right: that string does not belong on that page.
+   This comment names no selector for the same reason — a guard that cannot
+   tell a rule from a warning about the rule fires on its own documentation,
+   which has happened four times in this repository. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+  min-height: var(--telga-size-touch-min);
+  font-size: 16px;
+}
+
+/* --- browser surfaces ----------------------------------------------------
+   The parts not drawn here still carry the world: selection, caret and focus
+   ring ship with browser defaults that belong to no design system. */
+::selection { background: var(--telga-vellum-ochre); color: var(--telga-vellum-ink); }
+:root { accent-color: var(--telga-vellum-rubric); caret-color: var(--telga-vellum-rubric); }
+:focus-visible {
+  outline: var(--telga-size-rule-heavy) solid var(--telga-vellum-rubric);
+  outline-offset: 2px;
+}
+
+/* --- motion --------------------------------------------------------------
+   The signature movement: a settling entry steps its rule to the margin in one
+   whole-line movement with a single overshoot. Nothing glides continuously; a
+   scribe lifts the hand and sets it down. */
+@keyframes telga-rule-step {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.ledger__row[data-phase="settled"] {
+  animation: telga-rule-step var(--telga-motion-short) var(--telga-motion-overshoot);
+  transform-origin: left center;
+}
+
+/* Android's Remove animations setting arrives here. */
+@media (prefers-reduced-motion: reduce) {
+  .ledger__row[data-phase="settled"] { animation: none; }
+  * { transition: none !important; animation: none !important; }
+}
+
+/* --- the menu button -----------------------------------------------------
+   The first render left it an unstyled pale box floating in an otherwise
+   empty app bar. It is the only control up there, so it carries the ink. */
+.pos__topbar button,
+.pos__topbar .menu__button {
+  min-height: var(--telga-size-touch-min);
+  min-width: var(--telga-size-touch-min);
+  background: transparent;
+  color: var(--telga-vellum-ink);
+  border: var(--telga-size-rule-major) solid var(--telga-vellum-ink);
+  border-radius: var(--telga-size-radius-sm);
+  font-size: var(--telga-type-lg);
+}
+
+/* --- containment --------------------------------------------------------
+   Found by rendering at 390px: every screen overflowed to the right and cut
+   its own text mid-word. A counter phone is the narrowest thing this ships
+   to, so nothing may exceed it. min-width: 0 is the load-bearing line — a
+   flex child defaults to min-width: auto, which refuses to shrink below its
+   content and pushes the whole row wider than the screen. */
+/* box-sizing was absent from this stylesheet entirely until 2026-09-12, so
+   padding and borders were ADDED to every width: a full-width element with
+   var(--gap) padding and a 3px border overflowed its container by 30px and cut
+   its own text mid-word at the right edge. It is the single cause of the
+   clipping seen on every screen at 390px, and it had nothing to do with the
+   redesign; the console always had the rule, which is why it clipped less. */
+*, *::before, *::after { box-sizing: border-box; min-width: 0; }
+
+html, body { overflow-x: hidden; max-width: 100%; }
+
+/* NOT .pos: it carries the 44rem reading measure, and listing it here set
+   every screen to the full width of a counter display — a 1024px line of body
+   text, which is roughly twice a readable measure. Containment is for the
+   children that would otherwise push past the shell. */
+.pos__topbar, main, .pos__identity, .pos__footer { max-width: 100%; }
+
+/* The app bar is the skin, not a pale strip. Stated with the shell's own
+   specificity because it renders above the fold on every screen. */
+.pos > .pos__topbar { background: var(--telga-vellum-ground); }
+
+/* Long unbroken strings (a device id, a reference, an email) break rather
+   than widening the page. */
+main, .pos__identity, .pos__footer, .banner, .banner__detail, .banner__warning,
+p, td, th, dd, dt, li {
+  overflow-wrap: anywhere;
+}
+
+/* A table is the one thing allowed to be wider than the screen, and then only
+   inside its own scroller — the column relationships in a balance or a
+   statement are what a shopkeeper reads across, and stacking them loses it. */
+main table { display: block; overflow-x: auto; max-width: 100%; }
+
+/* --- links ---------------------------------------------------------------
+   Rendering showed browser-default blue on the home screen, which belongs to
+   no design system. A link is ink with a rubricated underline. */
+main a {
+  color: var(--telga-vellum-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--telga-vellum-rubric);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  min-height: var(--telga-size-touch-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* --- the balance as the lead figure -------------------------------------
+   The available balance is the one number a shopkeeper opens this app to
+   read, so it is the largest thing on the screen and its unit is rubricated.
+   The other two rows stay ordinary: reserved and under-review are context,
+   not the headline. */
+.balance__lead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35ch;
+  margin: 0 0 var(--telga-space-xs) 0;
+  font-family: var(--telga-type-display);
+  font-size: var(--telga-type-amount);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.balance__unit {
+  font-family: var(--telga-type-body);
+  font-size: var(--telga-type-sm);
+  font-weight: 600;
+  color: var(--telga-vellum-rubric);
+  letter-spacing: 0.04em;
+}
+
+.balance__caption {
+  margin: 0 0 var(--telga-space-md) 0;
+  padding-bottom: var(--telga-space-sm);
+  font-size: var(--telga-type-sm);
+  color: var(--telga-vellum-ink-thin);
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-vellum-ink);
+}
+
+/* --- print --------------------------------------------------------------
+   None of the shell belongs on a receipt, and a fixed bar would print on every
+   page of one. The harag band is screen ornament and costs thermal ink. */
+@media print {
+  .pos__nav,
+  .pos__identity,
+  .pos__footer { display: none; }
+  main::before { display: none; }
+  .pos { padding-bottom: 0; min-height: 0; }
+  body { min-height: 0; background: #FFFFFF; }
+}
 `;
 
 /**
@@ -944,7 +1333,10 @@ export function htmlDocument(bodyHtml: string, chrome: Chrome, nonce: string): s
     `<meta http-equiv="content-security-policy" content="${escapeText(csp)}">`,
     '<meta name="robots" content="noindex, nofollow">',
     `<title>Telga POS — ${escapeText(chrome.mode)} — no real value</title>`,
-    `<style nonce="${n}">${STYLES}</style>`,
+    // The tokens are emitted here rather than inside STYLES: that literal is
+    // required to stay static, because interpolation into CSS splices code
+    // into a stylesheet and has ended this literal early four times.
+    `<style nonce="${n}">${cssVariables('vellum')}\n${STYLES}</style>`,
     '</head>',
     idleTimeoutMs > 0 || lockAfterMs > 0
       ? `<body${idleTimeoutMs > 0 ? ` data-idle-timeout-s="${escapeText(String(Math.round(idleTimeoutMs / 1000)))}"` : ''}` +

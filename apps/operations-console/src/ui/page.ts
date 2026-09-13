@@ -19,6 +19,8 @@
  * which is an argument for less machinery rather than more.
  */
 
+import { cssVariables } from '@telga/design-system';
+
 export interface Attributes {
   readonly [key: string]: string | number | boolean | undefined;
 }
@@ -123,11 +125,40 @@ export const NAV: readonly NavEntry[] = Object.freeze([
   // §17.1. What makes a LEGITIMATE complaint verdict actionable: without this
   // a reviewer can decide a shop is owed money and has no way to return it.
   { id: 'reversals', href: '/reversals', label: 'Reversals' },
+  // §19.1. Without this a transfer above the threshold is stranded: the row
+  // exists, no ledger entry does, and nothing could ever decide it.
+  { id: 'transfers', href: '/transfers', label: 'Transfers' },
   { id: 'provider-health', href: '/provider-health', label: 'Provider health' },
   { id: 'tenants', href: '/tenants', label: 'Tenants' },
   { id: 'admins', href: '/admins', label: 'Administrators' },
   { id: 'audit', href: '/audit', label: 'Audit' },
 ]);
+
+/**
+ * An enum, as a person would read it.
+ *
+ * `PLATFORM_OWNER` became `Platform owner`. Rendering the constant verbatim is
+ * the clearest possible signal that nobody looked at the screen, and it was on
+ * every page of the console until 2026-09-12.
+ */
+export function readableRole(value: string): string {
+  const words = value.toLowerCase().replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * A timestamp, as a person would read it.
+ *
+ * The footer showed `2026-09-12T14:22:00.000Z`. The `Z` matters to a machine;
+ * an operations desk reads a date and a time. Kept deliberately plain and
+ * unlocalised, because the console is English-only and a guessed locale is
+ * worse than none.
+ */
+export function readableTime(iso: string): string {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return iso;
+  return new Date(at).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+}
 
 export function page(
   chrome: ConsoleChrome,
@@ -136,6 +167,11 @@ export function page(
   // inline instead of building an array first.
   ...content: ReadonlyArray<Node | false | null | undefined>
 ): El {
+  // Password proved, second factor not. Single-factor mode is not this state:
+  // there, nothing is waiting on a second factor at all.
+  const identityHidden =
+    chrome.singleFactorAuth !== true && chrome.mfaSatisfied === false;
+
   return h(
     'div',
     { class: 'console' },
@@ -174,7 +210,40 @@ export function page(
         { class: 'console__alert', role: 'alert', 'data-testid': 'console-mfa-required' },
         'Second factor not confirmed. Nothing can be done until it is.',
       ),
-    chrome.adminName !== undefined &&
+    /**
+     * Nothing of the console is shown until the second factor is cleared.
+     *
+     * Founder instruction, 2026-09-12: *"be sure that until Resend OTP is
+     * verified the admin panel is opaque — nothing seen."*
+     *
+     * The **routes** already refuse a password-only session entirely — proved
+     * by `admin-authentication.test.ts`, *"can do nothing at all, not even
+     * read"*. This is the other half: the **page** was still drawing the
+     * administrator's name, their department and role, and a navigation link to
+     * every section of the console. No data, but a map of the platform and an
+     * identity, on a screen anybody standing nearby can read, before the person
+     * at the keyboard has proved they are that administrator.
+     *
+     * Sign out survives, because it is an action rather than information, and
+     * somebody who has opened this by mistake needs a way to leave.
+     */
+    identityHidden &&
+      h(
+        'header',
+        { class: 'console__header' },
+        h(
+          'form',
+          { method: 'post', action: '/logout', 'data-testid': 'console-logout-form' },
+          h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+          h(
+            'button',
+            { type: 'submit', class: 'console__button', 'data-testid': 'console-logout' },
+            'Sign out',
+          ),
+        ),
+      ),
+    !identityHidden &&
+      chrome.adminName !== undefined &&
       h(
         'header',
         { class: 'console__header' },
@@ -185,7 +254,13 @@ export function page(
           h(
             'span',
             { class: 'console__role', 'data-testid': 'console-role' },
-            `${chrome.department ?? ''} · ${chrome.adminRole ?? ''}`,
+            // Title case, not the enum. `PLATFORM_OWNER` is a code
+            // constant, and rendering it verbatim tells an operator that
+            // nobody looked at this screen.
+            [chrome.department, chrome.adminRole]
+              .filter((part): part is string => part !== undefined)
+              .map(readableRole)
+              .join(' · '),
           ),
         ),
         h(
@@ -199,7 +274,8 @@ export function page(
           ),
         ),
       ),
-    chrome.adminName !== undefined &&
+    !identityHidden &&
+      chrome.adminName !== undefined &&
       h(
         'nav',
         { class: 'console__nav', 'data-testid': 'console-nav' },
@@ -225,18 +301,36 @@ export function page(
     h(
       'footer',
       { class: 'console__footer' },
-      h('span', { 'data-testid': 'console-time' }, `Telga time: ${chrome.serverTime}`),
+      // A human reads this, so it is not an ISO timestamp. The testid and the
+      // value's meaning are unchanged.
+      h('span', { 'data-testid': 'console-time' }, `Telga time: ${readableTime(chrome.serverTime)}`),
     ),
   );
 }
 
+/**
+ * The console's stylesheet, built on the shared tokens.
+ *
+ * `cssVariables()` is emitted first so every rule below can name a token
+ * instead of a hex literal. The console keeps its slate ground rather than the
+ * brand teal — §18.0, somebody who cannot tell at a glance which application
+ * they are in is somebody who will eventually act in the wrong one — but it
+ * now takes that slate from the same file the POS takes its teal from.
+ */
 const STYLES = `
+${cssVariables('leather')}
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
 body {
-  margin: 0; background: #10151c; color: #e6ecf2;
+  margin: 0;
+  background: var(--telga-ground);
+  color: var(--telga-ink);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 15px; line-height: 1.5;
+  /* Under the notch, above the gesture bar. A console is read on a phone far
+     more often than its desktop layout suggests. */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .console { min-height: 100vh; display: flex; flex-direction: column; }
 /* Slate, not the POS teal. Telling the two apart at a glance is the point. */
@@ -304,6 +398,208 @@ body {
   font-size: 1.25rem; letter-spacing: 0.1em; background: #171d26;
   border: 1px solid #46536a; border-radius: 0.5rem; padding: 0.8rem 1rem;
   display: inline-block; margin: 0.5rem 0;
+}
+
+/* ==========================================================================
+   The binding: leather over board
+   ==========================================================================
+
+   The same world as the merchant app, taken from its binding rather than its
+   pages. CLAUDE.md 18.0 requires that a Telga employee suspending a merchant
+   and a shop assistant selling airtime can never mistake one application for
+   the other, so this is the dark side of that world, drawn from the same
+   tokens. Relatives, not twins.
+
+   Dark is chosen from the scene, not by category: an operations desk works
+   indoors through long sessions, often beside a bright counter screen. The
+   merchant app is light for the opposite reason.
+
+   WHY A SCROLLING TAB STRIP AND NOT A BOTTOM BAR. A bottom bar holds four or
+   five destinations. This console has fourteen and they are not rankable: the
+   desk that needs Deposits today needs Reversals tomorrow. A horizontally
+   scrolling strip shows the current one and keeps the rest one swipe away.
+
+   WHY THE TABLES SCROLL RATHER THAN RESTACK. Restacking rows into cards needs
+   a header label on every cell, which means changing the markup of every table
+   here and every test that reads one. A table that scrolls sideways keeps the
+   column relationships a reconciliation screen depends on, which stacked cards
+   lose. */
+
+body {
+  font-family: var(--telga-type-body);
+  font-size: var(--telga-type-base);
+}
+
+.console__banner {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--telga-leather-ground-deep);
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-leather-rubric);
+  color: var(--telga-leather-ink);
+}
+
+/* Tooled, not tinted: the impression a blind tool leaves in leather. */
+.console__header {
+  background: var(--telga-leather-ground-raised);
+  border-bottom: var(--telga-size-rule-hair) solid var(--telga-leather-rule);
+}
+
+.console__title {
+  font-family: var(--telga-type-display);
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-leather-rubric);
+  padding-bottom: var(--telga-space-sm);
+}
+
+.console__nav {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  background: var(--telga-leather-ground-deep);
+  border-bottom: var(--telga-size-rule-hair) solid var(--telga-leather-rule);
+}
+.console__nav::-webkit-scrollbar { display: none; }
+
+.console__nav-link {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  min-height: var(--telga-size-touch-min);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  color: var(--telga-leather-ink-thin);
+  border-bottom: var(--telga-size-rule-heavy) solid transparent;
+}
+
+/* Marked by weight and a rule as well as ink; never colour alone. */
+.console__nav-link[aria-current="page"] {
+  font-weight: 700;
+  color: var(--telga-leather-ink);
+  border-bottom-color: var(--telga-leather-rubric);
+}
+
+.console__table {
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+
+.console__table th {
+  font-family: var(--telga-type-body);
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-leather-rubric);
+  color: var(--telga-leather-ink);
+}
+
+.console__table td {
+  border-bottom: var(--telga-size-rule-hair) solid var(--telga-leather-rule);
+}
+
+/* Money in fixed decimal positions, so a column lines up digit for digit and
+   a figure never changes width as it changes. */
+.console__table td,
+[data-amount] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Phases carry a pattern as well as an ink, for the same reason they do on the
+   merchant side: a reconciliation printout is monochrome. */
+[data-phase] {
+  border-bottom-width: var(--telga-size-rule-major);
+  border-bottom-color: currentColor;
+  padding-bottom: 2px;
+}
+[data-phase="settled"]  { border-bottom-style: solid;  color: var(--telga-leather-rubric); }
+[data-phase="working"]  { border-bottom-style: dotted; color: var(--telga-leather-indigo); }
+[data-phase="pending"]  { border-bottom-style: dashed; color: var(--telga-leather-indigo); }
+[data-phase="review"]   { border-bottom-style: double; color: var(--telga-leather-ochre); }
+[data-phase="failed"]   { border-bottom-style: solid;  color: var(--telga-leather-ink); text-decoration: line-through; }
+[data-phase="reversed"] { border-bottom-style: double; color: var(--telga-leather-rubric); text-decoration: line-through; }
+
+/* A row a colleague has already decided carries a persistent strike. */
+tr[data-worked="true"] { color: var(--telga-leather-ink-thin); }
+tr[data-worked="true"] td:first-child { text-decoration: line-through; }
+
+.console__button,
+button[type="submit"] {
+  min-height: var(--telga-size-touch-min);
+  background: var(--telga-leather-rubric);
+  color: var(--telga-leather-ground-deep);
+  border: 0;
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-leather-ground-deep);
+  border-radius: var(--telga-size-radius-sm);
+  font-family: var(--telga-type-body);
+  font-weight: 600;
+  transition: transform var(--telga-motion-instant) var(--telga-motion-standard);
+}
+.console__button:active,
+button[type="submit"]:active { transform: translateY(1px); }
+
+input, select, textarea {
+  /* Anything under 16px makes iOS zoom the whole page on focus, which leaves
+     the operator scrolled sideways on a form they were halfway through. */
+  font-size: 16px;
+  min-height: var(--telga-size-touch-min);
+  background: var(--telga-leather-ground-deep);
+  color: var(--telga-leather-ink);
+  border: var(--telga-size-rule-hair) solid var(--telga-leather-rule);
+  border-radius: var(--telga-size-radius-sm);
+}
+
+/* The parts not drawn here still carry the world. */
+::selection { background: var(--telga-leather-ochre); color: var(--telga-leather-ground-deep); }
+:root { accent-color: var(--telga-leather-rubric); caret-color: var(--telga-leather-rubric); }
+:focus-visible {
+  outline: var(--telga-size-rule-heavy) solid var(--telga-leather-rubric);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* --- containment --------------------------------------------------------
+   Found by rendering at 390px: the sign-in and dashboard screens overflowed
+   and cut their own sentences mid-word. min-width: 0 is the load-bearing
+   line — a flex child defaults to min-width: auto and refuses to shrink
+   below its content, which widens the whole row past the screen. */
+html, body { overflow-x: hidden; max-width: 100%; }
+*, *::before, *::after { min-width: 0; }
+
+.console, .console__banner, .console__alert, .console__header, .console__main,
+.console__footer { max-width: 100%; }
+
+.console__main, .console__alert, .console__banner, p, td, th, dd, dt, li {
+  overflow-wrap: anywhere;
+}
+
+/* A form row wraps rather than pushing its control off the screen. */
+.console__main label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--telga-space-xs);
+  max-width: 100%;
+}
+.console__main form { max-width: 100%; }
+
+/* The nav strip must show that it scrolls. A fade at the trailing edge is the
+   only honest affordance when the fourteenth destination is off-screen. */
+.console__nav {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 24px), transparent 100%);
+}
+
+@media (max-width: 640px) {
+  .console__main { padding: 1rem 0.75rem 3rem; }
+  .console__header { flex-wrap: wrap; gap: 0.5rem; }
+  .console__banner { font-size: 0.78rem; padding: 0.5rem 0.75rem; }
+  /* Actions become full-width rows rather than a cramped inline cluster. */
+  .console__actions { display: flex; flex-direction: column; gap: 0.5rem; }
+  .console__actions form { width: 100%; }
+  .console__actions button { width: 100%; }
 }
 `;
 

@@ -25,6 +25,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 export const BUILD_ORDER = [
   'packages/domain',
   'packages/localization',
+  'packages/design-system',
   'packages/pos-view-model',
   'packages/persistence',
   'services/backup',

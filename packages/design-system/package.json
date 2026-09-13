@@ -1,0 +1,15 @@
+{
+  "name": "@telga/design-system",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telga design tokens. One source for colour, spacing, type and touch targets across the merchant app, the POS screens and the operations console.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  }
+}
