@@ -89,6 +89,7 @@ publication by `.gitignore`.
 - [[Provider Health]] — **Mermaid: outage isolation · provider timeout and manual review**
 - [[Runbooks]] — the operational procedures, and the log of every fix
 - [[Database Operations Runbook]] — health, ledger residual, migrations, restore
+- [[Console Money Ports Incident]] — the console refused every amount carrying santim, and why
 - [[Transaction Failure Runbook]] — triage by state, stuck transactions, reversals
 - [[Recovery Sweep Runbook]] — **Mermaid: recovery failure and retry** · daily checks
 - [[Manual Review Runbook]] — working an under-review case, and who may authorize a reversal

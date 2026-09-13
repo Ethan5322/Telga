@@ -577,8 +577,18 @@ again on the explanation.
 > separate bugs in that one literal now — this, and the backtick that ends the
 > literal mid-parse. Anything written there is code that ships.
 
+> [!warning] A third time, 2026-09-12
+> A new guard on `cli.ts` — added to stop a float round-trip returning to the
+> console's money ports — failed on its **own** explanatory comment, which
+> quoted the expression it forbids. The lesson above now has three instances,
+> so treat it as a rule rather than a curiosity: **a source-level guard must
+> strip comments before it matches**, because the place a forbidden pattern is
+> most likely to be written down is the note warning against it.
+> See [[Console Money Ports Incident]].
+
 ## Related
 
+- [[Console Money Ports Incident]]
 - [[Provider Health]]
 - [[Support and Disputes]]
 - [[Incident]]

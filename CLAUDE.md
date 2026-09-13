@@ -1020,6 +1020,39 @@ along with this flag.
 **It must be off before live money.** §8's "security and permissions tested"
 gate cannot close while it is on.
 
+#### Console sign-in lockout
+
+Founder decision **D161**, 2026-09-12. Distinct from the merchant app's own
+lockout in §18.1, which is unchanged.
+
+| Failures | What happens |
+|---|---|
+| 1-3 | Nothing. A typo is not an attack |
+| **4** | **10-minute hold** |
+| 5, 6 | Two further tries — the grace window |
+| **6+** | **24-hour hold** |
+
+**The counter survives the hold, and that is the mechanism.** `failed_attempts`
+clears only on a successful sign-in, which is what lets the second tier know a
+first one already happened.
+
+Under the previous flat rule (five failures, fifteen minutes) that same
+persistence was a **trap**: the hold expired with the counter still at the
+threshold, so one more wrong guess re-locked immediately and an administrator
+who had forgotten their password got one try per fifteen minutes forever, with
+no way out. The two grace attempts are exactly the room that rule failed to
+leave.
+
+**A 24-hour hold makes the reset path essential, not optional.** Waiting out a
+day is not a real option for the only administrator of a live platform, so
+`TELGA_CONSOLE_OWNER_RESET` (D159) clears the hold and the counter together.
+
+**The hold is on the account, not the address.** An attacker rotating IPs gains
+nothing, and the cost is that somebody who knows an administrator's email can
+force a hold. That trade is accepted here and refused for the *code*: five wrong
+OTP guesses kill the code, never the account, because there the attacker's
+budget is already bounded by sixty seconds.
+
 #### The emailed sign-in code
 
 After email and password, Telga emails a six-digit code. It must be entered

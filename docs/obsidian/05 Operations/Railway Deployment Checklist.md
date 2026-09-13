@@ -482,6 +482,8 @@ proxy exists. An admin panel is not something to switch on by accident.
 | `TELGA_CONSOLE_OWNER_EMAIL` | The first administrator's email | A fresh volume has no admin user and the console has no sign-up |
 | `TELGA_CONSOLE_OWNER_PASSWORD` | 12+ characters | Refused below twelve |
 | `TELGA_CONSOLE_OWNER_NAME` | Optional display name | Defaults to the email |
+| `TELGA_CONSOLE_OWNER_RESET` | `true`, **temporarily** | Sets the password of the account named above. Remove it once you are in |
+| `TELGA_CONSOLE_NEW_PASSWORD` | 12+ characters | The password the reset applies. Read from the environment, never passed as an argument |
 
 ### Then, in Railway
 
@@ -524,9 +526,107 @@ suspended account. A non-zero result is therefore the normal case after the
 first deploy, and it is logged rather than treated as a failure.
 
 **A password alone opens nothing.** The console requires a second factor before
-any screen works, so enrol an authenticator immediately. **Change the password
-after first sign-in** — it has been sitting in a deployment variable, which is
-not where a credential should live permanently.
+any screen works, so enrol an authenticator immediately.
+
+> [!warning] An earlier version of this note said "change the password after
+> first sign-in" as though that were possible. **It was not.** Until 2026-09-12
+> there was no way to change an admin password anywhere in this product — no
+> console screen, no CLI flag — so the instruction could not be followed by
+> anybody who read it. Use the reset below; the advice itself stands, because a
+> password that has sat in a deployment variable should not stay in use.
+
+### Locked out of the console
+
+Reported on the first deployment: *"it refuses my email/password every time."*
+There are exactly three reasons `/login` refuses, and the browser shows the same
+sentence for all of them on purpose — which of the three it was goes to the
+audit trail, not to the person typing.
+
+| Reason | What it means | What Railway's log shows |
+|---|---|---|
+| `INVALID_CREDENTIALS` | Wrong password, **unknown email**, or a suspended account — all three answer identically, so the form cannot be used to discover which admins exist | `ADMIN_SIGN_IN_REFUSED` |
+| `ACCOUNT_LOCKED` | Four wrong attempts holds it 10 minutes; two more tries then hold it **24 hours**. The right password is refused too while a hold stands | `ADMIN_SIGN_IN_REFUSED` |
+| `OTP_NOT_SENT` | The emailed code could not be sent — an unverified Resend domain or a bad key. Not a wrong password | `[telga-console] sign-in code not sent: …` |
+
+> [!danger] The second tier lasts a day — reset rather than wait
+> The hold escalates (D161): **4 failures → 10 minutes**, then **2 more tries**,
+> then **24 hours**. `failed_attempts` clears only on a successful sign-in, which
+> is what lets the escalation work — so once the 24-hour hold is on, waiting is
+> not a practical option for the only administrator of a live platform. Use the
+> reset below; it clears the hold and the counter together.
+>
+> This replaced a flat five-failure/fifteen-minute rule whose counter behaved
+> the same way and gave no grace at all, so the next single wrong guess after
+> the hold re-locked immediately — one try per fifteen minutes, forever. Pinned
+> by `tests/auth/admin-authentication.test.ts` and
+> `tests/auth/admin-password-reset.test.ts`.
+
+**The boot log now tells you which it is.** Every console boot prints the state
+of `TELGA_CONSOLE_OWNER_EMAIL`'s account — no hash, no token, no secret:
+
+```
+Administrator info@example.pro (adm_…)
+  status           ACTIVE
+  failed attempts  5
+  locked           YES, until 2026-09-12T08:55:54.684Z
+  second factor    not enrolled
+  password set at  2026-09-12T08:40:52.413Z
+
+SIGN-IN IS REFUSED BECAUSE THE ACCOUNT IS LOCKED.
+```
+
+`password set at` is the one to read when a password "should" work: it is when
+the stored hash was last written. **If that is older than the last time you
+edited `TELGA_CONSOLE_OWNER_PASSWORD`, the account still holds the old
+password** — the boot step cannot update an existing account, so editing the
+variable changes nothing on its own. That is the most common cause of "the
+variable matches and it still refuses".
+
+### What a correct password does in each configuration
+
+Measured against a real server, not reasoned about:
+
+| Configuration | Where a **correct** password lands |
+|---|---|
+| `TELGA_CONSOLE_SINGLE_FACTOR=true` | `303` to `/` — signed in |
+| Strict, Resend not configured | `303` to `/mfa` — enrol an authenticator |
+| Strict, Resend configured but failing | `303` to `/login?error=Could not send your sign-in code.` |
+| Strict, Resend working | `303` to `/otp` — enter the emailed code |
+| **Locked, any configuration** | `303` to `/login?error=Sign in refused.` |
+
+So the wording matters: **"Sign in refused"** is a wrong password, an unknown
+email, a suspended account or a lockout. **"Could not send your sign-in code"**
+is Resend — the password was accepted. Anything asking for a code means the
+password was right and only the second factor stands in the way.
+
+**Check the deployment first.** If `TELGA_CONSOLE_OWNER_EMAIL` and
+`TELGA_CONSOLE_OWNER_PASSWORD` were never set, the log says
+`no administrator will be created` and **no account exists at all** — every
+sign-in is `INVALID_CREDENTIALS` forever, with nothing to reset. Set them and
+redeploy.
+
+If the account does exist, the boot log says
+`no Platform Owner created — it already exists, or the console refused it above`
+with `UNIQUE constraint failed: admin_users.email` above it. That is normal, and
+it is also why the boot step can never fix a password.
+
+**To set the password:**
+
+1. Set `TELGA_CONSOLE_OWNER_EMAIL` to the account's email.
+2. Set `TELGA_CONSOLE_NEW_PASSWORD` to the new password — 12 characters or more.
+3. Set `TELGA_CONSOLE_OWNER_RESET=true`.
+4. Redeploy. The log says `password set`.
+5. **Remove `TELGA_CONSOLE_OWNER_RESET`**, or every future deploy re-applies
+   that password.
+
+The reset clears the lockout and the attempt counter and returns the account to
+`ACTIVE`, because each of those refuses sign-in on its own and a reset that left
+one in place would look as though it had not worked.
+
+It **changes no existing account's email and creates none**. An email that holds
+no account is reported as such rather than created, because silently making a
+Platform Owner out of a typo in a deployment variable is how an unintended
+administrator appears.
 
 ### How the routing works, and why it is by Host
 
