@@ -139,30 +139,20 @@ function everyScreen(): ReadonlyArray<{ name: string; el: El }> {
 }
 
 describe('the training banner', () => {
-  it('appears on every screen', () => {
+  it('is absent from every screen', () => {
+    // Founder instruction, 2026-09-14, asked twice: remove it completely.
+    // §8's wording and the risk were put to them once; this is their call, and
+    // CLAUDE.md §8 plus Decision Log D164 are updated so the rulebook agrees
+    // with the code.
+    //
+    // The PRINTED slip still carries its own mark — `slip-training-banner`,
+    // drawn inside slipCard and not a parameter any caller can omit. That is
+    // the artifact a customer takes away and a statement archives, and its
+    // tests are deliberately unchanged.
     for (const { name, el } of everyScreen()) {
-      const banner = byTestId(el, 'training-banner');
-      expect(banner, `no banner on ${name}`).toBeDefined();
-      expect(textOf(banner as Node)).toContain('Training mode');
-      expect(textOf(banner as Node)).toContain('no real value');
+      expect(byTestId(el, 'training-banner'), `banner still on ${name}`).toBeUndefined();
+      expect(byTestId(el, 'environment-indicator'), name).toBeUndefined();
     }
-  });
-
-  it('names the environment, the merchant and the mode', () => {
-    for (const { name, el } of everyScreen()) {
-      const indicator = byTestId(el, 'environment-indicator');
-      expect(indicator, name).toBeDefined();
-      const text = textOf(indicator as Node);
-      expect(text).toContain('Environment: test');
-      expect(text).toContain(`Merchant: ${MERCHANT_A}`);
-      expect(text).toContain('Mode: TRAINING');
-    }
-  });
-
-  it('is announced politely, not as an interruption', () => {
-    const banner = byTestId(everyScreen()[0].el, 'training-banner') as El;
-    expect(banner.attrs['role']).toBe('status');
-    expect(banner.attrs['aria-live']).toBe('polite');
   });
 
   it('refuses to render a screen whose mode is not TRAINING', () => {

@@ -59,17 +59,27 @@ describe('every authentication screen', () => {
     },
   ];
 
-  it('carries the training banner', () => {
+  it('carries no training banner on screen', () => {
+    // Founder instruction, 2026-09-14, asked twice: remove it completely.
+    // §8's wording and the risk were put to them once; this is their call, and
+    // CLAUDE.md §8 plus Decision Log D164 are updated so the rulebook agrees
+    // with the code.
+    //
+    // The PRINTED slip still carries its own mark — `slip-training-banner`,
+    // drawn inside slipCard and not a parameter any caller can omit. That is
+    // the artifact a customer takes away and a statement archives, and its
+    // tests are deliberately unchanged.
     for (const { name, el } of screens()) {
-      expect(byTestId(el, 'training-banner'), name).toBeDefined();
+      expect(byTestId(el, 'training-banner'), name).toBeUndefined();
     }
   });
 
-  it('says it is internal training only', () => {
+  it('no longer says it is internal training only', () => {
+    // It sat inside the banner block on these screens and went with it (D164).
+    // Same category of notice, same founder instruction. The server still
+    // refuses any mode but TRAINING, so this removes wording, not a gate.
     for (const { name, el } of screens()) {
-      const notice = byTestId(el, 'training-only-notice');
-      expect(notice, name).toBeDefined();
-      expect(textOf(notice!), name).toContain('Internal training only');
+      expect(byTestId(el, 'training-only-notice'), name).toBeUndefined();
     }
   });
 
@@ -286,14 +296,19 @@ describe('the identity indicator on an authenticated screen', () => {
       needsAttention: 0,
     });
 
-    const bar = byTestId(el, 'identity-bar');
-    expect(bar).toBeDefined();
-    expect(textOf(byTestId(el, 'identity-operator')!)).toContain('Training operator');
-    expect(textOf(byTestId(el, 'identity-operator')!)).toContain(MERCHANT_A);
-    expect(textOf(byTestId(el, 'identity-device')!)).toContain(session.deviceId);
+    // The identity strip is no longer under every screen — founder
+    // instruction, 2026-09-14: "anything above the header or below the footer
+    // must be inside settings."
+    //
+    // Nothing was lost. Settings already carried operator, device and
+    // merchant, and `tests/ui/topup-slips-settings.test.ts` asserts they are
+    // still there — this test owns the absence, that one owns the presence.
+    expect(byTestId(el, 'identity-bar'), 'no identity strip on the home screen').toBeUndefined();
+    expect(byTestId(el, 'identity-operator')).toBeUndefined();
+    expect(byTestId(el, 'identity-device')).toBeUndefined();
   });
 
-  it('offers sign-out as a form, not a link, carrying the CSRF token', () => {
+  it('offers no sign-out on the home screen — it lives in Settings', () => {
     const el = homeScreen({
       chrome: { ...chromeFor(), operatorName: 'Op', csrfToken: 'csrf_1' },
       balance: { status: 'IDLE' },
@@ -301,17 +316,11 @@ describe('the identity indicator on an authenticated screen', () => {
       needsAttention: 0,
     });
 
-    const form = byTestId(el, 'logout-form');
-    // A link would be followed by anything that prefetches; signing out changes
-    // server state, so it must be a POST.
-    expect(form?.tag).toBe('form');
-    expect(form?.attrs['method']).toBe('post');
-    expect(form?.attrs['action']).toBe('/logout');
-    expect(renderToHtml(form!)).toContain('csrf_1');
-
-    const button = byTestId(el, 'logout-button');
-    expect(button?.tag).toBe('button');
-    expect(accessibleName(button!)).toBe('Sign out');
+    // It was the heaviest control on the vending home, and it ends the shift.
+    // One way out, in one place a person goes deliberately. That it is still a
+    // CSRF-carrying form rather than a link is asserted where it now lives.
+    expect(byTestId(el, 'logout-form')).toBeUndefined();
+    expect(byTestId(el, 'logout-button')).toBeUndefined();
   });
 
   it('omits the sign-out control when there is no CSRF token to carry', () => {

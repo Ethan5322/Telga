@@ -130,6 +130,33 @@ any hour and on any machine — which also matters for [[CI Pipeline]].
 
 **Status: RESOLVED.**
 
+### A55 — a 30-second test that runs in 1.7 seconds
+
+**Observed and diagnosed, 2026-09-14.** `launcher-dashboard-pay > cancelled
+creates no transaction` failed a `tests/ui` run with
+`Test timed out in 30000ms`. Every other test in the same file passed.
+
+Isolated run: **1,743 ms**. A seventeen-fold margin against the ceiling it
+missed.
+
+The machine was running an Android emulator and a Gradle build at the time.
+This is the table's **CPU starvation** row, not a defect, and it is the third
+time this shape has appeared — `register-shop`, `topup-slips-settings` and now
+this one, each timing out inside a loaded run and passing alone in one to two
+seconds.
+
+> [!tip] The method that settles it in one command
+> Run the named file alone and compare the duration with the ceiling. A test
+> that misses 30 s under load and finishes in under 2 s isolated was never
+> near its budget; nothing about it needs fixing. Do not raise `testTimeout`
+> to make a loaded run pass — that hides the next real slow test.
+>
+> The reverse also holds: a test that takes 25 s isolated **is** a real
+> problem, even when the suite is green.
+
+**Do not shut down an emulator mid-suite to fix this.** Killing the competing
+work invalidates the run that was measuring it; finish, then re-run clean.
+
 ### A51 — the whole suite failed while every test passed
 
 **Observed and diagnosed.** After the merchant POS was added, three consecutive full runs exited

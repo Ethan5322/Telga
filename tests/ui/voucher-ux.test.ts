@@ -521,7 +521,9 @@ describe('the Telga Pay screens, rendered below the feature gate', () => {
       const screen = await screenFor(harness, path, q(), session);
       expect(screen?.status, path).toBe(200);
       // The mode banner is on every screen, via `page()`.
-      expect(screen?.html, path).toContain('Training mode');
+      // Removed from screens on 2026-09-14 (D164); the printed slip keeps its
+      // own mark, and the server still refuses any mode but TRAINING.
+      expect(screen?.html, path).not.toContain('Training mode');
     }
     // The processor disclaimer lives on the Telga Pay entry screen. It stays
     // correct even now the screen is unreachable: if the flag is ever turned

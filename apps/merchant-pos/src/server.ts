@@ -668,7 +668,22 @@ export async function renderScreen(
       }
     : { soundEnabled: true, hideBalance: false, lowBalanceAlert: false, statementsAdminOnly: false };
 
-  if (path === '/' || path === '/home') {
+  /**
+   * Opening the app shows the two systems, side by side.
+   *
+   * Founder, 2026-09-14: *"after Telga app installed on POS, person click on
+   * it, it show two parallel buttons: Telga Vending and Telga Pay."*
+   *
+   * Until now `/` served the legacy single-screen home, and the shell's
+   * default server is the site root — so **a merchant opening the APK never
+   * reached the launcher at all.** The two-button screen existed, was correct,
+   * and was reachable only by typing the address by hand.
+   *
+   * It redirects rather than rendering the tiles here, so there is exactly one
+   * place that screen is built. `/home` keeps its old behaviour for anything
+   * that still links to it.
+   */
+  if (path === '/home') {
     const [balance, recent, queueResult] = await Promise.all([
       readVia<Parameters<typeof homeScreen>[0]['balance'] extends RemoteData<infer B> ? B : never>(
         options,
@@ -1180,13 +1195,39 @@ export async function renderScreen(
   // Both are authenticated: login is the first screen now, and a chooser shown
   // before anyone proves who they are tells a stranger holding the machine what
   // Telga does.
-  if (path === '/launcher' || path === '/splash') {
+  /**
+   * Opening the app shows Telga, and nothing else.
+   *
+   * Founder, 2026-09-14: *"Telga launcher is only seen on app, it just says
+   * Telga, so person click on it; if it's logged in it shows Telga Vending and
+   * Telga Pay."*
+   *
+   * `/` is here because the Android shell's default server is the site root.
+   * Until now `/` served the legacy single-screen home, so **a merchant
+   * opening the APK never reached the launcher at all** — it existed, it was
+   * correct, and the only way to it was typing the address by hand.
+   */
+  if (path === '/launcher' || path === '/splash' || path === '/') {
     return {
       status: 200,
       html: htmlDocument(renderToHtml(launcherScreen({ chrome })), chrome, nonce),
     };
   }
 
+  /**
+   * Opening the app shows the two systems, side by side.
+   *
+   * Founder, 2026-09-14: *"after Telga app installed on POS, person clicks on
+   * it, it shows two parallel buttons: Telga Vending and Telga Pay."*
+   *
+   * `/` is here because the Android shell's default server is the site root.
+   * Until now `/` served the legacy single-screen home, so **a merchant
+   * opening the APK never reached this screen at all** — it existed, it was
+   * correct, and the only way to it was typing the address by hand.
+   *
+   * One branch rather than a redirect: the same screen function draws both
+   * paths, so they cannot drift.
+   */
   if (path === '/launcher/apps') {
     return {
       status: 200,
@@ -3964,7 +4005,10 @@ async function route(
         csrfToken: form['csrfToken'],
         slipSize: form['slipSize'],
         slipAdvert: form['slipAdvert'] ?? '',
-        profitPercent: form['profitPercent'],
+        // profitPercent is deliberately NOT read from the form. Removing the
+        // input without removing this line would leave the capability intact
+        // for anyone who posts the field by hand — and a control that is only
+        // hidden is not a control at all.
       },
     });
     const body = apiResponse.body as { ok: boolean; error?: { reasonCode: string } };

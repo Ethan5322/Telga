@@ -2450,27 +2450,16 @@ export function settingsScreen(props: SettingsScreenProps): El {
         }),
         h('p', { class: 'voucher__custom-hint' }, t(locale, 'settings.advert.hint')),
       ),
-      h(
-        'div',
-        { class: 'field' },
-        h('label', { for: 'profitPercent' }, t(locale, 'settings.profit.label')),
-        h('input', {
-          id: 'profitPercent',
-          name: 'profitPercent',
-          type: 'number',
-          inputmode: 'decimal',
-          min: '0',
-          max: '100',
-          step: '0.01',
-          value: String(settings.profitPercent),
-          'data-testid': 'profit-percent-input',
-        }),
-        h(
-          'p',
-          { class: 'voucher__custom-hint', 'data-testid': 'profit-training-note' },
-          t(locale, 'settings.profit.hint'),
-        ),
-      ),
+      // The profit field is gone. Founder instruction, 2026-09-14: "remove
+      // editing profit from setting, shop has no right to edit shop profit or
+      // commission."
+      //
+      // §19 keeps commission NOT YET CONFIRMED and forbids inventing a rate.
+      // A number an owner types into a box marked "profit" is the number they
+      // quote to a customer afterwards, so the box was a way for a shop to
+      // author its own commercial term. The stored PROFIT_PERCENT_BPS keeps
+      // its configured default and still drives the profit figure shown on
+      // the vending screen; only the shop's ability to change it is withdrawn.
       h(
         'button',
         { type: 'submit', class: 'voucher__button voucher__button--primary', 'data-testid': 'settings-save' },

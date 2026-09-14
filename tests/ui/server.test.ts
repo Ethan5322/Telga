@@ -96,8 +96,13 @@ describe('the screens the server serves', () => {
       const screen = await screenFor(harness, path, q());
       expect(screen, path).toBeDefined();
       expect(screen?.status, path).toBe(200);
-      expect(screen?.html, path).toContain('data-testid="training-banner"');
-      expect(screen?.html, path).toContain('Training mode');
+      // Removed from screens on 2026-09-14; the printed slip keeps its own.
+      expect(screen?.html, path).not.toContain('data-testid="training-banner"');
+      // The words went with the banner on 2026-09-14 (D164). The TITLE keeps
+      // the mode: it is not on the shop's screen, it is what a browser tab and
+      // a bug report show, and it is how anyone reading a screenshot later
+      // knows which build they are looking at.
+      expect(screen?.html, path).not.toContain('Training mode');
       expect(screen?.html, path).toContain('<title>Telga POS — TRAINING');
     }
   });
@@ -128,12 +133,17 @@ describe('the screens the server serves', () => {
 
   it('requires a merchant id', async () => {
     harness = makeUiHarness('server-no-merchant');
-    // No merchant id in the query at all. The session supplies the scope, and
-    // the identity bar shows whose shop the screen belongs to.
-    const screen = await screenFor(harness, '/', new URLSearchParams());
+    // No merchant id in the query at all: the session supplies the scope, and
+    // the screen must render anyway. `/home` rather than `/`, because the app
+    // root now opens the Telga launcher.
+    //
+    // The merchant id is no longer printed under every screen, so scope is
+    // proved by the screen rendering at all — an unscoped request would not
+    // reach a merchant's balance.
+    const screen = await screenFor(harness, '/home', new URLSearchParams());
     expect(screen?.status).toBe(200);
-    expect(screen?.html).toContain('data-testid="identity-bar"');
-    expect(screen?.html).toContain(MERCHANT_A);
+    expect(screen?.html).toContain('data-testid="screen"');
+    expect(screen?.html).toContain('data-testid="balance-table"');
   });
 
   it('returns undefined for an unknown path, so the adapter can 404', async () => {
@@ -146,7 +156,7 @@ describe('the screens the server serves', () => {
     const screen = await screenFor(harness, '/transactions/txn_nope', q());
     expect(screen?.status).toBe(404);
     expect(screen?.html).toContain('data-testid="error-block"');
-    expect(screen?.html).toContain('data-testid="training-banner"');
+    expect(screen?.html).not.toContain('data-testid="training-banner"');
   });
 
   it('offers the training outcomes on the sale form, and says they are simulated', async () => {
@@ -175,8 +185,10 @@ describe('the screens the server serves', () => {
     harness = makeUiHarness('server-amharic');
     const screen = await screenFor(harness, '/queue', q({ locale: 'am' }));
     expect(screen?.html).toContain('lang="am"');
+    // The review warning survives — it is not the training banner and nothing
+    // else tells an Amharic operator the translation is an unreviewed draft.
+    // It was re-homed out of the banner rather than removed with it (D164).
     expect(screen?.html).toContain('REQUIRES NATIVE AMHARIC REVIEW BEFORE PRODUCTION');
-    expect(screen?.html).toContain('የልምምድ ሁኔታ');
   });
 
   it('ignores an unknown locale rather than failing', async () => {
@@ -186,12 +198,17 @@ describe('the screens the server serves', () => {
     expect(screen?.html).toContain('lang="en"');
   });
 
+  // `/home`, not `/`. The app root now opens the Telga launcher — founder
+  // instruction, 2026-09-14 — because the Android shell's default server is
+  // the site root, so a merchant opening the APK was landing on the legacy
+  // home and never seeing the two-system screen at all. `/home` still serves
+  // this screen, which is what this test is about.
   it('counts unresolved transactions on the home screen', async () => {
     harness = makeUiHarness('server-attention', { behaviour: 'TIMEOUT' });
     await seedSale(harness, { clientRequestId: 'req_a1' });
     await seedSale(harness, { clientRequestId: 'req_a2', recipient: '0900000002' });
 
-    const screen = await screenFor(harness, '/', q());
+    const screen = await screenFor(harness, '/home', q());
     expect(screen?.html).toContain('data-testid="attention-count"');
     expect(screen?.html).toContain('2 transaction(s) still being checked');
   });

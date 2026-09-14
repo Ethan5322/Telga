@@ -122,7 +122,24 @@ Live launch requires all of:
 - [ ] Backups and recovery tested
 
 **If any gate is incomplete**, run simulated funds under a clearly labelled
-**`TRAINING MODE — NO REAL VALUE`** banner.
+**`TRAINING MODE — NO REAL VALUE`** banner **on every printed slip**.
+
+> **Amended 2026-09-14 by founder decision — [[Decision Log]] D164.** The
+> on-screen banner is removed. It appeared at the top of every screen in the
+> merchant app, and the founder's objection was that a shop counter running a
+> product whose every page announces it is a test reads as unfinished rather
+> than as safe.
+>
+> **The printed slip keeps it, and that is deliberate.** `slipCard` draws the
+> mark itself rather than taking it as a parameter, so no caller can print a
+> slip without it. The operator reads the screen and already knows; the slip is
+> read by a customer and archived in a statement by people who do not.
+>
+> **What this removes is a label, not a gate.** The server still refuses to
+> render anything but `TRAINING` (`RefusedNonTrainingModeError`), `money.live`
+> and `payments.acceptance` are still off and still asserted at start-up, and
+> the ledger is still simulated. Nothing about what the software will do has
+> changed.
 
 Never use a founder's personal account for merchant funds. Never credit a balance from a
 screenshot alone.

@@ -83,6 +83,7 @@ import {
   activityScreen,
   complaintDetailScreen,
   complaintsScreen,
+  retireDeviceScreen,
   reversalsScreen,
   transfersScreen,
   issuedPinScreen,
@@ -1810,6 +1811,76 @@ export function createConsoleServer(options: ConsoleOptions): Server {
       if (merchant === undefined) {
         respond(response, 404, document(deniedScreen(chromeFor(context, csrf), 'No such merchant.'), 'Not found'));
         return;
+      }
+
+      /**
+       * Two live credential sets per shop. The third retires one first.
+       *
+       * Every issuance mints a new device *and* a new operator, so without a
+       * limit a shop accumulates working keys it has forgotten about — and
+       * `Device Binding` A52 records that a copied key is indistinguishable
+       * from the original, so a forgotten one is a key nobody will ever notice
+       * being used.
+       *
+       * The admin names which of the two to suspend. Choosing for them would
+       * mean guessing which machine is the lost one, and the wrong guess stops
+       * the till that is working.
+       */
+      const liveDevices = options.db
+        .prepare(
+          `SELECT id, status, created_at FROM devices
+            WHERE merchant_id = ? AND status IN ('ACTIVE', 'REGISTERED')
+            ORDER BY created_at`,
+        )
+        .all(merchantId) as { id: string; status: string; created_at: string }[];
+
+      const retireId = (await readForm(request))['retireDeviceId'];
+
+      if (liveDevices.length >= 2 && (retireId === undefined || retireId === '')) {
+        // Not an error: the admin has not been asked yet. The screen lists the
+        // live devices and takes the answer.
+        screen(
+          retireDeviceScreen({
+            chrome: chromeFor(context, csrf),
+            merchantId,
+            devices: liveDevices.map((d) => ({
+              deviceId: d.id,
+              status: d.status,
+              since: d.created_at.slice(0, 10),
+            })),
+          }),
+          'Retire a device',
+        );
+        return;
+      }
+
+      if (liveDevices.length >= 2) {
+        const chosen = liveDevices.find((d) => d.id === retireId);
+        if (chosen === undefined) {
+          // A device id that is not one of this shop's live ones. Answered the
+          // same way a missing merchant is, so the field cannot be used to ask
+          // whether some other shop's device exists.
+          respond(
+            response,
+            404,
+            document(deniedScreen(chromeFor(context, csrf), 'No such device on this shop.'), 'Not found'),
+          );
+          return;
+        }
+        options.db
+          .prepare(`UPDATE devices SET status = 'STOPPED', updated_at = ? WHERE id = ? AND merchant_id = ?`)
+          .run(options.now(), chosen.id, merchantId);
+        record({
+          event: 'ADMIN_DEVICE_STOPPED',
+          actorId: context.user.id,
+          actorRole: context.user.role,
+          entityType: 'DEVICE',
+          entityId: chosen.id,
+          merchantId,
+          // Why it stopped, not merely that it did: a device retired to make
+          // room reads differently in an audit from one stopped for loss.
+          metadata: { reason: 'RETIRED_FOR_REISSUE' },
+        });
       }
 
       // One transaction: an operator with no device, or a device with no

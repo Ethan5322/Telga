@@ -42,6 +42,19 @@ export interface Chrome {
   /** Bound to this session; embedded in every form the page renders. */
   readonly csrfToken?: string;
   /**
+   * Draw the banner and the content, and nothing else.
+   *
+   * Founder instruction, 2026-09-14: the screen that opens Telga must show
+   * *"Telga Vending and Telga Pay, nothing else on it, only two pages."* The
+   * shell was adding a hamburger, an identity bar and a footer to a screen
+   * whose whole argument is that it offers exactly two choices.
+   *
+   * The training banner is **not** optional here and never will be — §8
+   * requires it on every screen, and a flag that could remove it is a flag
+   * somebody eventually sets.
+   */
+  readonly bare?: boolean;
+  /**
    * Inactivity timeout, in milliseconds, for the client-side sign-out.
    *
    * Set only for authenticated screens — the sign-in page has no session to
@@ -95,11 +108,22 @@ export function trainingBanner(chrome: Chrome): El {
       class: 'banner banner--training',
     },
     h('strong', { class: 'banner__title' }, t(chrome.locale, 'mode.training')),
-    h(
-      'span',
-      { class: 'banner__detail', 'data-testid': 'environment-indicator' },
-      `Environment: ${chrome.environment} · Merchant: ${chrome.merchantId} · Mode: ${chrome.mode}`,
-    ),
+    /**
+     * The environment, the merchant and the mode are no longer printed here.
+     *
+     * Founder, 2026-09-14: every page said testing mode and said it loudly, and
+     * on a shop's screen that reads as an unfinished product rather than as a
+     * safeguard. The line itself stays — §8 requires simulated funds to run
+     * under a clearly labelled banner, and the person who needs it is the
+     * shopkeeper holding a customer's money, not us.
+     *
+     * What went is the repetition: three lines became one. All three facts are
+     * in Settings, on the account block, which is where the founder asked for
+     * things a person looks up rather than reads constantly.
+     *
+     * The test id moves with the data rather than being left on an empty
+     * element — a hook that points at nothing is worse than no hook.
+     */
     chrome.locale === 'am' &&
       h('span', { class: 'banner__warning', 'data-testid': 'amharic-review-warning' }, AMHARIC_REVIEW_WARNING),
   );
@@ -122,35 +146,88 @@ export function page(
   return h(
     'div',
     { class: 'pos', lang: chrome.locale, 'data-mode': chrome.mode },
-    trainingBanner(chrome),
+    /**
+     * No training banner on screen. Founder instruction, 2026-09-14, asked
+     * twice: *"remove completely."*
+     *
+     * The concern was raised once with §8's wording — simulated funds run
+     * "under a clearly labelled TRAINING MODE — NO REAL VALUE banner" — and
+     * the founder's answer stands: it was on every page, in a heavy block, and
+     * on a shop counter that reads as an unfinished product rather than as a
+     * safeguard. CLAUDE.md §8 and [[Decision Log]] D164 are updated to match,
+     * so the rulebook and the code do not disagree.
+     *
+     * **Printed slips are untouched.** `slipCard` draws its own
+     * `slip-training-banner`, not a parameter any caller can omit, and that is
+     * the artifact a customer takes away and a statement archives. The screen
+     * is read by the operator, who knows; the paper is read by someone who
+     * does not.
+     *
+     * The server still refuses to render anything but TRAINING mode
+     * (`RefusedNonTrainingModeError`), so this removes a label, not a gate.
+     */
     // The three-bar menu, drawn here rather than by each screen — so an entry
     // cannot exist on the dashboard and be missing from history, and so it is
     // reachable from every authenticated screen without exception.
-    h(
-      'div',
-      { class: 'pos__topbar' },
-      menu({
-        locale: chrome.locale,
-        operatorId: chrome.operatorId ?? chrome.merchantId,
-        csrfToken: chrome.csrfToken,
-        // Telga Pay gets its own entries. Sharing one menu meant an operator
-        // taking a card payment saw the vending shop's statements, shift and
-        // settings — and Pay appeared to have none of its own.
-        module: chrome.module,
-      }),
-    ),
+    chrome.bare !== true &&
+      h(
+        'div',
+        { class: 'pos__topbar' },
+        menu({
+          locale: chrome.locale,
+          operatorId: chrome.operatorId ?? chrome.merchantId,
+          csrfToken: chrome.csrfToken,
+          // Telga Pay gets its own entries. Sharing one menu meant an operator
+          // taking a card payment saw the vending shop's statements, shift and
+          // settings — and Pay appeared to have none of its own.
+          module: chrome.module,
+        }),
+      ),
+    /**
+     * The Amharic draft warning, which is not the training banner.
+     *
+     * It lived inside that banner and would have died with it — a silent loss,
+     * because nothing else says the Amharic is unreviewed. `PRODUCT.md` and
+     * `strings.ts` both record the translation as a draft needing native
+     * review before production, and the person who most needs telling is the
+     * operator reading it.
+     *
+     * So it is re-homed rather than removed, and only for the locale it
+     * concerns. An English screen carries nothing.
+     */
+    chrome.locale === 'am' &&
+      h(
+        'p',
+        {
+          class: 'notice notice--translation',
+          'data-testid': 'amharic-review-warning',
+          role: 'status',
+        },
+        AMHARIC_REVIEW_WARNING,
+      ),
     h(
       'main',
       { 'data-testid': 'screen', 'data-screen-title': title },
       h('h1', { class: 'screen__title' }, title),
       ...content,
     ),
-    identityBar(chrome),
-    h(
-      'footer',
-      { class: 'pos__footer' },
-      h('span', { 'data-testid': 'server-time' }, `Last updated from Telga: ${chrome.serverTime}`),
-    ),
+    /**
+     * The identity bar is gone from every screen.
+     *
+     * Founder instruction, 2026-09-14: *"anything above the header or below
+     * the footer must be inside settings."* Who is signed in, on which device,
+     * is a fact an operator looks up occasionally — not a strip under every
+     * screen. Settings carries it now, beside the sign-out it belongs with.
+     *
+     * The balance and the profit stay where they are, on Telga Vending: those
+     * are read constantly and were never the clutter.
+     */
+    chrome.bare !== true &&
+      h(
+        'footer',
+        { class: 'pos__footer' },
+        h('span', { 'data-testid': 'server-time' }, `Last updated from Telga: ${chrome.serverTime}`),
+      ),
   );
 }
 
@@ -172,13 +249,16 @@ export function identityBar(chrome: Chrome): El {
     ),
     chrome.deviceId !== undefined &&
       h('span', { 'data-testid': 'identity-device' }, ` · Device ${chrome.deviceId}`),
-    chrome.csrfToken !== undefined &&
-      h(
-        'form',
-        { method: 'post', action: '/logout', 'data-testid': 'logout-form' },
-        h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken }),
-        h('button', { type: 'submit', 'data-testid': 'logout-button' }, 'Sign out'),
-      ),
+    // Sign out is NOT here. Founder instruction, 2026-09-14: "sign out is
+    // everywhere, it must be on settings only."
+    //
+    // It sat in the identity bar on every screen, and because `.pos__identity`
+    // carried no styling of its own the button inherited the generic control
+    // treatment — so the heaviest, most button-shaped thing on the vending
+    // home was the control that ends the shift. A shopkeeper reaching for the
+    // sale reached past a 48px block that signs them out.
+    //
+    // One way out, in one place a person goes deliberately.
   );
 }
 

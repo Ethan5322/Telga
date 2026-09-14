@@ -287,22 +287,57 @@ describe('the slip', () => {
 });
 
 describe('the settings screen', () => {
-  it('renders the current settings, with the profit field marked as training only', async () => {
-    harness = makeUiHarness('settings-screen');
-    const owner = await asOwner(harness);
-    const screen = await screenFor(harness, '/settings', new URLSearchParams(), owner);
+  /**
+   * A shop may not set its own profit.
+   *
+   * Founder instruction, 2026-09-14: *"remove editing profit from setting,
+   * shop has no right to edit shop profit or commission."* §19 keeps
+   * commission NOT YET CONFIRMED and forbids inventing a rate, and a number an
+   * owner types into a box marked "profit" is the number they quote afterwards.
+   *
+   * This test used to assert the field existed and was labelled training-only.
+   * It now asserts the opposite, and — the part that matters — that the route
+   * refuses the value too. A control that is only hidden is not a control.
+   */
+  /**
+   * The identity facts moved here, and this is the test that keeps them.
+   *
+   * The identity strip under every screen was removed on 2026-09-14. Settings
+   * already showed operator, device and merchant, so nothing was lost — but
+   * nothing asserted it either, and coverage that exists only by luck is
+   * coverage that disappears on the next edit.
+   */
+  it('shows who is signed in, on which device, and the way out', async () => {
+    harness = makeUiHarness('settings-identity');
+    const screen = await screenFor(harness, '/settings');
     expect(screen?.status).toBe(200);
     const html = screen?.html ?? '';
-    expect(html).toContain('data-testid="settings-form"');
-    expect(html).toContain('data-testid="slip-size-radio-58"');
-    expect(html).toContain('data-testid="slip-size-radio-80"');
-    expect(html).toContain('data-testid="slip-advert-input"');
-    expect(html).toContain('data-testid="profit-percent-input"');
-    expect(html).toContain('data-testid="profit-training-note"');
-    expect(html.toLowerCase()).toContain('not a negotiated commission');
-    // Every write in Telga carries CSRF, and this one is no exception.
+
+    expect(html).toContain('data-testid="account-operator"');
+    expect(html).toContain('data-testid="account-device"');
+    expect(html).toContain('data-testid="account-merchant"');
+
+    // Sign out is a CSRF-carrying form, not a link: a link is followed by
+    // anything that prefetches, and signing out changes server state.
+    expect(html).toContain('data-testid="settings-signout-form"');
+    expect(html).toMatch(/<form[^>]*action="\/logout"/);
     expect(html).toContain('name="csrfToken"');
   });
+
+  it('offers no way for a shop to set its own profit rate', async () => {
+    harness = makeUiHarness('settings-no-profit');
+    const screen = await screenFor(harness, '/settings');
+    expect(screen?.status).toBe(200);
+    const html = screen?.html ?? '';
+
+    // Asserted against `.html`, not the response object. The first version of
+    // this test checked the object — and `not.toContain` on an object passes
+    // whatever the page renders, so it proved nothing at all.
+    expect(html).toContain('data-testid="settings-account"');
+    expect(html).not.toContain('data-testid="profit-percent-input"');
+    expect(html).not.toContain('name="profitPercent"');
+  });
+
 
   it('is reachable from the dashboard navigation', async () => {
     harness = makeUiHarness('settings-nav');

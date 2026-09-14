@@ -49,11 +49,22 @@ export interface LauncherProps {
   readonly chrome: Chrome;
 }
 
-function tile(href: string, testId: string, icon: El | string, label: string, subtitle: string): El {
+/**
+ * One of the two systems inside Telga.
+ *
+ * **No icon.** The tiles carried an emoji each — a phone and a card — and
+ * `PRODUCT.md` records that no icon set exists on hand. An emoji standing in
+ * for an icon system is the placeholder that ships, and two full-colour
+ * glyphs were the loudest thing on a screen whose job is to look considered.
+ * The module's name carries it instead, set in the display face.
+ *
+ * The `icon` parameter is gone rather than passed and ignored, so no caller
+ * can reintroduce one without changing this signature.
+ */
+function tile(href: string, testId: string, label: string, subtitle: string): El {
   return h(
     'a',
     { href, class: 'launcher__tile', 'data-testid': testId },
-    h('span', { class: 'launcher__tile-icon', 'aria-hidden': 'true' }, icon),
     h('span', { class: 'launcher__tile-label' }, label),
     h('span', { class: 'launcher__tile-subtitle' }, subtitle),
   );
@@ -69,7 +80,7 @@ export function launcherScreen(props: LauncherProps): El {
   const { chrome } = props;
   const locale = chrome.locale;
   return page(
-    chrome,
+    { ...chrome, bare: true },
     t(locale, 'screen.launcher'),
     h(
       'div',
@@ -107,7 +118,7 @@ export function launcherAppsScreen(props: LauncherProps): El {
   const { chrome } = props;
   const locale = chrome.locale;
   return page(
-    chrome,
+    { ...chrome, bare: true },
     t(locale, 'screen.launcher_apps'),
     h(
       'div',
@@ -115,7 +126,6 @@ export function launcherAppsScreen(props: LauncherProps): El {
       tile(
         '/dashboard',
         'launcher-tile-telga',
-        '📱',
         t(locale, 'launcher.tile.telga.label'),
         t(locale, 'launcher.tile.telga.subtitle'),
       ),
@@ -128,7 +138,6 @@ export function launcherAppsScreen(props: LauncherProps): El {
             tile(
               '/pay',
               'launcher-tile-telgapay',
-              '💳',
               t(locale, 'launcher.tile.telgapay.label'),
               t(locale, 'launcher.tile.telgapay.subtitle'),
             ),

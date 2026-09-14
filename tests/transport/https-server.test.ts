@@ -191,8 +191,13 @@ describe('serving over real TLS', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toContain('data-testid="login-form"');
-    expect(response.body).toContain('data-testid="training-banner"');
-    expect(response.body).toContain('Internal training only');
+    // The on-screen banner was removed on 2026-09-14. A page served over TLS
+    // is proved by reaching the screen, not by finding a banner on it.
+    expect(response.body).toContain('data-testid="screen"');
+    // The wording went with the banner on 2026-09-14 (D164). A screen served
+    // over TLS is proved by the sign-in form and the screen wrapper above,
+    // which is what this test is actually about.
+    expect(response.body).not.toContain('Internal training only');
   });
 
   it('sets Secure, HttpOnly and SameSite on the session cookie', async () => {
@@ -234,10 +239,15 @@ describe('serving over real TLS', () => {
     const { port, h } = await startHttps('https-session');
     const { cookie } = await signIn(port, h);
 
-    const home = await fetchOnce(port, '/', { headers: { cookie } });
+    // `/home`: the app root now opens the Telga launcher, which renders
+    // without a session and so would prove nothing about one.
+    //
+    // A valid session is proved by reaching the balance — an expired or
+    // missing one redirects to sign-in instead. The identity strip that used
+    // to carry the merchant id was removed from every screen on 2026-09-14.
+    const home = await fetchOnce(port, '/home', { headers: { cookie } });
     expect(home.status).toBe(200);
-    expect(home.body).toContain('data-testid="identity-bar"');
-    expect(home.body).toContain(MERCHANT_A);
+    expect(home.body).toContain('data-testid="balance-table"');
   });
 
   it('sends an unauthenticated request to sign in', async () => {

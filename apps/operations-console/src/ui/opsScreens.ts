@@ -1017,3 +1017,96 @@ export function transfersScreen(props: TransfersProps): El {
         ),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Two credential sets per shop — §18.2, founder decision 2026-09-14
+// ---------------------------------------------------------------------------
+
+export interface RetireDeviceProps {
+  readonly chrome: ConsoleChrome;
+  readonly merchantId: string;
+  readonly devices: readonly {
+    readonly deviceId: string;
+    readonly status: string;
+    readonly since: string;
+  }[];
+}
+
+/**
+ * Which live device to retire, so a third may be issued.
+ *
+ * A shop holds two working credential sets at a time. Asking rather than
+ * choosing is the whole point: the console cannot tell which machine was lost
+ * and which is on the counter taking money, and picking wrong stops the till
+ * that works.
+ *
+ * Nothing is retired by opening this screen. The suspension and the new
+ * issuance happen together on submit, so an admin who changes their mind
+ * leaves the shop exactly as it was.
+ */
+export function retireDeviceScreen(props: RetireDeviceProps): El {
+  const { chrome } = props;
+  return page(
+    { ...chrome, section: 'merchants' },
+    'Retire a device',
+    h(
+      'p',
+      { class: 'console__note' },
+      'This shop already holds two working credential sets. Issuing a third retires one of them. ' +
+        'Choose the machine that is out of service — the other keeps trading.',
+    ),
+    h(
+      'form',
+      {
+        method: 'post',
+        action: `/merchants/${encodeURIComponent(props.merchantId)}/credentials`,
+        'data-testid': 'retire-device-form',
+      },
+      h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+      h(
+        'table',
+        { class: 'console__table', 'data-testid': 'retire-device-options' },
+        h(
+          'thead',
+          {},
+          h('tr', {}, h('th', { scope: 'col' }, ''), h('th', { scope: 'col' }, 'Device'), h('th', { scope: 'col' }, 'Status'), h('th', { scope: 'col' }, 'Issued')),
+        ),
+        h(
+          'tbody',
+          {},
+          ...props.devices.map((device) =>
+            h(
+              'tr',
+              { 'data-testid': `retire-option-${device.deviceId}` },
+              h(
+                'td',
+                {},
+                h('input', {
+                  type: 'radio',
+                  name: 'retireDeviceId',
+                  id: `retire-${device.deviceId}`,
+                  value: device.deviceId,
+                  required: true,
+                }),
+              ),
+              h('td', {}, h('label', { for: `retire-${device.deviceId}` }, device.deviceId)),
+              h('td', {}, device.status),
+              h('td', {}, device.since),
+            ),
+          ),
+        ),
+      ),
+      h(
+        'button',
+        {
+          type: 'submit',
+          class: 'console__button',
+          // Retiring a device stops a machine that may be on a counter.
+          'data-confirm': 'Retire the selected device and issue a new set? The retired machine stops selling.',
+          'data-testid': 'retire-and-issue',
+        },
+        'Retire it and issue a new set',
+      ),
+    ),
+  );
+}

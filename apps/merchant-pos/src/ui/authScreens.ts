@@ -49,29 +49,25 @@ export function authPage(
   return h(
     'div',
     { class: 'pos', lang: chrome.locale, 'data-mode': chrome.mode },
-    h(
-      'div',
-      {
-        'data-testid': 'training-banner',
-        role: 'status',
-        'aria-live': 'polite',
-        'data-tone': 'CAUTION',
-        class: 'banner banner--training',
-      },
-      h('strong', { class: 'banner__title' }, t(chrome.locale, 'mode.training')),
+    /**
+     * No training banner here either — founder instruction, 2026-09-14, and
+     * D164. The sign-in screens carried their own copy of it rather than the
+     * shell's, so removing it from `page()` left it standing on exactly the
+     * screens a shopkeeper meets first.
+     *
+     * The Amharic draft warning is kept, because it is not the training
+     * banner and nothing else says the translation is unreviewed.
+     */
+    chrome.locale === 'am' &&
       h(
-        'span',
-        { class: 'banner__detail', 'data-testid': 'environment-indicator' },
-        `Environment: ${chrome.environment} · Mode: ${chrome.mode}`,
+        'p',
+        {
+          class: 'notice notice--translation',
+          'data-testid': 'amharic-review-warning',
+          role: 'status',
+        },
+        AMHARIC_REVIEW_WARNING,
       ),
-      h(
-        'span',
-        { class: 'banner__warning', 'data-testid': 'training-only-notice' },
-        'Internal training only. Not for merchant or customer use.',
-      ),
-      chrome.locale === 'am' &&
-        h('span', { class: 'banner__warning', 'data-testid': 'amharic-review-warning' }, AMHARIC_REVIEW_WARNING),
-    ),
     h(
       'main',
       { 'data-testid': 'screen', 'data-screen-title': title },

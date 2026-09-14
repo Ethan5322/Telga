@@ -317,9 +317,9 @@ body {
    submit inside main. */
 .voucher__button,
 button[type="submit"] {
-  border-radius: var(--telga-size-radius-sm);
-  border: var(--telga-size-rule-major) solid var(--telga-vellum-ink);
-  background: transparent;
+  border-radius: var(--telga-size-radius-md);
+  border: 1px solid var(--telga-vellum-rule);
+  background: var(--telga-vellum-ground-pale);
   color: var(--telga-vellum-ink);
   font-weight: 700;
   padding: 0.9rem 1.6rem;
@@ -328,7 +328,21 @@ button[type="submit"] {
 .voucher__button--primary { background: var(--telga-vellum-rubric); color: var(--telga-vellum-ground-pale); }
 .voucher__button--cancel { background: transparent; color: var(--ink); border: 2px solid var(--line); }
 .voucher__button:hover, button[type="submit"]:hover { filter: brightness(1.12); }
-.banner--training { border: 3px solid currentColor; padding: var(--gap); display: flex; flex-direction: column; gap: 0.25rem; font-weight: 600; }
+/* One line, not a block. It was a three-line bordered panel taking roughly
+   90px of every screen; the requirement is that it is unmissable, not that it
+   is large. The rule under it does the separating that the border did. */
+.banner--training {
+  display: flex; align-items: baseline; gap: var(--telga-space-sm);
+  flex-wrap: wrap;
+  padding: var(--telga-space-sm) var(--telga-space-lg);
+  border: 0;
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-vellum-ochre-ink);
+  background: var(--telga-vellum-ground-pale);
+  font-weight: 700;
+  font-size: var(--telga-type-sm);
+  letter-spacing: 0.02em;
+}
+.banner__title { white-space: nowrap; }
 .banner__detail, .banner__warning { font-weight: 400; font-size: 0.9rem; }
 main { padding-block: var(--gap); }
 h1 { font-size: 1.4rem; }
@@ -360,14 +374,53 @@ dd { margin: 0; }
 
 /* Telga launcher: two large module tiles, not two applications — see
    ui/launcher.ts. */
-.launcher__tiles { display: flex; gap: var(--gap); flex-wrap: wrap; }
-.launcher__tile {
-  flex: 1 1 12rem; min-height: 8rem; flex-direction: column; justify-content: center;
-  gap: 0.35rem; border: 3px solid currentColor; border-radius: 0.75rem; text-align: center;
+/* Two buttons, side by side, at every width.
+
+   They were a flex basis of 12rem with wrap, which at 390px totals 396px — so on
+   the phone this ships to they stacked, and the founder asked for two parallel
+   buttons. A two-column grid is parallel by construction and cannot wrap. */
+.launcher__tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--telga-space-lg);
+  align-items: stretch;
 }
-.launcher__tile-icon { font-size: 2.5rem; }
-.launcher__tile-label { font-size: 1.15rem; font-weight: 700; }
-.launcher__tile-subtitle { font-size: 0.85rem; opacity: 0.8; }
+.launcher__tile {
+  display: flex;
+  min-height: 9.5rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--telga-space-xs);
+  padding: var(--telga-space-lg) var(--telga-space-md);
+  border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule);
+  border-radius: var(--telga-size-radius-md);
+  background: var(--telga-vellum-ground-pale);
+  color: var(--telga-vellum-ink);
+  text-align: center;
+  text-decoration: none;
+}
+.launcher__tile:active { background: var(--telga-vellum-ground-deep); }
+.launcher__tile-label {
+  font-family: var(--telga-type-display);
+  font-size: var(--telga-type-lg);
+  font-weight: 700;
+  line-height: 1.15;
+  /* A long Amharic label breaks rather than widening the grid column. */
+  overflow-wrap: anywhere;
+}
+.launcher__tile-subtitle {
+  font-size: var(--telga-type-xs);
+  /* A real ink, not opacity: a faded colour on a warm ground reads as dirt,
+     and 0.8 of the ink was not a value anything else in the system used. */
+  color: var(--telga-vellum-ink-thin);
+  overflow-wrap: anywhere;
+}
+
+/* A single narrow phone in portrait still gets two columns; below that the
+   label would break mid-word, so they stack rather than clip. */
+@media (max-width: 22rem) {
+  .launcher__tiles { grid-template-columns: 1fr; }
+}
 
 /* --- the launcher's single Telga button -----------------------------------
    Screen one of two: Telga as one thing you open. It is the only control on
@@ -626,8 +679,11 @@ dd { margin: 0; }
    is comfortably tappable on a counter screen with a thumb. */
 .dashboard__pill--balance { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .dashboard__add { display: inline-flex; align-items: center; justify-content: center;
-  min-width: 2.75rem; min-height: 2.75rem; border-radius: var(--r-pill); flex: none;
-  border: none; background: var(--brand); color: #fff;
+  min-width: var(--telga-size-touch-min); min-height: var(--telga-size-touch-min);
+  border-radius: var(--telga-size-radius-md); flex: none;
+  /* Was white on the vellum ground at 1.58:1 — unreadable, on the one
+     control that tops up a shop's float. */
+  border: none; background: var(--telga-vellum-ink); color: var(--telga-vellum-ground-pale);
   font-size: 1.6rem; font-weight: 700; line-height: 1; text-decoration: none; }
 .dashboard__add:hover { background: var(--brand-bright); }
 .dashboard__add:focus-visible { outline: var(--telga-size-rule-heavy) solid var(--telga-vellum-rubric); outline-offset: 2px; }
@@ -796,13 +852,21 @@ dd { margin: 0; }
 /* The screen lock: full-bleed brand, white message, one black pill — the
    reference terminal's lock, in Telga's colour. No card here on purpose; a
    locked machine should not look like a page you can read around. */
+/* The lock screen had a white text colour with no dark ground of its own — orphaned
+   from the full-bleed brand field that was removed on 2026-09-12. White on the
+   vellum ground measures 1.58:1, so the heading, the operator id and the PIN
+   label were effectively blank. It takes its own ink ground now, which is also
+   what the original comment argued for: a locked till should not look like a
+   page you can read around. */
 .lock { display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
-  text-align: center; padding: 2.5rem 1rem 3rem; color: #fff; }
+  text-align: center; padding: 2.5rem 1rem 3rem;
+  background: var(--telga-vellum-ink); color: var(--telga-vellum-ground-pale);
+  min-height: 100dvh; }
 .lock__mark { line-height: 0; margin-bottom: 1rem; }
 .lock__title { font-size: 1.6rem; font-weight: 800; margin: 0; line-height: 1.25; }
 .lock__operator { margin: 0.35rem 0 1.75rem; opacity: 0.85; font-weight: 600; }
 .lock .field { width: min(22rem, 100%); text-align: left; }
-.lock .field label { color: #fff; }
+.lock .field label { color: var(--telga-vellum-ground-pale); }
 .lock input {
   width: 100%; border-radius: var(--r-md); border: none; padding: 0.9rem 1rem;
   font-size: 1.15rem;
@@ -812,7 +876,7 @@ dd { margin: 0; }
   background: var(--pill); color: var(--pill-ink);
 }
 .lock__signout { margin-top: 1.75rem; }
-.lock__signout button { background: transparent; color: #fff; border: 2px solid rgba(255,255,255,0.5); }
+.lock__signout button { background: transparent; color: var(--telga-vellum-ground-pale); border: 2px solid rgba(255,255,255,0.5); }
 /* The lock owns the whole screen — no white card behind it. */
 .lock-screen main { background: transparent; box-shadow: none; padding: 0; }
 
@@ -1110,17 +1174,16 @@ main {
   background: var(--telga-vellum-rubric);
   color: var(--telga-vellum-ground-pale);
   border: 0;
-  border-bottom: var(--telga-size-rule-heavy) solid var(--telga-vellum-ink);
-  border-radius: var(--telga-size-radius-sm);
+  border-radius: var(--telga-size-radius-md);
   font-family: var(--telga-type-body);
   font-size: var(--telga-type-lg);
   font-weight: 600;
-  transition: transform var(--telga-motion-instant) var(--telga-motion-standard);
+  transition: filter var(--telga-motion-instant) var(--telga-motion-standard);
 }
 
 /* Press feedback: the block seats itself against its rule. */
 .pos main button[type="submit"]:active,
-.button--primary:active { transform: translateY(1px); }
+.button--primary:active { filter: brightness(0.92); }
 
 /* --- the bottom tab bar --------------------------------------------------
    Fixed to the bottom edge, above the gesture area. A bar that ignores the
@@ -1270,9 +1333,11 @@ main table { display: block; overflow-x: auto; max-width: 100%; }
    no design system. A link is ink with a rubricated underline. */
 main a {
   color: var(--telga-vellum-ink);
+  /* A thin ink underline, not a 2px vermilion rule. The heavy red underline
+     read as a line drawn through every control rather than as a link. */
   text-decoration: underline;
-  text-decoration-color: var(--telga-vellum-rubric);
-  text-decoration-thickness: 2px;
+  text-decoration-color: var(--telga-vellum-rule);
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   min-height: var(--telga-size-touch-min);
   display: inline-flex;

@@ -186,14 +186,17 @@ describe('the modules are on their own page', () => {
     const apps = await get(port, '/launcher/apps', session.cookieHeader);
     expect(apps.status).toBe(200);
     expect(apps.body).toContain('data-testid="launcher-tile-telga"');
-    expect(apps.body).toContain('📱');
+    // No emoji. They were placeholders standing in for an icon set PRODUCT.md
+    // records does not exist, and the `icon` parameter is gone from tile() so
+    // no caller can reintroduce one. The module's name carries the tile.
+    expect(apps.body).not.toContain('📱');
+    expect(apps.body).not.toContain('💳');
     // Telga Pay came back on by founder decision **D124**, so its tile is drawn
     // again. The rule this pair has always enforced is unchanged: a tile
     // appears only when the screen behind it answers. A tile leading to a 404
     // would be the "inaccessible, not refused after the tap" failure CLAUDE.md
     // §7 forbids — and so would a working screen with no way in.
     expect(apps.body).toContain('data-testid="launcher-tile-telgapay"');
-    expect(apps.body).toContain('💳');
     // Inside Telga everything is Telga, so the mark cannot be what tells the
     // two modules apart — and it is not drawn here at all.
     expect(apps.body).not.toContain('/assets/app-vending.png');

@@ -146,23 +146,13 @@ export function menu(props: MainMenuProps): El {
       ),
       // A write, so it is a form and carries CSRF. It asks first: signing out
       // here clears the device and the operator as well as the session.
-      h(
-        'form',
-        { method: 'post', action: '/logout', class: 'menu__logout', 'data-testid': 'menu-logout-form' },
-        h('input', { type: 'hidden', name: 'csrfToken', value: props.csrfToken ?? '' }),
-        h(
-          'button',
-          {
-            type: 'submit',
-            class: 'menu__item menu__item--logout',
-            role: 'menuitem',
-            'data-confirm': t(locale, 'settings.signout.confirm'),
-            'data-testid': 'menu-logout',
-          },
-          h('span', { class: 'menu__item-icon', 'aria-hidden': 'true' }, '🚪'),
-          t(locale, 'menu.logout'),
-        ),
-      ),
+      // Sign out is not in this menu. Founder instruction, 2026-09-14:
+      // "sign out is everywhere, it must be on settings only."
+      //
+      // It lives in Settings (`settings-signout`), which already carries the
+      // same confirmation and a hint explaining what ending a session does.
+      // Two copies of one irreversible action is the duplication the founder
+      // has now asked to remove twice.
     ),
   );
 }

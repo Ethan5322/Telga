@@ -65,6 +65,7 @@
  * variables — see `05 Operations/Railway Deployment Checklist.md`.
  */
 
+import { connect } from 'node:net';
 import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -448,6 +449,11 @@ if (serveConsole) {
       : []),
   ]);
 
+  // Both upstreams first. The proxy is the only thing Railway can reach, so
+  // opening it before they answer turns every deploy's first seconds into 502s
+  // against a healthcheck that decides whether the deploy is kept.
+  await waitForUpstream('pos', posPort);
+  await waitForUpstream('console', CONSOLE_INTERNAL_PORT);
   startProxy();
 }
 
@@ -483,6 +489,64 @@ if (serveConsole) {
  * to. This file cannot be imported by a test: it reads the environment and
  * spawns children at module scope, so importing it would start a deployment.
  */
+/**
+ * Wait until something is listening on a local port.
+ *
+ * ## The bug this closes
+ *
+ * Reported from the deployment, 2026-09-14:
+ * `[telga] proxy: upstream :4800 unreachable (socket hang up)`.
+ *
+ * The proxy bound `$PORT` and began accepting traffic the instant it was
+ * asked to, while the POS and the console were still starting behind it.
+ * Railway's healthcheck arrives immediately, so the first requests of every
+ * deploy met an upstream that was not listening yet and were answered 502.
+ *
+ * That is not merely noise: `railway.json` sets `healthcheckPath` to
+ * `/api/health/ready`, so a deploy whose first healthchecks all fail can be
+ * marked unhealthy and rolled back for a problem that would have cleared
+ * itself in a second.
+ *
+ * **Bounded, and never fatal.** If an upstream has not come up within the
+ * budget the proxy starts anyway and says so, because a front door that
+ * refuses to open is worse than one that answers 502 for a moment — the
+ * child's own exit handler is what tears the service down when a process has
+ * genuinely died, and it reports the exit code, which this cannot.
+ */
+async function waitForUpstream(label, portNumber, budgetMs = 20_000) {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const reachable = await new Promise((resolve) => {
+      const socket = connect({ host: '127.0.0.1', port: Number(portNumber) }, () => {
+        socket.end();
+        resolve(true);
+      });
+      socket.on('error', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      // A connect that neither succeeds nor errors is a hung port, which is
+      // not "ready" however long it waits.
+      socket.setTimeout(1_000, () => {
+        socket.destroy();
+        resolve(false);
+      });
+    });
+    if (reachable) {
+      console.log(`[telga] ${label} is listening on :${portNumber}`);
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      console.error(
+        `[telga] ${label} did not open :${portNumber} within ${String(budgetMs / 1000)}s; ` +
+          'starting the proxy anyway — early requests may answer 502.',
+      );
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 function startProxy() {
   const listener = createServer((clientReq, clientRes) => {
     const rawHost = String(clientReq.headers.host ?? '');
