@@ -65,12 +65,28 @@ which is a materially safer structure than operating an unlicensed one.
 remain under enforcement action.** Status after May 2026 was not established and
 must be verified before any commitment.
 
-> [!note] The founder's Chapa decision aged well
-> Telga dropped Chapa in 2026-09 for unrelated reasons ([[Decision Log]] D112's
-> context). Chapa's accounts were frozen four days after that decision period
-> began. This is luck rather than foresight, but it is a strong argument for the
-> adapter pattern below: **a rail can become unusable for reasons that have
-> nothing to do with its technology.**
+> [!warning] Corrected 2026-09-15 — this note said Telga had dropped Chapa
+> It read: *"Telga dropped Chapa in 2026-09 for unrelated reasons."* That was
+> true when written and **stopped being true four days later**: [[Decision Log]]
+> **D156**, 2026-09-11, wired Chapa as a deposit method, and `CLAUDE.md` §20.2
+> describes it in full. The training deployment carries live `CHAPA_*`
+> variables today.
+>
+> Left uncorrected, this note tells a future reader — or a future session — that
+> a rail the product actually depends on was abandoned. That is worse than
+> saying nothing.
+>
+> **What remains true, and is the reason the note existed:** Chapa's accounts
+> were frozen by the Ministry of Justice on 29 December 2025, and the three
+> largest private gateways were still under enforcement action as of the last
+> reporting found. **Telga's use of Chapa is sandbox only** — the adapter
+> refuses any key that is not `CHASECK_TEST-`, and the server refuses to start
+> if the flag is on with a live key (§20.2). No merchant's money touches it.
+>
+> So the lesson the note drew still stands, and is sharper for this correction:
+> **a rail can become unusable for reasons that have nothing to do with its
+> technology** — which is why the adapter pattern below matters, and why Chapa
+> being wired for training is not a commitment to Chapa for live money.
 
 ## The options, ranked
 
