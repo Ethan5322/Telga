@@ -822,6 +822,19 @@ and nothing that notices, whereas this recovers on its own.
 software it has already had, which also settles what "month end" means on a UTC
 server serving shops in Addis Ababa.
 
+**And never a month that ended before the fee existed.**
+`software_fee_first_period` is `NULL` until the first month-end run, which
+records the month it runs in and charges nothing. Without it, deploying on
+2026-09-15 would have billed every active shop for **August** — a month in which
+nobody had been told of a fee and the code implementing it did not exist. It is
+not a constant: a hard-coded start month is wrong the moment this ships late, is
+restored from a backup, or is switched off and on again.
+
+**Billing does not depend on the recovery sweep succeeding.** The two share a
+timer and nothing else. An earlier wiring ran the fee after recovery in the same
+chain, so a sweep that threw skipped billing silently — and a sweep that throws
+repeatedly is precisely when nobody is watching.
+
 > **A platform fee is never a shop's earnings.** The fee credits `TELGA_REVENUE`
 > attributed to the shop it was charged to, and `profitForDay` /
 > `profitAvailableMinor` sum exactly that. Both **exclude `FEE_DEBIT`** — without

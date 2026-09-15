@@ -27,6 +27,14 @@ export interface PlatformFeeSettings {
   /** The monthly software fee, in minor units. Migration 024. */
   readonly softwareFeeMinor: number;
   readonly softwareFeeEnabled: boolean;
+  /**
+   * The first month the software fee may be charged for, `YYYY-MM`.
+   *
+   * `null` until the first month-end run, which sets it to the month it runs
+   * in. That is what stops the fee reaching back into months that ended before
+   * it existed.
+   */
+  readonly softwareFeeFirstPeriod: string | null;
   readonly updatedByAdminId: string | null;
   readonly updatedAt: string;
 }
@@ -41,7 +49,7 @@ export function readPlatformFeeSettings(db: Db): PlatformFeeSettings {
   const row = db
     .prepare(
       `SELECT default_commission_bps, shop_share_bps, card_fee_bps,
-              software_fee_minor, software_fee_enabled,
+              software_fee_minor, software_fee_enabled, software_fee_first_period,
               updated_by_admin_id, updated_at
          FROM platform_fee_settings WHERE id = 1`,
     )
@@ -52,6 +60,7 @@ export function readPlatformFeeSettings(db: Db): PlatformFeeSettings {
         card_fee_bps: number;
         software_fee_minor: number;
         software_fee_enabled: number;
+        software_fee_first_period: string | null;
         updated_by_admin_id: string | null;
         updated_at: string;
       }
@@ -73,6 +82,7 @@ export function readPlatformFeeSettings(db: Db): PlatformFeeSettings {
     softwareFeeMinor: row.software_fee_minor,
     // SQLite has no boolean; the column is a CHECK-constrained 0 or 1.
     softwareFeeEnabled: row.software_fee_enabled === 1,
+    softwareFeeFirstPeriod: row.software_fee_first_period,
     updatedByAdminId: row.updated_by_admin_id,
     updatedAt: row.updated_at,
   };
@@ -84,6 +94,7 @@ export interface FeeSettingsUpdate {
   readonly cardFeeBps?: number;
   readonly softwareFeeMinor?: number;
   readonly softwareFeeEnabled?: boolean;
+  readonly softwareFeeFirstPeriod?: string;
   readonly adminId: string;
   readonly at: Timestamp;
 }
@@ -98,6 +109,7 @@ export function writePlatformFeeSettings(db: Db, update: FeeSettingsUpdate): voi
             card_fee_bps           = @cardFeeBps,
             software_fee_minor     = @softwareFeeMinor,
             software_fee_enabled   = @softwareFeeEnabled,
+            software_fee_first_period = @softwareFeeFirstPeriod,
             updated_by_admin_id    = @adminId,
             updated_at             = @at
       WHERE id = 1`,
@@ -107,6 +119,7 @@ export function writePlatformFeeSettings(db: Db, update: FeeSettingsUpdate): voi
     cardFeeBps: update.cardFeeBps ?? current.cardFeeBps,
     softwareFeeMinor: update.softwareFeeMinor ?? current.softwareFeeMinor,
     softwareFeeEnabled: (update.softwareFeeEnabled ?? current.softwareFeeEnabled) ? 1 : 0,
+    softwareFeeFirstPeriod: update.softwareFeeFirstPeriod ?? current.softwareFeeFirstPeriod,
     adminId: update.adminId,
     at: update.at,
   });

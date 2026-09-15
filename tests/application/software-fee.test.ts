@@ -150,14 +150,73 @@ describe('which month is charged', () => {
   });
 });
 
+describe('it never bills a month that ended before it existed', () => {
+  /**
+   * Found by testing the upgrade path against a realistic live database.
+   *
+   * Deployed on 2026-09-15, the first sweep would have charged every active
+   * shop 1,250 birr for AUGUST — a month in which nobody had been told of a
+   * fee, nothing announced one, and the code implementing it did not exist.
+   * A shop's float would have dropped with nothing able to explain it.
+   */
+  const deps = (now: string) => ({ driver, now: () => now as never, newId });
+
+  it('charges nothing on its very first run, and records where it starts', () => {
+    fund('shop_a', 500_000);
+
+    const first = runDueSoftwareFees(deps('2026-09-15T03:00:00.000Z'));
+    expect(first.charged).toBe(0);
+    expect(first.arrears, 'and nothing is recorded as owed either').toBe(0);
+    expect(available('shop_a')).toBe(500_000);
+
+    // It remembers the month it started in, so a restart does not reset it.
+    expect(driver.readPlatformFeeSettings().softwareFeeFirstPeriod).toBe('2026-09');
+  });
+
+  it('still charges nothing on a later sweep in the same month', () => {
+    fund('shop_a', 500_000);
+    runDueSoftwareFees(deps('2026-09-15T03:00:00.000Z'));
+    runDueSoftwareFees(deps('2026-09-28T03:00:00.000Z'));
+    expect(available('shop_a')).toBe(500_000);
+  });
+
+  it('charges the first full month once it has ended', () => {
+    // September is the month it started in. October's first sweep bills for
+    // September — the first month a shop can honestly be said to have had the
+    // software under this policy.
+    fund('shop_a', 500_000);
+    runDueSoftwareFees(deps('2026-09-15T03:00:00.000Z'));
+
+    const october = runDueSoftwareFees(deps('2026-10-01T03:00:00.000Z'));
+    expect(october.period).toBe('2026-09');
+    expect(october.charged).toBe(1);
+    expect(available('shop_a')).toBe(500_000 - FEE);
+  });
+
+  it('does not reach back to August even months later', () => {
+    fund('shop_a', 5_000_000);
+    runDueSoftwareFees(deps('2026-09-15T03:00:00.000Z'));
+    runDueSoftwareFees(deps('2026-10-01T03:00:00.000Z'));
+    runDueSoftwareFees(deps('2026-11-01T03:00:00.000Z'));
+
+    const periods = driver.softwareFeeChargesFor('shop_a' as never).map((c) => c.period);
+    expect(periods.sort()).toEqual(['2026-09', '2026-10']);
+    expect(periods, 'August ended before the fee existed').not.toContain('2026-08');
+  });
+});
+
 describe('running on every sweep', () => {
   it('charges the finished month once, however many times it is called', () => {
     // This is how it is wired: called on every worker sweep rather than by a
     // cron. A cron that does not fire is a month nobody is charged for and
     // nothing that notices.
     fund('shop_a', 500_000);
-    const deps = { driver, now: () => '2026-10-01T02:00:00.000Z' as never, newId };
 
+    // A sweep inside September establishes where the fee starts and charges
+    // nothing — see "it never bills a month that ended before it existed".
+    runDueSoftwareFees({ driver, now: () => '2026-09-20T02:00:00.000Z' as never, newId });
+
+    const deps = { driver, now: () => '2026-10-01T02:00:00.000Z' as never, newId };
     const first = runDueSoftwareFees(deps);
     expect(first.period).toBe('2026-09');
     expect(first.charged).toBe(1);

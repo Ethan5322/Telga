@@ -412,8 +412,26 @@ describe('the monthly software fee rides the sweep', () => {
   it('charges a shop for the finished month when the worker sweeps', async () => {
     const h = harness('wi-software-fee', { fundBirr: 5000 });
 
-    // A clock inside October, so the month that has finished is September.
-    const { worker } = buildWorker(h.driver, { startMs: Date.UTC(2026, 9, 2, 3, 0, 0) });
+    // The fee begins with the month it was switched on and never reaches back,
+    // so a September sweep establishes the start and charges nothing. An
+    // October sweep then bills for September — the first month a shop can
+    // honestly be said to have had the software under this policy.
+    // Distinct worker ids. Two workers built on one driver restart their id
+    // counters, so a shared id makes the second sweep collide on a primary key
+    // — a fixture artifact, not a product defect, but it masks what this test
+    // is measuring.
+    const september = buildWorker(h.driver, {
+      workerId: 'worker_sep',
+      startMs: Date.UTC(2026, 8, 20, 3, 0, 0),
+    });
+    await september.worker.runOnce();
+    expect(h.driver.softwareFeeChargesFor(MERCHANT_A), 'nothing on the first sweep').toHaveLength(0);
+
+    const october = buildWorker(h.driver, {
+      workerId: 'worker_oct',
+      startMs: Date.UTC(2026, 9, 2, 3, 0, 0),
+    });
+    const worker = october.worker;
     const before = h.driver.balanceFor(MERCHANT_A).available.minor;
 
     await worker.runOnce();
@@ -427,7 +445,16 @@ describe('the monthly software fee rides the sweep', () => {
 
   it('does not charge the month twice, however often the worker sweeps', async () => {
     const h = harness('wi-software-fee-repeat', { fundBirr: 5000 });
-    const { worker } = buildWorker(h.driver, { startMs: Date.UTC(2026, 9, 2, 3, 0, 0) });
+    // Establish the start month first — see the test above.
+    await buildWorker(h.driver, {
+      workerId: 'worker_sep',
+      startMs: Date.UTC(2026, 8, 20, 3, 0, 0),
+    }).worker.runOnce();
+
+    const { worker } = buildWorker(h.driver, {
+      workerId: 'worker_oct',
+      startMs: Date.UTC(2026, 9, 2, 3, 0, 0),
+    });
 
     await worker.runOnce();
     const after = h.driver.balanceFor(MERCHANT_A).available.minor;
@@ -436,6 +463,41 @@ describe('the monthly software fee rides the sweep', () => {
 
     expect(h.driver.balanceFor(MERCHANT_A).available.minor).toBe(after);
     expect(h.driver.softwareFeeChargesFor(MERCHANT_A)).toHaveLength(1);
+  });
+
+  it('charges the fee even when the recovery sweep fails', async () => {
+    /**
+     * Found by debugging, not by design.
+     *
+     * The first version of this wiring awaited `recoverInFlight` and then
+     * charged, so a sweep that **threw** skipped billing entirely and logged
+     * nothing about it. A sweep that throws repeatedly is precisely the
+     * situation in which nobody is watching closely, so the fee would have
+     * stopped being collected with no signal at all.
+     *
+     * Recovering an in-flight sale and charging a monthly fee are unrelated
+     * pieces of work that share a timer. Neither may cancel the other.
+     */
+    const h = harness('wi-fee-despite-sweep-failure', { fundBirr: 5000 });
+    await buildWorker(h.driver, {
+      workerId: 'worker_sep',
+      startMs: Date.UTC(2026, 8, 20, 3, 0, 0),
+    }).worker.runOnce();
+
+    // Two workers on one driver replay their id counters, so the second sweep
+    // collides on a primary key and throws — a cheap, real failure to induce.
+    const october = buildWorker(h.driver, {
+      workerId: 'worker_sep',
+      startMs: Date.UTC(2026, 9, 2, 3, 0, 0),
+    });
+    await october.worker.runOnce();
+
+    // The sweep failed...
+    expect(october.logger.events.map((e) => e.event)).toContain('worker.sweep.failed');
+    // ...and the shop was still charged for September.
+    const charged = h.driver.softwareFeeChargesFor(MERCHANT_A);
+    expect(charged, 'billing must not depend on recovery succeeding').toHaveLength(1);
+    expect(charged[0]?.period).toBe('2026-09');
   });
 
   it('still recovers sales when the fee cannot be charged', async () => {

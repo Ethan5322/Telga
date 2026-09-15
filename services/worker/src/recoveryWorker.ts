@@ -164,7 +164,24 @@ export function createRecoveryWorker(options: RecoveryWorkerOptions): RecoveryWo
      * reports its own result, and the next sweep tries the fee again.
      */
     runSweep: async (sweepOptions: SweepOptions) => {
-      const report = await recoverInFlight(deps, sweepOptions);
+      /**
+       * Recovery first, and its outcome is what the sweep reports.
+       *
+       * The fee runs **either way**. An earlier version of this awaited
+       * recovery and then charged, so a sweep that threw skipped billing
+       * silently — and a sweep that throws repeatedly is exactly the situation
+       * in which nobody is watching closely. Recovering an in-flight sale and
+       * charging a monthly fee are unrelated pieces of work sharing a timer;
+       * neither should be able to cancel the other.
+       */
+      let failure: unknown;
+      let report: SweepReport | undefined;
+      try {
+        report = await recoverInFlight(deps, sweepOptions);
+      } catch (error) {
+        failure = error;
+      }
+
       try {
         const fees = runDueSoftwareFees({
           driver: options.driver,
@@ -198,6 +215,12 @@ export function createRecoveryWorker(options: RecoveryWorkerOptions): RecoveryWo
           detail: { reason: error instanceof Error ? error.name : 'unknown error' },
         });
       }
+
+      // Recovery's failure is the sweep's failure, reported after the fee has
+      // had its turn rather than instead of it.
+      if (failure !== undefined) throw failure;
+      // Unreachable: `recoverInFlight` either returns a report or throws.
+      if (report === undefined) throw new Error('recovery returned no report');
       return report;
     },
     gauges,

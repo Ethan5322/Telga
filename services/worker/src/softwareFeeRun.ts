@@ -166,5 +166,55 @@ export function previousPeriod(at: Timestamp | string): string {
  * week.
  */
 export function runDueSoftwareFees(deps: SoftwareFeeRunDeps): SoftwareFeeRunResult {
-  return runSoftwareFeeCharges(deps, previousPeriod(deps.now()));
+  const at = deps.now();
+  const due = previousPeriod(at);
+  const fees = deps.driver.readPlatformFeeSettings();
+
+  /**
+   * The fee begins with the month it was switched on, and never reaches back.
+   *
+   * `software_fee_first_period` is NULL until this runs for the first time.
+   * That first pass records the month it is running in and charges **nothing**
+   * — because the month it is running in has not finished, and every month
+   * before it ended before the fee existed.
+   *
+   * Deployed on 2026-09-15 without this, the first sweep would have billed
+   * every active shop 1,250 birr for **August**: a month in which nobody had
+   * been told of a fee, nothing announced one, and the code implementing it
+   * did not exist. A shop's float would have dropped with nothing able to
+   * explain why.
+   */
+  if (fees.softwareFeeFirstPeriod === null) {
+    deps.driver.writePlatformFeeSettings({
+      // The month this is running in, not the month that is due. September's
+      // fee is charged in October, which is the first charge that can be
+      // honestly said to cover a month the shop had the software under this
+      // policy.
+      softwareFeeFirstPeriod: periodOf(at),
+      adminId: 'system',
+      at,
+    });
+    return emptyResult(due);
+  }
+
+  // A month that ended before the fee started is not owed. This also covers the
+  // arrears sweep inside `runSoftwareFeeCharges`, which only ever retries rows
+  // that were created by a period this check already allowed.
+  if (due < fees.softwareFeeFirstPeriod) return emptyResult(due);
+
+  return runSoftwareFeeCharges(deps, due);
+}
+
+/** Nothing charged, nothing owed — the shape a skipped run returns. */
+function emptyResult(period: string): SoftwareFeeRunResult {
+  return {
+    period,
+    charged: 0,
+    chargedMinor: 0,
+    arrears: 0,
+    arrearsMinor: 0,
+    alreadyCharged: 0,
+    recovered: 0,
+    recoveredMinor: 0,
+  };
 }

@@ -61,6 +61,21 @@ export const m024SoftwareFee: Migration = {
       ADD COLUMN software_fee_enabled INTEGER NOT NULL DEFAULT 1
         CHECK (software_fee_enabled IN (0, 1));
 
+    -- The first month this fee may be charged for, as 'YYYY-MM'.
+    --
+    -- NULL means it has never run here. The first sweep writes the month it
+    -- runs in and charges nothing, so the fee begins with the month it was
+    -- switched on and never reaches back past it.
+    --
+    -- Without this, deploying on 2026-09-15 would have billed every active
+    -- shop for AUGUST on the first sweep — a month in which nobody had been
+    -- told of a fee and the code implementing it did not exist. A shop's float
+    -- would simply have dropped by 1,250 birr with nothing able to explain it.
+    --
+    -- Not a constant, because a constant is wrong the moment this ships late,
+    -- is restored from a backup, or is switched off and on again.
+    ALTER TABLE platform_fee_settings ADD COLUMN software_fee_first_period TEXT;
+
     CREATE TABLE software_fee_charges (
       id                  TEXT PRIMARY KEY,
       merchant_id         TEXT NOT NULL REFERENCES merchants(id),
