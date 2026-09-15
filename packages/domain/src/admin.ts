@@ -89,6 +89,12 @@ export const ADMIN_PERMISSIONS = [
   'ADMIN_VIEW_PROVIDER_HEALTH',
   'ADMIN_VIEW_AUDIT',
   'ADMIN_CHANGE_FEATURE_FLAG',
+  // The commission every Telga shop earns, and the monthly software fee.
+  // Its own permission rather than a reuse, because the founder's rule is
+  // that ONE place decides what shops earn — and a permission shared with
+  // another action is a second way to reach it.
+  'ADMIN_VIEW_FEE_POLICY',
+  'ADMIN_MANAGE_FEE_POLICY',
   'ADMIN_MANAGE_ADMINS',
   'ADMIN_MANAGE_PERMISSIONS',
 ] as const;
@@ -109,6 +115,10 @@ const READ_ONLY: readonly AdminPermission[] = [
   'ADMIN_VIEW_SUPPORT_CASE',
   'ADMIN_VIEW_PROVIDER_HEALTH',
   'ADMIN_VIEW_AUDIT',
+  // Reading the fee policy is read-only in the strict sense, and every role
+  // needs it: an operations desk answering "why did this shop earn 2.10"
+  // cannot do so without seeing the rate. Only PLATFORM_OWNER may change it.
+  'ADMIN_VIEW_FEE_POLICY',
 ];
 
 /**
@@ -117,6 +127,11 @@ const READ_ONLY: readonly AdminPermission[] = [
  * `PLATFORM_OWNER` holds everything, and is the **only** role holding
  * `ADMIN_MANAGE_ADMINS` — the owner brief says sub-admins may be created by the
  * main admin and nobody else, and this is where that is true.
+ *
+ * It is also the only role holding `ADMIN_MANAGE_FEE_POLICY`. The founder's
+ * instruction, 2026-09-14, is that the admin panel decides what shops earn;
+ * giving that to an operations or finance role would put the commission of
+ * every shop in Ethiopia behind whichever of those accounts is weakest.
  */
 export const ADMIN_ROLE_PERMISSIONS: Readonly<Record<AdminRole, readonly AdminPermission[]>> =
   Object.freeze({
@@ -190,6 +205,8 @@ export const STEP_UP_REQUIRED: readonly AdminPermission[] = Object.freeze([
   'ADMIN_SECOND_APPROVE_FUNDING',
   'ADMIN_EXPORT_DATA',
   'ADMIN_CHANGE_FEATURE_FLAG',
+  // Changing it alters what every shop in Ethiopia earns on every future sale.
+  'ADMIN_MANAGE_FEE_POLICY',
   'ADMIN_MANAGE_ADMINS',
   'ADMIN_MANAGE_PERMISSIONS',
 ]);

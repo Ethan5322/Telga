@@ -89,6 +89,19 @@ export const findMerchantByDepositReference = (
     | MerchantRow
     | undefined;
 
+/**
+ * Every shop currently trading.
+ *
+ * Ids only, and `ACTIVE` only. A suspended shop cannot trade, so a month-end
+ * charge against one would drain a balance it can neither spend nor top up.
+ */
+export function activeMerchantIds(db: Db): readonly MerchantId[] {
+  const rows = db
+    .prepare(`SELECT id FROM merchants WHERE status = 'ACTIVE' ORDER BY id`)
+    .all() as { id: string }[];
+  return rows.map((r) => r.id as MerchantId);
+}
+
 export function findMerchant(db: Db, id: MerchantId): MerchantRow | undefined {
   return db.prepare('SELECT * FROM merchants WHERE id = ?').get(id) as MerchantRow | undefined;
 }

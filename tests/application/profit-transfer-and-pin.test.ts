@@ -15,6 +15,7 @@ import {
   TEST_PIN,
   callWith,
   makeUiHarness,
+  pinRoundProfitRates,
   signInAs,
 } from '../auth/helpers';
 import type { UiHarness } from '../auth/helpers';
@@ -49,9 +50,28 @@ async function earnProfit(h: UiHarness, quantity: number, requestId: string): Pr
 
 const asOwner = (h: UiHarness) => signInAs(h.api, { userId: OWNER_USER, role: 'MERCHANT_OWNER' });
 
+/**
+ * These tests are about moving profit into the selling balance, and changing a PIN — not about the commission rate.
+ *
+ * `pinRoundProfitRates` sets the platform rates so one 25-birr sale earns
+ * exactly 1.00 birr, which is what it earned before D165 changed the model.
+ * At the real defaults the figure is 53 santim (3% of 2,500 = 75, of which the
+ * shop keeps 70% = 52.5, rounded up to the shop) — not a whole number of birr
+ * at any practical quantity. That makes the assertions below unreadable, and it
+ * makes "move the whole profit" inexpressible through a whole-birr transfer API.
+ *
+ * The split itself is proved in `tests/domain/commission-split.test.ts` and
+ * `tests/application/settings-and-profit.test.ts`, at the real defaults.
+ */
+function freshHarness(...args: Parameters<typeof makeUiHarness>): UiHarness {
+  const created = makeUiHarness(...args);
+  pinRoundProfitRates(created);
+  return created;
+}
+
 describe('moving profit into the selling balance', () => {
   it('moves the money and leaves the ledger balanced', async () => {
-    harness = makeUiHarness('profit-move', { fundBirr: 900 });
+    harness = freshHarness('profit-move', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn'); // 4 × 25 birr at 4% = 4 birr profit
 
     const before = harness.deps.driver.balanceFor(MERCHANT_A).available.minor;
@@ -80,7 +100,7 @@ describe('moving profit into the selling balance', () => {
   });
 
   it('refuses more than the profit earned, and moves nothing', async () => {
-    harness = makeUiHarness('profit-over', { fundBirr: 900 });
+    harness = freshHarness('profit-over', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const before = harness.deps.driver.balanceFor(MERCHANT_A).available.minor;
 
@@ -101,7 +121,7 @@ describe('moving profit into the selling balance', () => {
   });
 
   it('lets an owner move the whole profit, but nothing beyond it', async () => {
-    harness = makeUiHarness('profit-exact', { fundBirr: 900 });
+    harness = freshHarness('profit-exact', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
 
@@ -120,7 +140,7 @@ describe('moving profit into the selling balance', () => {
   });
 
   it('is owner-only — an operator cannot move the shop’s profit', async () => {
-    harness = makeUiHarness('profit-operator', { fundBirr: 900 });
+    harness = freshHarness('profit-operator', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const operator = await signInAs(harness.api);
 
@@ -133,7 +153,7 @@ describe('moving profit into the selling balance', () => {
   });
 
   it('records an audit event naming the actor', async () => {
-    harness = makeUiHarness('profit-audit', { fundBirr: 900 });
+    harness = freshHarness('profit-audit', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
     await callWith(harness.api, 'POST', '/api/training/profit/transfers', {
@@ -150,7 +170,7 @@ describe('moving profit into the selling balance', () => {
 
 describe('changing a transaction PIN', () => {
   it('accepts the new PIN and authorizes a later sale with it', async () => {
-    harness = makeUiHarness('pin-change', { fundBirr: 900 });
+    harness = freshHarness('pin-change', { fundBirr: 900 });
     const owner = await asOwner(harness);
 
     const changed = await callWith(harness.api, 'POST', '/api/training/operators/pin', {
@@ -183,7 +203,7 @@ describe('changing a transaction PIN', () => {
   });
 
   it('refuses without the current PIN, so an open session is not enough', async () => {
-    harness = makeUiHarness('pin-needs-current');
+    harness = freshHarness('pin-needs-current');
     const owner = await asOwner(harness);
     const { response, envelope } = await callWith(
       harness.api,
@@ -200,7 +220,7 @@ describe('changing a transaction PIN', () => {
   });
 
   it('never stores or returns the PIN itself', async () => {
-    harness = makeUiHarness('pin-not-stored');
+    harness = freshHarness('pin-not-stored');
     const owner = await asOwner(harness);
     const result = await callWith(harness.api, 'POST', '/api/training/operators/pin', {
       cookie: owner.cookieHeader,
@@ -217,7 +237,7 @@ describe('changing a transaction PIN', () => {
   });
 
   it('is owner-only', async () => {
-    harness = makeUiHarness('pin-owner-only');
+    harness = freshHarness('pin-owner-only');
     const operator = await signInAs(harness.api);
     const { response } = await callWith(harness.api, 'POST', '/api/training/operators/pin', {
       cookie: operator.cookieHeader,
@@ -237,7 +257,7 @@ describe('changing a transaction PIN', () => {
   });
 
   it('records a wrong current PIN as a PIN_AUTH failure, not a login failure', async () => {
-    harness = makeUiHarness('pin-failure-scope');
+    harness = freshHarness('pin-failure-scope');
     const owner = await asOwner(harness);
     const auth = authenticate(harness.api, owner.sessionToken, 'corr_pin');
     if (!auth.ok) throw new Error('no session');

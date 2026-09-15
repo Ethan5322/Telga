@@ -33,6 +33,9 @@ const doc = (over: Partial<SuppliedDocument> & { kind: string }): SuppliedDocume
   reference: `REF-${over.kind}`,
   expiresAt: null,
   documentUri: 'vault://something',
+  // A scan exists, so it has a type. The fixture's default is the commonest
+  // one an Ethiopian shop actually submits: a photograph of the paper.
+  mediaType: 'image/jpeg',
   ...over,
 });
 

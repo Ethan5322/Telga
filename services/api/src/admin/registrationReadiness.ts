@@ -49,6 +49,8 @@ export interface SuppliedDocument {
   readonly expiresAt: string | null;
   /** The vault handle, when a scan exists. */
   readonly documentUri: string | null;
+  /** How to render it: a PDF needs an `<object>`, a photograph an `<img>`. */
+  readonly mediaType: string | null;
   readonly id: string;
 }
 
@@ -62,6 +64,15 @@ export interface DocumentReadiness {
   readonly daysToExpiry: number | null;
   /** Present only when a scan can actually be opened. */
   readonly documentId: string | null;
+  /**
+   * The scan's media type, so a review screen knows how to display it.
+   *
+   * Carried rather than guessed from the file name: the type is bound into the
+   * decryption (`documentVault.read`), so it is the authority on what the bytes
+   * are, and a screen guessing differently would render a PDF as a broken
+   * image on exactly the documents a reviewer most needs to see.
+   */
+  readonly mediaType: string | null;
 }
 
 export type ReadinessVerdict =
@@ -127,6 +138,7 @@ export function assessRegistration(
         expiresAt: null,
         daysToExpiry: null,
         documentId: null,
+        mediaType: null,
       };
     }
 
@@ -153,6 +165,7 @@ export function assessRegistration(
       expiresAt,
       daysToExpiry,
       documentId: found.documentUri === null ? null : found.id,
+      mediaType: found.documentUri === null ? null : found.mediaType,
     };
   });
 

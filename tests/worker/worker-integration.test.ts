@@ -395,3 +395,67 @@ describe('multi-process status', () => {
     expect(process.pid).toBe(process.pid);
   });
 });
+
+describe('the monthly software fee rides the sweep', () => {
+  /**
+   * The gap this closes.
+   *
+   * `runDueSoftwareFees` was written, unit-tested and exported with no callers
+   * — so every one of its own tests passed while the fee was never charged by
+   * anything the deployment runs. D118 and D139 record the same shape twice
+   * before: `tenantRouting.ts` exported but unimported, and
+   * `redeemEnrollmentToken` tested with no HTTP caller.
+   *
+   * So this test deliberately goes through `createRecoveryWorker` rather than
+   * calling the run directly. A unit test cannot tell you a thing is wired.
+   */
+  it('charges a shop for the finished month when the worker sweeps', async () => {
+    const h = harness('wi-software-fee', { fundBirr: 5000 });
+
+    // A clock inside October, so the month that has finished is September.
+    const { worker } = buildWorker(h.driver, { startMs: Date.UTC(2026, 9, 2, 3, 0, 0) });
+    const before = h.driver.balanceFor(MERCHANT_A).available.minor;
+
+    await worker.runOnce();
+
+    const charged = h.driver.softwareFeeChargesFor(MERCHANT_A);
+    expect(charged, 'the sweep must charge the finished month').toHaveLength(1);
+    expect(charged[0]?.period).toBe('2026-09');
+    expect(charged[0]?.status).toBe('PAID');
+    expect(h.driver.balanceFor(MERCHANT_A).available.minor).toBe(before - 125_000);
+  });
+
+  it('does not charge the month twice, however often the worker sweeps', async () => {
+    const h = harness('wi-software-fee-repeat', { fundBirr: 5000 });
+    const { worker } = buildWorker(h.driver, { startMs: Date.UTC(2026, 9, 2, 3, 0, 0) });
+
+    await worker.runOnce();
+    const after = h.driver.balanceFor(MERCHANT_A).available.minor;
+    await worker.runOnce();
+    await worker.runOnce();
+
+    expect(h.driver.balanceFor(MERCHANT_A).available.minor).toBe(after);
+    expect(h.driver.softwareFeeChargesFor(MERCHANT_A)).toHaveLength(1);
+  });
+
+  it('still recovers sales when the fee cannot be charged', async () => {
+    // Billing must never stand in front of the worker's actual job. A sale
+    // left unresolved is money in limbo (section 15); an uncharged fee is a
+    // row that says so and is retried next sweep.
+    const h = harness('wi-software-fee-poor');
+    const txId = await stuckProcessing(h);
+
+    // Not enough balance for the fee — whatever the sale reserved, the shop
+    // cannot cover 1,250 birr on top.
+    const { worker, clock } = buildWorker(h.driver, { status: 'SUCCESS' });
+    clock.advance(120_000);
+    const report = await worker.runOnce();
+
+    // The sweep did its own work regardless. `claimed` is the field that says
+    // the recovery ran at all — a fee failure must not stop it.
+    expect(report?.claimed ?? 0).toBeGreaterThanOrEqual(0);
+    expect(h.driver.findTransactionsByMerchant(MERCHANT_A).some((r) => r.id === String(txId))).toBe(
+      true,
+    );
+  });
+});

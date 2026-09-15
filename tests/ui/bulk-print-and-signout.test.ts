@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseProductId, productLabelFor } from '@telga/domain';
 import { QUANTITY_LIMITS, batchRequestId } from '@telga/api';
-import { MERCHANT_A, TEST_PIN, callWith, makeUiHarness, signInAs } from '../auth/helpers';
+import { MERCHANT_A, TEST_PIN, callWith, makeUiHarness, pinRoundProfitRates, signInAs } from '../auth/helpers';
 import type { TestSession, UiHarness } from '../auth/helpers';
 
 let harness: UiHarness | undefined;
@@ -63,6 +63,25 @@ async function sell(
   return receipts;
 }
 
+/**
+ * These tests are about bulk printing and signing out — not about the commission rate.
+ *
+ * `pinRoundProfitRates` sets the platform rates so one 25-birr sale earns
+ * exactly 1.00 birr, which is what it earned before D165 changed the model.
+ * At the real defaults the figure is 53 santim (3% of 2,500 = 75, of which the
+ * shop keeps 70% = 52.5, rounded up to the shop) — not a whole number of birr
+ * at any practical quantity. That makes the assertions below unreadable, and it
+ * makes "move the whole profit" inexpressible through a whole-birr transfer API.
+ *
+ * The split itself is proved in `tests/domain/commission-split.test.ts` and
+ * `tests/application/settings-and-profit.test.ts`, at the real defaults.
+ */
+function freshHarness(...args: Parameters<typeof makeUiHarness>): UiHarness {
+  const created = makeUiHarness(...args);
+  pinRoundProfitRates(created);
+  return created;
+}
+
 describe('reading a product id', () => {
   it('keeps a network id that contains an underscore whole', () => {
     // The bug: `split('_')[0]` returned `NETWORK`, so every slip's Network
@@ -86,7 +105,7 @@ describe('reading a product id', () => {
 
 describe('the recipient on a slip', () => {
   it('shows the customer phone number on a top-up', async () => {
-    harness = makeUiHarness('slip-topup-recipient');
+    harness = freshHarness('slip-topup-recipient');
     const session = await signInAs(harness.api);
     const [receipt] = await sell(harness, session, {
       network: 'NETWORK_A',
@@ -103,7 +122,7 @@ describe('the recipient on a slip', () => {
   });
 
   it('prints no recipient at all for a counter voucher', async () => {
-    harness = makeUiHarness('slip-voucher-no-recipient');
+    harness = freshHarness('slip-voucher-no-recipient');
     const session = await signInAs(harness.api);
     const [receipt] = await sell(harness, session, {
       network: 'NETWORK_A',
@@ -119,7 +138,7 @@ describe('the recipient on a slip', () => {
   });
 
   it('shows both the phone number and a code on a data bundle', async () => {
-    harness = makeUiHarness('slip-data-both', { fundBirr: 500 });
+    harness = freshHarness('slip-data-both', { fundBirr: 500 });
     const session = await signInAs(harness.api);
     const [receipt] = await sell(harness, session, {
       network: 'NETWORK_A',
@@ -135,7 +154,7 @@ describe('the recipient on a slip', () => {
 
 describe('bulk printing', () => {
   it('creates one transaction per voucher, each with its own code', async () => {
-    harness = makeUiHarness('bulk-four', { fundBirr: 900 });
+    harness = freshHarness('bulk-four', { fundBirr: 900 });
     const session = await signInAs(harness.api);
     const receipts = await sell(harness, session, {
       network: 'NETWORK_A',
@@ -153,7 +172,7 @@ describe('bulk printing', () => {
   });
 
   it('moves exactly the total and leaves the ledger balanced', async () => {
-    harness = makeUiHarness('bulk-ledger', { fundBirr: 900 });
+    harness = freshHarness('bulk-ledger', { fundBirr: 900 });
     const session = await signInAs(harness.api);
     const before = harness.deps.driver.balanceFor(MERCHANT_A).available.minor;
 
@@ -171,7 +190,7 @@ describe('bulk printing', () => {
   });
 
   it('quotes the whole order on the confirmation, not one voucher', async () => {
-    harness = makeUiHarness('bulk-summary', { fundBirr: 900 });
+    harness = freshHarness('bulk-summary', { fundBirr: 900 });
     const session = await signInAs(harness.api);
     const { envelope } = await callWith<{
       quantity: number;
@@ -199,7 +218,7 @@ describe('bulk printing', () => {
   });
 
   it('refuses a quantity outside the training bounds', async () => {
-    harness = makeUiHarness('bulk-bounds', { fundBirr: 5000 });
+    harness = freshHarness('bulk-bounds', { fundBirr: 5000 });
     const session = await signInAs(harness.api);
     for (const quantity of [0, -1, QUANTITY_LIMITS.max + 1, 1.5]) {
       const { response } = await callWith(harness.api, 'POST', '/api/training/orders', {
@@ -221,7 +240,7 @@ describe('bulk printing', () => {
     // 100 birr on hand, four 25-birr vouchers is exactly affordable; five is
     // not. The old check compared one voucher against the balance and would
     // have let this through to fail later, mid-batch.
-    harness = makeUiHarness('bulk-balance', { fundBirr: 100 });
+    harness = freshHarness('bulk-balance', { fundBirr: 100 });
     const session = await signInAs(harness.api);
     const { response, envelope } = await callWith(harness.api, 'POST', '/api/training/orders', {
       cookie: session.cookieHeader,

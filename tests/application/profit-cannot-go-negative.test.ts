@@ -18,7 +18,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { MERCHANT_A, OWNER_USER, TEST_PIN, callWith, makeUiHarness, signInAs } from '../auth/helpers';
+import { MERCHANT_A, OWNER_USER, TEST_PIN, callWith, makeUiHarness, pinRoundProfitRates, signInAs } from '../auth/helpers';
 import type { UiHarness } from '../auth/helpers';
 
 let harness: UiHarness | undefined;
@@ -72,10 +72,29 @@ function assertSound(h: UiHarness): void {
   expect(h.deps.driver.ledgerResidualMinor(), 'the ledger must still balance').toBe(0);
 }
 
+/**
+ * These tests are about the profit figure never going negative — not about the commission rate.
+ *
+ * `pinRoundProfitRates` sets the platform rates so one 25-birr sale earns
+ * exactly 1.00 birr, which is what it earned before D165 changed the model.
+ * At the real defaults the figure is 53 santim (3% of 2,500 = 75, of which the
+ * shop keeps 70% = 52.5, rounded up to the shop) — not a whole number of birr
+ * at any practical quantity. That makes the assertions below unreadable, and it
+ * makes "move the whole profit" inexpressible through a whole-birr transfer API.
+ *
+ * The split itself is proved in `tests/domain/commission-split.test.ts` and
+ * `tests/application/settings-and-profit.test.ts`, at the real defaults.
+ */
+function freshHarness(...args: Parameters<typeof makeUiHarness>): UiHarness {
+  const created = makeUiHarness(...args);
+  pinRoundProfitRates(created);
+  return created;
+}
+
 describe('repeated transfers', () => {
   it('cannot drain more than was earned, however many times it is asked', async () => {
     // The exact shape of the report: move, then move again, then again.
-    harness = makeUiHarness('profit-repeat', { fundBirr: 900 });
+    harness = freshHarness('profit-repeat', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn'); // 4 birr of profit
     const owner = await asOwner(harness);
     expect(harness.deps.driver.profitAvailableMinor(MERCHANT_A)).toBe(400);
@@ -94,7 +113,7 @@ describe('repeated transfers', () => {
   });
 
   it('cannot be walked below zero one birr at a time', async () => {
-    harness = makeUiHarness('profit-walk', { fundBirr: 900 });
+    harness = freshHarness('profit-walk', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
 
@@ -114,7 +133,7 @@ describe('amounts that are not plain whole birr', () => {
   it('refuses a fraction that would round above the profit', async () => {
     // 4.005 birr rounds to 401 minor against 400 available. Rounding must not
     // be a way to take one more unit than was earned.
-    harness = makeUiHarness('profit-fraction', { fundBirr: 900 });
+    harness = freshHarness('profit-fraction', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
 
@@ -126,7 +145,7 @@ describe('amounts that are not plain whole birr', () => {
   it('refuses a negative amount rather than crediting profit', async () => {
     // A negative transfer would run the posting backwards: profit *up*,
     // balance *down*. It must be refused, not inverted.
-    harness = makeUiHarness('profit-negative', { fundBirr: 900 });
+    harness = freshHarness('profit-negative', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
     const before = harness.deps.driver.balanceFor(MERCHANT_A).available.minor;
@@ -141,7 +160,7 @@ describe('amounts that are not plain whole birr', () => {
   });
 
   it('refuses values that are not numbers at all', async () => {
-    harness = makeUiHarness('profit-nonsense', { fundBirr: 900 });
+    harness = freshHarness('profit-nonsense', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
 
@@ -156,7 +175,7 @@ describe('amounts that are not plain whole birr', () => {
   });
 
   it('refuses an amount so large it would overflow safe integers', async () => {
-    harness = makeUiHarness('profit-huge', { fundBirr: 900 });
+    harness = freshHarness('profit-huge', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
 
@@ -170,7 +189,7 @@ describe('amounts that are not plain whole birr', () => {
 
 describe('the exact boundary', () => {
   it('allows exactly the profit and not one minor unit more', async () => {
-    harness = makeUiHarness('profit-boundary', { fundBirr: 900 });
+    harness = freshHarness('profit-boundary', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
 

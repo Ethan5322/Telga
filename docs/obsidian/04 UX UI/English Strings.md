@@ -102,6 +102,8 @@ These twenty carry the most operational weight. A mistake here costs money or tr
 | `statements.gross` | Sold |
 | `statements.profit` | Profit |
 | `statements.reversals` | Reversed |
+| `statements.fees` | Software fee |
+| `statements.fee.due` | Due |
 | `statements.total` | Total |
 | `statements.note` | Profit is what was earned on each day. Moving profit into the selling balance is not a sale and is not subtracted here; a reversed sale is. |
 | `screen.pay_settings` | Telga Pay settings |

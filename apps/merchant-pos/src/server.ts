@@ -89,7 +89,7 @@ import {
   takeCardPayment,
   unlockWithPin,
 } from '@telga/api';
-import { ApplicationWriteError, maskRecipient } from '@telga/persistence';
+import { ApplicationWriteError, maskRecipient, periodEnd } from '@telga/persistence';
 import type { Locale } from '@telga/localization';
 import {
   TRAINING_REVERSAL_POLICY,
@@ -1956,6 +1956,39 @@ export async function renderScreen(
       });
     }
 
+    /**
+     * The monthly software fee, on the day it was taken.
+     *
+     * Founder instruction, 2026-09-14: the fee comes out of the balance with no
+     * prompt, *"but it must show [on the] transaction statement of Telga
+     * Vending"*. So the charge rows are read for the same window and keyed by
+     * the day they were charged.
+     *
+     * A charge still in arrears has no `chargedAt` — nothing was taken yet — so
+     * it is keyed to the last day of the month it is owed for. That is the day
+     * a shopkeeper will look for it, and showing it as due is more use than
+     * showing nothing and being asked about it later.
+     */
+    const feeByDay = new Map<string, { minor: number; unpaid: boolean }>();
+    for (const fee of options.api.driver.softwareFeeChargesFor(context.merchantId, range)) {
+      if (fee.status === 'WAIVED') continue;
+      const day = fee.chargedAt === null ? periodEnd(fee.period) : fee.chargedAt.slice(0, 10);
+      if (range !== undefined && !withinRange(`${day}T00:00:00.000Z`, range)) continue;
+      const seen = feeByDay.get(day) ?? { minor: 0, unpaid: false };
+      feeByDay.set(day, {
+        minor: seen.minor + fee.amountMinor,
+        unpaid: seen.unpaid || fee.status === 'ARREARS',
+      });
+    }
+
+    // A fee falls on a day with no sales more often than not — a month end is
+    // rarely a shop's busiest day — so the fee days are merged in rather than
+    // only decorating days that already have a row. Without this, the one
+    // deduction a shop most wants to find would be the one day missing.
+    for (const day of feeByDay.keys()) {
+      if (!byDay.has(day)) byDay.set(day, { sales: 0, gross: 0, reversals: 0 });
+    }
+
     const days = [...byDay.entries()]
       .sort((a, b) => (a[0] < b[0] ? 1 : -1))
       .map(([day, totals]) => ({
@@ -1968,6 +2001,9 @@ export async function renderScreen(
         profitFormatted: format(money(options.api.driver.profitForDay(context.merchantId, day))),
         profitMinor: options.api.driver.profitForDay(context.merchantId, day),
         reversals: totals.reversals,
+        feeFormatted:
+          feeByDay.get(day) === undefined ? undefined : format(money(feeByDay.get(day)!.minor)),
+        feeUnpaid: feeByDay.get(day)?.unpaid,
       }));
 
     return {
@@ -1985,6 +2021,10 @@ export async function renderScreen(
               money([...byDay.values()].reduce((n, v) => n + v.gross, 0)),
             ),
             totalProfitFormatted: format(money(days.reduce((n, d) => n + d.profitMinor, 0))),
+            totalFeesFormatted:
+              feeByDay.size === 0
+                ? undefined
+                : format(money([...feeByDay.values()].reduce((n, v) => n + v.minor, 0))),
           }),
         ),
         chrome,

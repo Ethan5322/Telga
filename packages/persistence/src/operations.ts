@@ -570,7 +570,15 @@ export function finalizeSuccess(
                 // the training rate explicitly, so no reader can mistake this
                 // entry for a real negotiated commission.
                 reason: 'COMMISSION_CREDIT' as const,
-                ruleVersion: `training-profit-${String(context.profitBps ?? 0)}bps`,
+                // Names the model AND the rate. It was `training-profit-Nbps`
+                // while profit was a flat percentage of face value; under the
+                // founder's fee policy of 2026-09-14 the figure is a share of
+                // a provider's commission instead, and a ledger entry that
+                // still called itself "training profit" would misdescribe
+                // every sale from here on. Old entries keep their old string:
+                // the ledger is append-only, and that is the point of
+                // recording the rule version at all.
+                ruleVersion: `commission-share-${String(context.profitBps ?? 0)}bps`,
               },
             ]
           : []),
@@ -632,5 +640,118 @@ export function releaseFromUnderReview(driver: SqliteLedgerDriver, context: Oper
     });
 
     audit(driver, context, 'ADJUSTMENT_POSTED', 'balance_reservation');
+  });
+}
+
+// --- the monthly software fee ------------------------------------------------
+
+/**
+ * Charge one shop its monthly software fee.
+ *
+ * Founder instruction, 2026-09-14: ETB 1,250 at every month end, from every
+ * shop, whoever owns the hardware, taken from the selling balance without a
+ * prompt, and visible on the Telga Vending statement.
+ *
+ * The posting is two legs and sums to zero:
+ *
+ * ```
+ * DEBIT  merchant available   1,250
+ * CREDIT Telga revenue        1,250
+ * ```
+ *
+ * `FEE_DEBIT` is an entry reason the ledger already allows (migration 001), so
+ * recording this needs no widening of an append-only table.
+ *
+ * ## Why it refuses rather than overdraws
+ *
+ * A shop whose available balance is below the fee is **not** debited. Section
+ * 20 says *"No overdraft"*, and a negative selling balance is Telga lending
+ * money — which section 2 keeps switched off until an authorised structure
+ * exists. The charge is still recorded, as `ARREARS`: a debt Telga can see and
+ * collect, rather than a month that silently went uncharged.
+ *
+ * Partial collection is deliberately not done. Taking 400 of 1,250 leaves a
+ * shop unable to trade and still owing 850.
+ *
+ * ## Why charging twice is impossible rather than unlikely
+ *
+ * The whole posting and the charge row are written in **one** transaction, and
+ * `software_fee_charges` has a unique index on `(merchant_id, period)`. A
+ * re-run — a restarted worker, two instances, an administrator repeating it by
+ * hand — finds the row and returns `ALREADY_CHARGED` having moved nothing.
+ */
+export function chargeSoftwareFee(
+  driver: SqliteLedgerDriver,
+  input: {
+    readonly id: string;
+    readonly merchantId: MerchantId;
+    readonly period: string;
+    readonly amountMinor: number;
+    readonly postingId: PostingId;
+    readonly at: Timestamp;
+  },
+):
+  | { readonly kind: 'CHARGED'; readonly amountMinor: number }
+  | { readonly kind: 'ARREARS'; readonly amountMinor: number; readonly availableMinor: number }
+  | { readonly kind: 'ALREADY_CHARGED' } {
+  return driver.transaction(() => {
+    const existing = driver.findSoftwareFeeCharge(input.merchantId, input.period);
+    if (existing !== undefined && existing.status !== 'ARREARS') {
+      return { kind: 'ALREADY_CHARGED' as const };
+    }
+
+    const available = driver.balanceFor(input.merchantId).available.minor;
+    if (available < input.amountMinor) {
+      driver.insertArrears(input);
+      return {
+        kind: 'ARREARS' as const,
+        amountMinor: input.amountMinor,
+        availableMinor: available,
+      };
+    }
+
+    ensureAccounts(driver, input.merchantId, input.at);
+
+    const amount: Money = { minor: input.amountMinor, currency: 'ETB' };
+    driver.appendEntries({
+      postingId: input.postingId,
+      correlationId: `software-fee-${input.period}`,
+      at: input.at,
+      mode: 'TRAINING',
+      entries: [
+        {
+          accountId: merchantAccountId(input.merchantId, 'MERCHANT_AVAILABLE'),
+          accountKind: 'MERCHANT_AVAILABLE',
+          merchantId: input.merchantId,
+          direction: 'DEBIT',
+          amount,
+          reason: 'FEE_DEBIT',
+          ruleVersion: `software-fee-${input.period}`,
+        },
+        {
+          accountId: PLATFORM_ACCOUNTS.TELGA_REVENUE,
+          accountKind: 'TELGA_REVENUE',
+          // **No merchant id, deliberately.** `profitForDay` and
+          // `profitAvailableMinor` sum `TELGA_REVENUE` *for one merchant* —
+          // they are what a shop's dashboard shows and what a profit transfer
+          // draws on. Attributing this leg would have made charging a shop
+          // 1,250 birr *raise* the profit it was shown by 1,250, and let the
+          // owner move that 1,250 into their selling balance. A fee taken
+          // would have become money invented.
+          //
+          // Nothing is lost by omitting it: `software_fee_charges` records the
+          // shop, the period, the amount and this posting id, so "whose fee was
+          // this" is answerable without putting the shop on an entry that two
+          // earnings queries would then count.
+          direction: 'CREDIT',
+          amount,
+          reason: 'FEE_DEBIT',
+          ruleVersion: `software-fee-${input.period}`,
+        },
+      ],
+    });
+
+    driver.insertPaidCharge({ ...input, postingId: String(input.postingId) });
+    return { kind: 'CHARGED' as const, amountMinor: input.amountMinor };
   });
 }

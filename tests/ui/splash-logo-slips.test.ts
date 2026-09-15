@@ -20,7 +20,7 @@ import {
 import type { PosServerOptions } from '@telga/merchant-pos';
 import { renderToHtml } from '@telga/merchant-pos';
 import { SIMULATED_PIN_PREFIX } from '@telga/domain';
-import { MERCHANT_A, callWith, makeUiHarness, signInAs, TEST_PIN } from '../auth/helpers';
+import { MERCHANT_A, callWith, makeUiHarness, pinRoundProfitRates, signInAs, TEST_PIN } from '../auth/helpers';
 import type { TestSession, UiHarness } from '../auth/helpers';
 import { TEST_VOUCHER_CATALOG, TEST_VOUCHER_NETWORKS } from './helpers';
 
@@ -89,6 +89,25 @@ async function sell(
 const valueOf = (html: string, id: string): string =>
   new RegExp(`data-testid="${id}">([^<]*)<`).exec(html)?.[1] ?? '';
 
+/**
+ * These tests are about the splash screen, the logo and printed slips — not about the commission rate.
+ *
+ * `pinRoundProfitRates` sets the platform rates so one 25-birr sale earns
+ * exactly 1.00 birr, which is what it earned before D165 changed the model.
+ * At the real defaults the figure is 53 santim (3% of 2,500 = 75, of which the
+ * shop keeps 70% = 52.5, rounded up to the shop) — not a whole number of birr
+ * at any practical quantity. That makes the assertions below unreadable, and it
+ * makes "move the whole profit" inexpressible through a whole-birr transfer API.
+ *
+ * The split itself is proved in `tests/domain/commission-split.test.ts` and
+ * `tests/application/settings-and-profit.test.ts`, at the real defaults.
+ */
+function freshHarness(...args: Parameters<typeof makeUiHarness>): UiHarness {
+  const created = makeUiHarness(...args);
+  pinRoundProfitRates(created);
+  return created;
+}
+
 describe('the Telga mark', () => {
   // These assertions changed shape when the mark stopped being hand-drawn
   // SVG. Two earlier attempts redrew it as paths and both were rejected for
@@ -127,7 +146,7 @@ describe('the Telga mark', () => {
 
 describe('what each slip prints', () => {
   it('prints the voucher PIN in full, never masked', async () => {
-    harness = makeUiHarness('slip-pin-full', { fundBirr: 500 });
+    harness = freshHarness('slip-pin-full', { fundBirr: 500 });
     const session = await signInAs(harness.api);
     const id = await sell(harness, session, 'AIRTIME', 'NETWORK_A_AIRTIME_2500');
     const html = await screenFor(harness, `/transactions/${id}/slip`, session);
@@ -140,7 +159,7 @@ describe('what each slip prints', () => {
   });
 
   it('omits the phone line on a counter voucher, rather than printing stars', async () => {
-    harness = makeUiHarness('slip-no-phone', { fundBirr: 500 });
+    harness = freshHarness('slip-no-phone', { fundBirr: 500 });
     const session = await signInAs(harness.api);
     const id = await sell(harness, session, 'AIRTIME', 'NETWORK_A_AIRTIME_2500');
     const html = await screenFor(harness, `/transactions/${id}/slip`, session);
@@ -152,7 +171,7 @@ describe('what each slip prints', () => {
   });
 
   it('prints the customer’s masked number on a top-up, and no redemption code', async () => {
-    harness = makeUiHarness('slip-topup', { fundBirr: 500 });
+    harness = freshHarness('slip-topup', { fundBirr: 500 });
     const session = await signInAs(harness.api);
     const id = await sell(harness, session, 'TOPUP', 'NETWORK_A_TOPUP_2500', '0912345678');
     const html = await screenFor(harness, `/transactions/${id}/slip`, session);
@@ -164,7 +183,7 @@ describe('what each slip prints', () => {
   });
 
   it('prints both a number and a code on a data bundle', async () => {
-    harness = makeUiHarness('slip-data', { fundBirr: 500 });
+    harness = freshHarness('slip-data', { fundBirr: 500 });
     const session = await signInAs(harness.api);
     const id = await sell(
       harness,
@@ -180,7 +199,7 @@ describe('what each slip prints', () => {
   });
 
   it('carries the mark on every product’s slip', async () => {
-    harness = makeUiHarness('slip-logo-all', { fundBirr: 900 });
+    harness = freshHarness('slip-logo-all', { fundBirr: 900 });
     const session = await signInAs(harness.api);
     for (const [type, product, recipient] of [
       ['AIRTIME', 'NETWORK_A_AIRTIME_2500', undefined],
@@ -194,7 +213,7 @@ describe('what each slip prints', () => {
   });
 
   it('names the network in full, not a truncated id', async () => {
-    harness = makeUiHarness('slip-network', { fundBirr: 500 });
+    harness = freshHarness('slip-network', { fundBirr: 500 });
     const session = await signInAs(harness.api);
     const id = await sell(harness, session, 'AIRTIME', 'NETWORK_A_AIRTIME_2500');
     const html = await screenFor(harness, `/transactions/${id}/slip`, session);
@@ -208,7 +227,7 @@ describe('what each slip prints', () => {
 
 describe('a bulk print', () => {
   it('records every voucher as its own transaction with its own code', async () => {
-    harness = makeUiHarness('bulk-ledger', { fundBirr: 900 });
+    harness = freshHarness('bulk-ledger', { fundBirr: 900 });
     const session = await signInAs(harness.api);
 
     const order = await callWith<{ orderId: string }>(harness.api, 'POST', '/api/training/orders', {

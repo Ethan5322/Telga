@@ -15,9 +15,11 @@ import {
   TEST_PIN,
   callWith,
   makeUiHarness,
+  pinRoundProfitRates,
   reasonOf,
   signInAs,
 } from '../auth/helpers';
+import type { UiHarness } from '../auth/helpers';
 import { TRAINING_DEPOSIT_LIMITS } from '@telga/api';
 
 interface OrderDto {
@@ -41,9 +43,28 @@ const asOwner = (api: Parameters<typeof signInAs>[0]) =>
 let requestCounter = 0;
 const nextRequestId = (): string => `req_test_${String((requestCounter += 1))}`;
 
+/**
+ * These tests are about top-up orders and deposits — not about the commission rate.
+ *
+ * `pinRoundProfitRates` sets the platform rates so one 25-birr sale earns
+ * exactly 1.00 birr, which is what it earned before D165 changed the model.
+ * At the real defaults the figure is 53 santim (3% of 2,500 = 75, of which the
+ * shop keeps 70% = 52.5, rounded up to the shop) — not a whole number of birr
+ * at any practical quantity. That makes the assertions below unreadable, and it
+ * makes "move the whole profit" inexpressible through a whole-birr transfer API.
+ *
+ * The split itself is proved in `tests/domain/commission-split.test.ts` and
+ * `tests/application/settings-and-profit.test.ts`, at the real defaults.
+ */
+function freshHarness(...args: Parameters<typeof makeUiHarness>): UiHarness {
+  const created = makeUiHarness(...args);
+  pinRoundProfitRates(created);
+  return created;
+}
+
 describe('creating a top-up order', () => {
   it('accepts a phone number and stores it masked, never in full', async () => {
-    const h = makeUiHarness('topup-create');
+    const h = freshHarness('topup-create');
     const session = await signInAs(h.api);
 
     const { response, envelope } = await callWith<OrderDto>(h.api, 'POST', '/api/training/orders', {
@@ -72,7 +93,7 @@ describe('creating a top-up order', () => {
   });
 
   it('refuses a top-up with no phone number at all', async () => {
-    const h = makeUiHarness('topup-no-recipient');
+    const h = freshHarness('topup-no-recipient');
     const session = await signInAs(h.api);
     const { response, envelope } = await callWith(h.api, 'POST', '/api/training/orders', {
       cookie: session.cookieHeader,
@@ -91,7 +112,7 @@ describe('creating a top-up order', () => {
   });
 
   it('refuses something that is plainly not a phone number', async () => {
-    const h = makeUiHarness('topup-bad-recipient');
+    const h = freshHarness('topup-bad-recipient');
     const session = await signInAs(h.api);
     for (const recipient of ['abc', '12', '0912345678901234567', '09-12-34']) {
       const { response } = await callWith(h.api, 'POST', '/api/training/orders', {
@@ -111,7 +132,7 @@ describe('creating a top-up order', () => {
   });
 
   it('still allows an airtime voucher with no phone number', async () => {
-    const h = makeUiHarness('airtime-no-recipient');
+    const h = freshHarness('airtime-no-recipient');
     const session = await signInAs(h.api);
     const { response, envelope } = await callWith<OrderDto>(h.api, 'POST', '/api/training/orders', {
       cookie: session.cookieHeader,
@@ -131,7 +152,7 @@ describe('creating a top-up order', () => {
   });
 
   it('shows the operator the profit before the PIN is ever asked for', async () => {
-    const h = makeUiHarness('order-shows-profit');
+    const h = freshHarness('order-shows-profit');
     const session = await signInAs(h.api);
     const { envelope } = await callWith<OrderDto>(h.api, 'POST', '/api/training/orders', {
       cookie: session.cookieHeader,
@@ -153,7 +174,7 @@ describe('creating a top-up order', () => {
 
 describe('the Telga Pay training deposit', () => {
   it('credits the float and reports the balance after', async () => {
-    const h = makeUiHarness('deposit-credits');
+    const h = freshHarness('deposit-credits');
     const session = await asOwner(h.api);
     const before = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
 
@@ -181,7 +202,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('leaves the ledger balanced', async () => {
-    const h = makeUiHarness('deposit-balanced');
+    const h = freshHarness('deposit-balanced');
     const session = await asOwner(h.api);
     await callWith(h.api, 'POST', '/api/training/pay/deposits', {
       cookie: session.cookieHeader,
@@ -197,7 +218,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('funds a sale — the whole point of a training float', async () => {
-    const h = makeUiHarness('deposit-funds-a-sale', { fundBirr: 0 });
+    const h = freshHarness('deposit-funds-a-sale', { fundBirr: 0 });
     const session = await asOwner(h.api);
     const requestId = nextRequestId();
 
@@ -243,7 +264,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('refuses an operator, and credits nothing when it does', async () => {
-    const h = makeUiHarness('deposit-operator-refused');
+    const h = freshHarness('deposit-operator-refused');
     const session = await signInAs(h.api);
     const before = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
 
@@ -263,7 +284,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('refuses a request with no CSRF token', async () => {
-    const h = makeUiHarness('deposit-csrf');
+    const h = freshHarness('deposit-csrf');
     const session = await asOwner(h.api);
     const before = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
 
@@ -278,7 +299,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('refuses an unauthenticated request outright', async () => {
-    const h = makeUiHarness('deposit-anonymous');
+    const h = freshHarness('deposit-anonymous');
     const before = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
     const { response } = await callWith(h.api, 'POST', '/api/training/pay/deposits', {
       body: { amountMinor: 20_000, method: 'TAP', clientRequestId: nextRequestId() },
@@ -289,7 +310,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('refuses an amount outside the training limits, and a fractional birr', async () => {
-    const h = makeUiHarness('deposit-limits');
+    const h = freshHarness('deposit-limits');
     const session = await asOwner(h.api);
     const before = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
     const post = (amountMinor: number) =>
@@ -312,7 +333,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('refuses a card gesture it does not recognise', async () => {
-    const h = makeUiHarness('deposit-method');
+    const h = freshHarness('deposit-method');
     const session = await asOwner(h.api);
     const { response } = await callWith(h.api, 'POST', '/api/training/pay/deposits', {
       cookie: session.cookieHeader,
@@ -328,7 +349,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('posts once when the same button is pressed twice', async () => {
-    const h = makeUiHarness('deposit-double-press');
+    const h = freshHarness('deposit-double-press');
     const session = await asOwner(h.api);
     const before = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
     const requestId = nextRequestId();
@@ -364,7 +385,7 @@ describe('the Telga Pay training deposit', () => {
   });
 
   it('records an audit event that names no card and no processor', async () => {
-    const h = makeUiHarness('deposit-audit');
+    const h = freshHarness('deposit-audit');
     const session = await asOwner(h.api);
     await callWith(h.api, 'POST', '/api/training/pay/deposits', {
       cookie: session.cookieHeader,
@@ -403,7 +424,7 @@ describe('a deposit cannot be aimed at another merchant', () => {
     //
     // Balances are asserted on both sides regardless, because a refusal that
     // still posted would be the failure worth catching.
-    const h = makeUiHarness('deposit-cross-merchant', { seedSecondMerchant: true });
+    const h = freshHarness('deposit-cross-merchant', { seedSecondMerchant: true });
     const session = await asOwner(h.api);
 
     const beforeA = h.deps.driver.balanceFor(MERCHANT_A).available.minor;
@@ -440,7 +461,7 @@ describe('a deposit cannot be aimed at another merchant', () => {
     // The control for the case above: the same request without the tampered
     // field succeeds, so the 403 is the scope check firing and not the deposit
     // path being broken.
-    const h = makeUiHarness('deposit-own-merchant', { seedSecondMerchant: true });
+    const h = freshHarness('deposit-own-merchant', { seedSecondMerchant: true });
     const session = await asOwner(h.api);
 
     const beforeA = h.deps.driver.balanceFor(MERCHANT_A).available.minor;

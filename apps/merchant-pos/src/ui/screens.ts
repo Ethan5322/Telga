@@ -2733,6 +2733,17 @@ export interface StatementDay {
   readonly grossFormatted: string;
   readonly profitFormatted: string;
   readonly reversals: number;
+  /**
+   * The monthly software fee taken on this day, already formatted, or
+   * `undefined` on the days — almost all of them — that carry no fee.
+   *
+   * Founder instruction, 2026-09-14: the fee is taken without a prompt, *"but
+   * it must show [on the] transaction statement"*. This column is that
+   * sentence. A deduction a shop cannot find is one it will telephone about.
+   */
+  readonly feeFormatted?: string;
+  /** True when the fee was due and could not be taken — see migration 024. */
+  readonly feeUnpaid?: boolean;
 }
 
 export interface StatementProps {
@@ -2742,6 +2753,7 @@ export interface StatementProps {
   readonly totalGrossFormatted: string;
   readonly totalProfitFormatted: string;
   readonly totalSales: number;
+  readonly totalFeesFormatted?: string;
 }
 
 /**
@@ -2806,6 +2818,7 @@ export function statementScreen(props: StatementProps): El {
               h('th', { scope: 'col' }, t(locale, 'statements.sales')),
               h('th', { scope: 'col' }, t(locale, 'statements.gross')),
               h('th', { scope: 'col' }, t(locale, 'statements.profit')),
+              h('th', { scope: 'col' }, t(locale, 'statements.fees')),
               h('th', { scope: 'col' }, t(locale, 'statements.reversals')),
             ),
           ),
@@ -2830,6 +2843,17 @@ export function statementScreen(props: StatementProps): El {
                 h('td', {}, String(d.sales)),
                 h('td', {}, d.grossFormatted),
                 h('td', { 'data-testid': `statement-profit-${d.day}` }, d.profitFormatted),
+                // Empty on the days that carry no fee, which is almost all of
+                // them. A dash would read as a figure of zero.
+                h(
+                  'td',
+                  { 'data-testid': `statement-fee-${d.day}` },
+                  d.feeFormatted === undefined
+                    ? ''
+                    : d.feeUnpaid === true
+                      ? `${d.feeFormatted} (${t(locale, 'statements.fee.due')})`
+                      : d.feeFormatted,
+                ),
                 h('td', {}, String(d.reversals)),
               ),
             ),
@@ -2844,6 +2868,7 @@ export function statementScreen(props: StatementProps): El {
               h('td', { 'data-testid': 'statement-total-sales' }, String(props.totalSales)),
               h('td', { 'data-testid': 'statement-total-gross' }, props.totalGrossFormatted),
               h('td', { 'data-testid': 'statement-total-profit' }, props.totalProfitFormatted),
+              h('td', { 'data-testid': 'statement-total-fees' }, props.totalFeesFormatted ?? ''),
               h('td', {}, ''),
             ),
           ),

@@ -97,6 +97,10 @@ export const EN = Object.freeze({
   'statements.gross': 'Sold',
   'statements.profit': 'Profit',
   'statements.reversals': 'Reversed',
+  // The monthly software fee, shown on the day it was taken. The founder asked
+  // for the deduction to appear here; naming it plainly is the whole point.
+  'statements.fees': 'Software fee',
+  'statements.fee.due': 'Due',
   'statements.total': 'Total',
   'statements.note': 'Profit is what was earned on each day. Moving profit into the selling balance is not a sale and is not subtracted here; a reversed sale is.',
   'pay.records.transactions_title': 'Telga Pay transactions',
@@ -839,6 +843,8 @@ export const AM: Readonly<Partial<Record<MessageKey, string>>> = Object.freeze({
   'statements.gross': 'የተሸጠ',
   'statements.profit': 'ትርፍ',
   'statements.reversals': 'የተመለሱ',
+  'statements.fees': 'የሶፍትዌር ክፍያ',
+  'statements.fee.due': 'ገና ያልተከፈለ',
   'statements.total': 'ጠቅላላ',
   'statements.note': 'ትርፍ በእያንዳንዱ ቀን የተገኘው ነው። ትርፍን ወደ መሸጫ ቀሪ ሂሳብ ማዘዋወር ሽያጭ አይደለም፤ የተመለሰ ሽያጭ ግን ይቀነሳል።',
   'pay.records.transactions_title': 'የቴልጋ ፔይ ግብይቶች',

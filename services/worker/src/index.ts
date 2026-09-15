@@ -16,3 +16,4 @@ export * from './shutdown';
 export * from './workerHealth';
 export * from './workerLifecycle';
 export * from './recoveryWorker';
+export * from './softwareFeeRun';

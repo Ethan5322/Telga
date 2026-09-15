@@ -1110,3 +1110,303 @@ export function retireDeviceScreen(props: RetireDeviceProps): El {
     ),
   );
 }
+
+// --- the fee policy ---------------------------------------------------------
+
+export interface ProviderRateRow {
+  readonly id: string;
+  readonly providerId: string;
+  readonly productType: string | null;
+  readonly commissionBps: number;
+  readonly source: string;
+  readonly status: string;
+}
+
+export interface FeePolicyProps {
+  readonly chrome: ConsoleChrome;
+  readonly defaultCommissionBps: number;
+  readonly shopShareBps: number;
+  readonly softwareFeeMinor: number;
+  readonly softwareFeeEnabled: boolean;
+  readonly providerRates: readonly ProviderRateRow[];
+  readonly updatedAt: string;
+  readonly updatedBy: string | null;
+  /** Platform revenue to date, formatted. Telga's side of every split. */
+  readonly telgaRevenueFormatted: string;
+  readonly unsettledFormatted: string;
+  readonly saved?: boolean;
+  readonly error?: string;
+}
+
+const pct = (bps: number): string => `${(bps / 100).toFixed(2)}%`;
+
+/**
+ * The fee policy screen — the only place these rates can be set.
+ *
+ * Founder instruction, 2026-09-14: *"Only the admin panel can decide the
+ * percent of commission the shop earns… shops can't decide,"* and *"all Telga
+ * shop owners [get] the same amount of commission from each sale, that decide
+ * by admin panel."*
+ *
+ * ## Why there is one figure and not a list of shops
+ *
+ * The share is global. A per-shop control would not merely be extra work — it
+ * would be a way to break the rule the founder gave, by letting two shops end
+ * up on different terms through nothing but a mis-click. The screen has no
+ * shop selector because the policy has no per-shop answer.
+ *
+ * ## Why the worked example is not decoration
+ *
+ * Basis points are exact and unreadable. An administrator setting 7000 is
+ * deciding what every shop in Ethiopia earns on every sale, and the difference
+ * between 7000 and 700 is the difference between a shop earning 2.10 and 0.21
+ * on a 100 birr sale. The example states the outcome in birr, so a slipped
+ * digit looks wrong before it is saved rather than after it has paid.
+ *
+ * ## What is deliberately absent
+ *
+ * **No shop's profit.** The founder: *"profit on admin panel, no — no need
+ * shop profit on admin panel, that's private."* What a shop earned is the
+ * shop's business and stays on Telga Vending. This screen shows the *rate*
+ * that applies to everybody, and Telga's own revenue — never one shop's
+ * takings.
+ */
+export function feePolicyScreen(props: FeePolicyProps): El {
+  const { chrome } = props;
+  const example = 10_000; // 100 birr, in santim
+  const commission = Math.round((example * props.defaultCommissionBps) / 10_000);
+  const shop = Math.round((commission * props.shopShareBps) / 10_000);
+  const birr = (minor: number): string => `ETB ${(minor / 100).toFixed(2)}`;
+
+  return page(
+    { ...chrome, section: 'fees' },
+    'Fee policy',
+    props.saved === true
+      ? h('p', { class: 'console__notice', 'data-testid': 'fee-saved' }, 'Fee policy saved.')
+      : false,
+    props.error === undefined
+      ? false
+      : h('p', { class: 'console__error', 'data-testid': 'fee-error' }, props.error),
+
+    h(
+      'p',
+      { class: 'console__note' },
+      'These rates apply to every Telga shop equally. A shop cannot change them, and there is ' +
+        'no per-shop rate.',
+    ),
+
+    h(
+      'form',
+      { method: 'post', action: '/fees', 'data-testid': 'fee-policy-form' },
+      h('input', { type: 'hidden', name: 'csrfToken', value: chrome.csrfToken ?? '' }),
+
+      h(
+        'div',
+        { class: 'console__field' },
+        h('label', { for: 'shopShareBps' }, 'Shop share of provider commission'),
+        h('input', {
+          id: 'shopShareBps',
+          name: 'shopShareBps',
+          type: 'number',
+          min: '0',
+          max: '10000',
+          step: '1',
+          value: String(props.shopShareBps),
+          required: true,
+          'data-testid': 'shop-share-bps',
+        }),
+        h(
+          'p',
+          { class: 'console__hint' },
+          `In basis points. ${String(props.shopShareBps)} = ${pct(props.shopShareBps)}. ` +
+            `Telga keeps the remaining ${pct(10_000 - props.shopShareBps)}.`,
+        ),
+      ),
+
+      h(
+        'div',
+        { class: 'console__field' },
+        h('label', { for: 'defaultCommissionBps' }, 'Default provider commission rate'),
+        h('input', {
+          id: 'defaultCommissionBps',
+          name: 'defaultCommissionBps',
+          type: 'number',
+          min: '0',
+          max: '10000',
+          step: '1',
+          value: String(props.defaultCommissionBps),
+          required: true,
+          'data-testid': 'default-commission-bps',
+        }),
+        h(
+          'p',
+          { class: 'console__hint' },
+          'Used where a provider has no rate of its own below. ' +
+            `${String(props.defaultCommissionBps)} = ${pct(props.defaultCommissionBps)}.`,
+        ),
+      ),
+
+      h(
+        'div',
+        { class: 'console__field' },
+        h('label', { for: 'softwareFeeMinor' }, 'Monthly software fee (santim)'),
+        h('input', {
+          id: 'softwareFeeMinor',
+          name: 'softwareFeeMinor',
+          type: 'number',
+          min: '0',
+          step: '1',
+          value: String(props.softwareFeeMinor),
+          required: true,
+          'data-testid': 'software-fee-minor',
+        }),
+        h(
+          'p',
+          { class: 'console__hint' },
+          `${String(props.softwareFeeMinor)} santim = ${birr(props.softwareFeeMinor)}. ` +
+            'Charged to every active shop at each month end, from its selling balance. ' +
+            'A shop without the balance is recorded as owing it, never overdrawn.',
+        ),
+      ),
+
+      h(
+        'div',
+        { class: 'console__field' },
+        h('label', { for: 'softwareFeeEnabled' }, 'Charge the monthly software fee'),
+        h('input', {
+          id: 'softwareFeeEnabled',
+          name: 'softwareFeeEnabled',
+          type: 'checkbox',
+          value: 'on',
+          ...(props.softwareFeeEnabled ? { checked: true } : {}),
+          'data-testid': 'software-fee-enabled',
+        }),
+        h(
+          'p',
+          { class: 'console__hint' },
+          'Off means no shop is charged and nothing is recorded as owed for that month.',
+        ),
+      ),
+
+      // The example is the check against a slipped digit: basis points are
+      // exact and unreadable, birr is neither.
+      h(
+        'table',
+        { class: 'console__table', 'data-testid': 'fee-worked-example' },
+        h('caption', {}, 'On a 100 birr sale, at the rates above'),
+        h(
+          'tbody',
+          {},
+          h('tr', {}, h('th', { scope: 'row' }, 'Customer pays'), h('td', {}, birr(example))),
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, 'Provider commission'),
+            h('td', { 'data-testid': 'example-commission' }, birr(commission)),
+          ),
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, 'Shop earns'),
+            h('td', { 'data-testid': 'example-shop' }, birr(shop)),
+          ),
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, 'Telga earns'),
+            h('td', { 'data-testid': 'example-telga' }, birr(commission - shop)),
+          ),
+        ),
+      ),
+
+      h(
+        'button',
+        {
+          type: 'submit',
+          class: 'console__button',
+          'data-confirm':
+            'Save these rates? They change what every Telga shop earns on every future sale.',
+          'data-testid': 'save-fee-policy',
+        },
+        'Save fee policy',
+      ),
+    ),
+
+    h(
+      'p',
+      { class: 'console__hint', 'data-testid': 'fee-updated' },
+      `Last changed ${props.updatedAt}${props.updatedBy === null ? '' : ` by ${props.updatedBy}`}.`,
+    ),
+
+    // Telga's own side of the split. A platform aggregate: no shop is named,
+    // and no individual sale appears — section 23.2.
+    h('h2', {}, 'Telga revenue'),
+    h(
+      'table',
+      { class: 'console__table', 'data-testid': 'telga-revenue' },
+      h(
+        'tbody',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'row' }, 'Earned from commission'),
+          h('td', { 'data-testid': 'telga-revenue-total' }, props.telgaRevenueFormatted),
+        ),
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'row' }, 'Provider commission not yet settled'),
+          h('td', { 'data-testid': 'telga-unsettled' }, props.unsettledFormatted),
+        ),
+      ),
+    ),
+
+    h('h2', {}, 'Provider rates'),
+    h(
+      'p',
+      { class: 'console__note' },
+      'A provider commission is a term in that provider contract. Telga does not assume every ' +
+        'operator pays the same rate, and no rate may be entered without naming where it came ' +
+        'from.',
+    ),
+    props.providerRates.length === 0
+      ? h(
+          'p',
+          { 'data-testid': 'no-provider-rates' },
+          'No provider rate is configured. Sales use the default rate above.',
+        )
+      : h(
+          'table',
+          { class: 'console__table', 'data-testid': 'provider-rates' },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              h('th', { scope: 'col' }, 'Provider'),
+              h('th', { scope: 'col' }, 'Product'),
+              h('th', { scope: 'col' }, 'Commission'),
+              h('th', { scope: 'col' }, 'Source'),
+              h('th', { scope: 'col' }, 'Status'),
+            ),
+          ),
+          h(
+            'tbody',
+            {},
+            ...props.providerRates.map((rate) =>
+              h(
+                'tr',
+                { 'data-testid': `provider-rate-${rate.id}` },
+                h('td', {}, rate.providerId),
+                h('td', {}, rate.productType ?? 'All products'),
+                h('td', {}, pct(rate.commissionBps)),
+                h('td', {}, rate.source),
+                h('td', {}, rate.status === 'CONFIRMED' ? 'Confirmed' : 'Not yet confirmed'),
+              ),
+            ),
+          ),
+        ),
+  );
+}

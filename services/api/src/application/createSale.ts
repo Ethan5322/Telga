@@ -40,8 +40,7 @@ import {
   postingId,
   timestamp,
   transactionId as makeTransactionId,
-  profitBpsFrom,
-  trainingProfitMinor,
+  splitCommission,
 } from '@telga/domain';
 import type { SaleIntent, Transaction, TransactionState } from '@telga/domain';
 import {
@@ -343,14 +342,31 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
     if (outcome === 'SUCCESSFUL') {
       processing = transitionTo(processing, 'SUCCESSFUL', { at, reason: 'provider confirmed delivery', providerReference });
       persist(deps, processing, request.recipient, fingerprint, request.recipientMasked);
-      // Training profit: the float drops by the face value, and a percentage
-      // of that face value is credited separately as the shop's margin. The
-      // customer pays the face value either way — profit is never a
-      // surcharge. Rate comes from merchant settings, defaulting to the
-      // training rate. See Decision Log D69.
-      const profitBps = profitBpsFrom(
-        deps.driver.readSetting(request.merchantId, 'PROFIT_PERCENT_BPS'),
+      /**
+       * The shop's margin, under the founder's fee policy of 2026-09-14.
+       *
+       * **Two steps, not one.** The provider pays a commission on the sale;
+       * the shop keeps 70% of *that*, and Telga keeps the rest. The model this
+       * replaced took a flat 4% of the face value, which the policy forbids:
+       * *"do not calculate shop profit from the full transaction amount unless
+       * a provider contract explicitly defines that behavior."* On a 100 birr
+       * sale at 3% a shop now earns 2.10 where it earned 4.00.
+       *
+       * **Both rates are platform configuration and neither is a merchant
+       * setting.** `PROFIT_PERCENT_BPS` — a per-shop row this used to read —
+       * is no longer consulted: the founder's instruction is that only the
+       * admin panel decides what a shop earns, and that every Telga shop earns
+       * the same share. A rate read from a per-shop row could not have held
+       * either rule.
+       */
+      const fees = deps.driver.readPlatformFeeSettings();
+      const productType = String(request.productId);
+      const commissionBps = deps.driver.effectiveCommissionBps(
+        String(deps.providerId),
+        productType,
       );
+      const split = splitCommission(request.amount.minor, commissionBps, fees.shopShareBps);
+
       finalizeSuccess(deps.driver, {
         merchantId: request.merchantId,
         transactionId: txId,
@@ -360,8 +376,38 @@ export async function createSale(deps: SaleDeps, request: SaleRequest): Promise<
         actor: { userId: request.operatorId, role: 'MERCHANT_OPERATOR', deviceId: request.deviceId },
         postingId: postingId(deps.newId('post')),
         auditId: deps.newId('audit'),
-        profitMinor: trainingProfitMinor(request.amount.minor, profitBps),
-        profitBps,
+        // The shop's share only. Telga's share is not part of the face-value
+        // posting: it is money a *provider* owes Telga, not money that moves
+        // between the shop and the provider settlement account. It is recorded
+        // below as an unsettled commission entry, which is what section 20's
+        // "segregate provider settlement from Telga revenue" asks for — a
+        // commission earned is not a commission received.
+        profitMinor: split.shopShareMinor,
+        profitBps: commissionBps,
+      });
+
+      /**
+       * The commission entry: the one place all four figures stay separate.
+       *
+       * Section 13 requires customer funds, provider commission, shop earnings
+       * and Telga revenue to remain traceable end to end. The ledger posting
+       * above carries the first and third. This carries all four, at the rates
+       * that applied when the sale happened — because an administrator can
+       * change those rates, and a past sale must still be explainable.
+       */
+      deps.driver.recordCommission({
+        id: deps.newId('comm'),
+        transactionId: String(txId),
+        merchantId: request.merchantId,
+        providerId: String(deps.providerId),
+        productType,
+        transactionAmountMinor: request.amount.minor,
+        providerCommissionBps: split.providerCommissionBps,
+        shopShareBps: split.shopShareBps,
+        providerCommissionMinor: split.providerCommissionMinor,
+        shopShareMinor: split.shopShareMinor,
+        telgaShareMinor: split.telgaShareMinor,
+        at,
       });
       audit(deps, processing, 'TRANSACTION_TRANSITIONED', correlationId, 'PROCESSING');
       deps.driver.recordIdempotencyResult(request.merchantId, idempotencyKey, 'SUCCESSFUL', at);

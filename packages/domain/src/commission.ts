@@ -68,7 +68,9 @@ export function trainingProfitMinor(
 
 /** Parse a stored `PROFIT_PERCENT_BPS` setting, falling back to the default. */
 export function profitBpsFrom(stored: string | undefined): number {
-  if (stored === undefined) return DEFAULT_TRAINING_PROFIT_BPS;
+  // An empty string is absence, not zero: `Number('')` is 0, which passes
+  // every check below and would configure a 0% profit rate silently.
+  if (stored === undefined || stored.trim() === '') return DEFAULT_TRAINING_PROFIT_BPS;
   const parsed = Number(stored);
   if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 10_000) {
     return DEFAULT_TRAINING_PROFIT_BPS;

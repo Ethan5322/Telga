@@ -241,6 +241,8 @@ literal-from-English.
 | `statements.gross` | Sold | የተሸጠ | ☐ |
 | `statements.profit` | Profit | ትርፍ | ☐ |
 | `statements.reversals` | Reversed | የተመለሱ | ☐ |
+| `statements.fees` | Software fee | የሶፍትዌር ክፍያ | ☐ |
+| `statements.fee.due` | Due | ገና ያልተከፈለ | ☐ |
 | `statements.total` | Total | ጠቅላላ | ☐ |
 | `statements.note` | Profit is what was earned on each day. Moving profit into the selling balance is not a sale and is not subtracted here; a reversed sale is. | ትርፍ በእያንዳንዱ ቀን የተገኘው ነው። ትርፍን ወደ መሸጫ ቀሪ ሂሳብ ማዘዋወር ሽያጭ አይደለም፤ የተመለሰ ሽያጭ ግን ይቀነሳል። | ☐ |
 | `screen.pay_settings` | Telga Pay settings | የቴልጋ ፔይ ቅንብሮች | ☐ |

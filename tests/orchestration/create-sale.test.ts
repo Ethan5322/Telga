@@ -68,16 +68,19 @@ describe('immediate success', () => {
     const credits = entries.filter((e) => e.entry_type === 'COMMISSION_CREDIT');
     expect(credits).toHaveLength(1);
 
-    // `rule_version` names the training rate explicitly, so no reader can
-    // take this for a negotiated commission.
-    expect(credits[0]?.rule_version).toMatch(/^training-profit-\d+bps$/);
+    // `rule_version` names the model **and** the rate, so no reader can take
+    // this for a negotiated commission. It read `training-profit-Nbps` while
+    // profit was a flat percentage of face value; under D165 the figure is a
+    // share of a provider's commission, and an entry still calling itself
+    // "training profit" would misdescribe every sale from here on.
+    expect(credits[0]?.rule_version).toMatch(/^commission-share-\d+bps$/);
     expect(credits[0]?.account_type).toBe('TELGA_REVENUE');
 
     // A real fee still has no rate and is still never written.
     expect(entries.some((e) => e.entry_type === 'FEE_DEBIT')).toBe(false);
   });
 
-  it('applies the confirmed profit model: float −face value, revenue +profit', async () => {
+  it('applies the confirmed profit model: float −face value, revenue +shop share', async () => {
     const { deps, driver } = harness('success-profit-model', { behaviour: 'SUCCESS' });
     const SALE_AMOUNT_MINOR = 2500; // the fixture sells 25 birr
     const before = driver.balanceFor(MERCHANT_A).available.minor;
@@ -85,19 +88,51 @@ describe('immediate success', () => {
     await createSale(deps, saleRequest());
 
     // The float drops by exactly the face value the customer paid — the
-    // profit is never added to what they hand over.
+    // profit is never added to what they hand over. Unchanged by D165, and
+    // the half of this test that matters most: whatever the rate model is,
+    // the customer pays the sticker price.
     const after = driver.balanceFor(MERCHANT_A).available.minor;
     expect(before - after).toBe(SALE_AMOUNT_MINOR);
 
-    // And the profit is credited separately, at the default 4%.
+    /**
+     * And the shop's share is credited separately.
+     *
+     * Two steps under the founder's fee policy (D165): the provider pays 3% of
+     * 2,500 = 75, and the shop keeps 70% of **that** = 52.5, which rounds to
+     * **53** because a half-santim falls to the shop.
+     *
+     * It was 100 — a flat 4% of face value — under the model this replaced.
+     * Written out rather than computed with `splitCommission`, because a test
+     * that derives its expectation from the function under test would pass
+     * whatever that function did.
+     */
     const entries = driver.readEntries();
     const revenue = entries.filter((e) => e.account_type === 'TELGA_REVENUE');
     expect(revenue).toHaveLength(1);
     expect(revenue[0]?.direction).toBe('CREDIT');
-    expect(revenue[0]?.amount_minor).toBe(Math.round((SALE_AMOUNT_MINOR * 400) / 10_000));
+    expect(revenue[0]?.amount_minor).toBe(53);
 
     // The posting still balances, so the ledger residual stays zero.
     expect(driver.ledgerResidualMinor()).toBe(0);
+  });
+
+  it('records the whole split, not only the shop’s half of it', async () => {
+    // Section 13 requires customer funds, provider commission, shop earnings
+    // and Telga revenue to stay traceable end to end. The ledger posting
+    // carries the first and third; the commission entry carries all four, at
+    // the rates that applied when the sale happened.
+    const { deps, driver } = harness('success-commission-entry', { behaviour: 'SUCCESS' });
+    await createSale(deps, saleRequest());
+
+    const totals = driver.commissionTotalsFor(MERCHANT_A);
+    expect(totals.entries).toBe(1);
+    expect(totals.providerCommissionMinor).toBe(75);
+    expect(totals.shopShareMinor).toBe(53);
+    expect(totals.telgaShareMinor).toBe(22);
+    // The identity that makes this safe to post to an append-only ledger.
+    expect(totals.shopShareMinor + totals.telgaShareMinor).toBe(totals.providerCommissionMinor);
+    // Earned is not received: nothing has settled with any provider.
+    expect(totals.unsettledMinor).toBe(75);
   });
 
   it('writes audit events for creation and every transition', async () => {

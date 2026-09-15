@@ -21,6 +21,7 @@ import { ShutdownController } from './shutdown';
 import type { RecoveryWorkerPolicy } from './workerConfig';
 import { validateWorkerPolicy } from './workerConfig';
 import { RecoveryWorkerLoop, systemWorkerClock } from './workerLifecycle';
+import { runDueSoftwareFees } from './softwareFeeRun';
 import type { WorkerClock, WorkerGauges } from './workerLifecycle';
 import type { HealthThresholds, WorkerHealth } from './workerHealth';
 
@@ -138,7 +139,67 @@ export function createRecoveryWorker(options: RecoveryWorkerOptions): RecoveryWo
     logger,
     metrics,
     healthThresholds: options.healthThresholds,
-    runSweep: (sweepOptions: SweepOptions) => recoverInFlight(deps, sweepOptions),
+    /**
+     * The sweep recovers in-flight sales, and then charges whatever monthly
+     * software fee is due.
+     *
+     * ## Why it hangs off the sweep rather than a schedule of its own
+     *
+     * `runDueSoftwareFees` charges the month that has **finished**, and the
+     * charge is idempotent per shop per month — `(merchant_id, period)` is
+     * unique, so the first sweep after a month ends does the work and every
+     * sweep after that finds the row and moves nothing. That makes "run it
+     * often" and "run it once" the same thing, which is what lets it ride the
+     * loop that already exists.
+     *
+     * A cron entry would be the conventional answer and is worse here: a cron
+     * that does not fire is a month nobody is charged for and nothing that
+     * notices. This recovers by itself the next time the worker runs at all.
+     *
+     * ## Why a failure here does not fail the sweep
+     *
+     * Recovering an in-flight sale is the worker's actual job, and a sale left
+     * unresolved is money in limbo (section 15). Billing is not allowed to
+     * stand in front of that: if the fee run throws, it is logged and the sweep
+     * reports its own result, and the next sweep tries the fee again.
+     */
+    runSweep: async (sweepOptions: SweepOptions) => {
+      const report = await recoverInFlight(deps, sweepOptions);
+      try {
+        const fees = runDueSoftwareFees({
+          driver: options.driver,
+          now: () => clock.now(),
+          newId,
+        });
+        if (fees.charged > 0 || fees.arrears > 0 || fees.recovered > 0) {
+          logger.log({
+            level: 'info',
+            event: 'worker.software_fee.charged',
+            workerId: options.workerId,
+            at: clock.now(),
+            detail: {
+              period: fees.period,
+              charged: fees.charged,
+              chargedMinor: fees.chargedMinor,
+              // A shop that could not pay is the line an operations desk acts
+              // on, so it is logged at the same level as a successful charge
+              // rather than left to be discovered in the database.
+              arrears: fees.arrears,
+              recovered: fees.recovered,
+            },
+          });
+        }
+      } catch (error) {
+        logger.log({
+          level: 'error',
+          event: 'worker.software_fee.failed',
+          workerId: options.workerId,
+          at: clock.now(),
+          detail: { reason: error instanceof Error ? error.name : 'unknown error' },
+        });
+      }
+      return report;
+    },
     gauges,
     releaseOwnClaims: () => options.driver.releaseClaimsOwnedBy(options.workerId, clock.now()),
     onStopped: async () => {

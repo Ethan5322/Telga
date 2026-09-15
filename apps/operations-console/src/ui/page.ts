@@ -129,6 +129,11 @@ export const NAV: readonly NavEntry[] = Object.freeze([
   // exists, no ledger entry does, and nothing could ever decide it.
   { id: 'transfers', href: '/transfers', label: 'Transfers' },
   { id: 'provider-health', href: '/provider-health', label: 'Provider health' },
+  // The commission every shop earns and the monthly software fee. It is in the
+  // navigation because a screen that can only be reached by typing its address
+  // is a screen that does not exist as far as an operator is concerned — the
+  // same lesson the deposits entry above records.
+  { id: 'fees', href: '/fees', label: 'Fee policy' },
   { id: 'tenants', href: '/tenants', label: 'Tenants' },
   { id: 'admins', href: '/admins', label: 'Administrators' },
   { id: 'audit', href: '/audit', label: 'Audit' },
@@ -380,6 +385,37 @@ body {
   font-size: 0.9rem;
 }
 .console__table th { font-size: 0.75rem; letter-spacing: 0.07em; text-transform: uppercase; opacity: 0.7; }
+/* The scanned paperwork on the application review screen.
+
+   Sized so a reviewer sees the whole document at a glance and can tell a
+   photograph of a real licence from a screenshot of one — founder instruction,
+   2026-09-14 — then opens it full size for the stamp. It contains rather than
+   covers, because cropping a document is how the one corner carrying the seal
+   goes missing.
+
+   (No backticks anywhere in this block. It lives inside a template literal,
+   and a stray backtick here ends the string and breaks the build with a
+   misleading parser error — which has now happened eight times in this
+   repository.)
+
+   A pale backing plate, not the page's dark ground: scanned paper is white,
+   and a white document on a dark panel with no border has no edge — which is
+   precisely the thing being judged. */
+.console__scan {
+  display: block;
+  width: 100%;
+  max-width: 14rem;
+  height: 9rem;
+  object-fit: contain;
+  background: #e9edf2;
+  border: 1px solid #39465a;
+  border-radius: 3px;
+  padding: 2px;
+}
+.console__scan-link { display: inline-block; text-decoration: none; }
+/* A visible focus ring: this is a link wrapping an image, and without one a
+   keyboard reviewer cannot tell which document they are about to open. */
+.console__scan-link:focus-visible { outline: 2px solid #7aa2f7; outline-offset: 2px; }
 .console__field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; max-width: 26rem; }
 .console__field label { font-size: 0.8rem; opacity: 0.8; }
 .console__field input, .console__field select, .console__field textarea {
@@ -603,6 +639,27 @@ html, body { overflow-x: hidden; max-width: 100%; }
 }
 `;
 
+export const CONTENT_SECURITY_POLICY = [
+  "default-src 'none'",
+  "style-src 'unsafe-inline'",
+  "form-action 'self'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+  // Widened from 'none' so the application review screen can show the scanned
+  // documents rather than link to them — founder instruction, 2026-09-14: a
+  // reviewer judging whether a licence is forged has to be able to see it.
+  //
+  // **Same-origin only.** The value that matters here is not that images are
+  // allowed but that no other host is: an injected `<img src="https://...">`
+  // beacon, which is what 'none' was defending against, is still refused.
+  "img-src 'self'",
+  // `<object>` renders a PDF. Business licences and trade registrations arrive
+  // as PDFs at least as often as photographs, and a reviewer who can see the
+  // JPEGs and not the PDFs is still reviewing half blind.
+  "object-src 'self'",
+  "script-src 'none'",
+].join('; ');
+
 /**
  * The full document.
  *
@@ -611,15 +668,18 @@ html, body { overflow-x: hidden; max-width: 100%; }
  * can simply forbid script rather than allow a nonce.
  */
 export function document(body: El, title: string): string {
-  const csp = [
-    "default-src 'none'",
-    "style-src 'unsafe-inline'",
-    "form-action 'self'",
-    "base-uri 'none'",
-    "frame-ancestors 'none'",
-    "img-src 'none'",
-    "script-src 'none'",
-  ].join('; ');
+  /**
+   * The same policy the response header carries, not a second copy of it.
+   *
+   * It **was** a second copy, written out here in full — and the two drifted
+   * the moment one was changed: `img-src` was widened to `'self'` on the
+   * header while this one still said `'none'`. A browser enforces the
+   * **intersection** of the two, so the scanned documents would have stayed
+   * invisible with nothing in the header to explain why.
+   *
+   * One constant, used twice, cannot disagree with itself.
+   */
+  const csp = CONTENT_SECURITY_POLICY;
   return [
     '<!doctype html>',
     '<html lang="en">',
@@ -638,12 +698,4 @@ export function document(body: El, title: string): string {
   ].join('\n');
 }
 
-export const CONTENT_SECURITY_POLICY = [
-  "default-src 'none'",
-  "style-src 'unsafe-inline'",
-  "form-action 'self'",
-  "base-uri 'none'",
-  "frame-ancestors 'none'",
-  "img-src 'none'",
-  "script-src 'none'",
-].join('; ');
+

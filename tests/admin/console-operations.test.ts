@@ -519,6 +519,85 @@ describe('the review screen shows the paperwork', () => {
     // And it is reported as reference-only rather than silently looking fine.
     expect(reply.body).toContain('no scan attached');
   });
+
+  /**
+   * Founder instruction, 2026-09-14: *"each document must display clearly, not
+   * just mention — to evaluate if it's fake or not."*
+   *
+   * A reviewer deciding whether a trade licence is forged cannot do it from a
+   * reference number and the word "View scan". These assert the document is
+   * actually rendered into the page.
+   */
+  it('shows a scanned photograph in the page, not a link to one', async () => {
+    const cookie = await signIn();
+    db?.prepare(
+      `INSERT INTO merchant_applications
+         (id, reference, status, submitted_via, legal_name, owner_name, phone,
+          address, locality, submitted_at, created_at, updated_at)
+       VALUES ('app_img', 'TLG-EEEE-FFFF', 'SUBMITTED', 'SELF_SERVICE', 'Scan Shop', 'Owner',
+               '+251911000002', 'Street', 'Addis Ababa', ?, ?, ?)`,
+    ).run(NOW, NOW, NOW);
+    db?.prepare(
+      `INSERT INTO merchant_application_documents
+         (id, application_id, kind, reference, status, document_uri, media_type,
+          created_at, updated_at)
+       VALUES ('d3', 'app_img', 'TRADE_LICENCE', 'TL-9', 'SUPPLIED',
+               'vault://d3', 'image/jpeg', ?, ?)`,
+    ).run(NOW, NOW);
+
+    const reply = await send('/applications/app_img', { cookie });
+    expect(reply.status).toBe(200);
+    // The document itself is in the page.
+    expect(reply.body).toContain('readiness-scan-TRADE_LICENCE');
+    expect(reply.body).toContain('<img');
+    // Pointing at the inline view, which is the reviewing permission rather
+    // than the export one.
+    expect(reply.body).toContain('/documents/d3?inline=1');
+    // And it still links out, because a thumbnail will not settle a stamp.
+    expect(reply.body).toContain('readiness-view-TRADE_LICENCE');
+  });
+
+  it('shows a PDF licence too, not only photographs', async () => {
+    // Business licences arrive as PDFs at least as often as photographs. A
+    // reviewer who can see the JPEGs and not the PDFs is still half blind.
+    const cookie = await signIn();
+    db?.prepare(
+      `INSERT INTO merchant_applications
+         (id, reference, status, submitted_via, legal_name, owner_name, phone,
+          address, locality, submitted_at, created_at, updated_at)
+       VALUES ('app_pdf', 'TLG-GGGG-HHHH', 'SUBMITTED', 'SELF_SERVICE', 'PDF Shop', 'Owner',
+               '+251911000003', 'Street', 'Addis Ababa', ?, ?, ?)`,
+    ).run(NOW, NOW, NOW);
+    db?.prepare(
+      `INSERT INTO merchant_application_documents
+         (id, application_id, kind, reference, status, document_uri, media_type,
+          created_at, updated_at)
+       VALUES ('d4', 'app_pdf', 'TRADE_LICENCE', 'TL-10', 'SUPPLIED',
+               'vault://d4', 'application/pdf', ?, ?)`,
+    ).run(NOW, NOW);
+
+    const reply = await send('/applications/app_pdf', { cookie });
+    expect(reply.body).toContain('readiness-scan-TRADE_LICENCE');
+    expect(reply.body).toContain('<object');
+    expect(reply.body).toContain('type="application/pdf"');
+  });
+
+  it('lets the page show images at all', async () => {
+    // The console's Content-Security-Policy said `img-src 'none'`, which would
+    // have made every scan above a broken icon however correct the markup was.
+    // Same-origin only: an injected beacon to another host is still refused.
+    const cookie = await signIn();
+    const reply = await send('/applications', { cookie });
+    // The policy reaches the page through a `<meta>` tag, so its quotes are
+    // HTML-escaped. Asserted in the form the browser actually receives rather
+    // than the form the source is written in — the source is what drifted.
+    const q = '&#39;';
+    expect(reply.body).toContain(`img-src ${q}self${q}`);
+    expect(reply.body).not.toContain(`img-src ${q}none${q}`);
+    // Still closed by default: only images and objects were widened.
+    expect(reply.body).toContain(`default-src ${q}none${q}`);
+    expect(reply.body).toContain(`script-src ${q}none${q}`);
+  });
 });
 
 

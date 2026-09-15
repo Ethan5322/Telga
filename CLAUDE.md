@@ -730,6 +730,111 @@ Built now as a **training-mode simulation**, on the same precedent as the Telga 
   silently.
 
 
+### 19.2 How a shop earns — the commission split
+
+Founder fee policy, 2026-09-14. [[Decision Log]] **D165**, and
+[[Commission and Fees]].
+
+```
+providerCommission = transactionAmount x providerCommissionRate
+shopShare          = providerCommission x 70%
+telgaShare         = providerCommission - shopShare
+```
+
+**Two steps, not one.** A shop's earnings are a share of what the **provider**
+pays, never a percentage of the sale. The policy is explicit: *"do not calculate
+shop profit from the full transaction amount unless a provider contract
+explicitly defines that behavior."*
+
+This replaces `trainingProfitMinor` (D69), which took 4% of face value. On a 100
+birr sale at a 3% provider rate a shop earns **2.10** here where it earned
+**4.00** there. That cost was stated to the founder before it was built.
+
+**Telga's share is subtracted, never calculated.** Rounding both shares
+independently loses or invents a santim on 2,000 of the first 19,999 amounts —
+one in ten. `commission_entries` carries a `CHECK` refusing a split that does not
+sum, so this is enforced by the database rather than by convention.
+
+#### Only the admin panel decides, and one figure serves every shop
+
+> *"Only admin pannel can decide he persent of commition the shop earn… shops
+> cant decide."*
+> *"Notice all telga shops owner the some amount of commission from each sales
+> that decide by admin pannel."*
+
+`platform_fee_settings` holds one row and has **no merchant column**. A per-shop
+rate is not hidden — it is unrepresentable. The screen is `/fees` in the
+operations console, reserved to `PLATFORM_OWNER` behind a step-up, and every
+change is audited with the figures themselves.
+
+`PROFIT_PERCENT_BPS`, a per-merchant setting, is **no longer read by the sale
+path**. Its rows stay: they explain what past training sales paid, and §13
+invariant 1 makes history append-only.
+
+#### A provider's rate is never defaulted silently
+
+`splitCommission` takes the rate as a **required** argument, so a caller that
+does not know it cannot obtain a plausible number. The 3% figure is Telga's own
+starting point for the configuration screen — *"do not assume every Ethiopian
+operator provides 3%"* — and `provider_commission_rates` starts empty and
+requires a `source` on every row. §30 applies here without exception.
+
+#### What the admin panel must never show
+
+**Any individual shop's profit.** Founder instruction: *"profit on admin pannel
+no, no need shop profit on admin pannel thats private."* `/fees` shows the rate
+that applies to everybody and Telga's own revenue as a platform aggregate.
+Balance and profit stay on Telga Vending, where the shop reads them.
+
+### 19.3 The monthly software fee
+
+**ETB 1,250, every active shop, at each month end.** [[Decision Log]] **D166**.
+
+> *"1250 fee must every month end regardless of telga weather baught by shop
+> owner or telga provided must be minused from existing shop balance without any
+> notice but it must shaw transaction statment of telga vending."*
+
+| Rule | What it means in code |
+|---|---|
+| **Regardless** | No hardware condition, no volume threshold, no trial exemption. Adding one would invent a commercial term (§30) |
+| **Every active shop** | A `SUSPENDED` shop is not charged — it cannot trade, so the charge would drain a balance it can neither spend nor replenish |
+| **Without notice** | No prompt, no approval, no pending state. The charge completes on its own |
+| **From the balance** | A two-leg `FEE_DEBIT` posting: merchant available is debited, Telga revenue credited |
+| **On the statement** | Its own column on the Telga Vending statement, on the day it was taken |
+
+**The one limit on "without notice" is §20: "No overdraft."** A shop whose
+available balance is below the fee is **not** debited — a negative selling
+balance is Telga lending money, which §2 keeps switched off. The charge is still
+recorded, as `ARREARS`: a debt that is visible and collected when the shop next
+has balance, rather than a month that silently went uncharged.
+
+**Partial collection is refused.** Taking 400 of 1,250 leaves a shop unable to
+trade and still owing 850 — the worst answer for both sides.
+
+**It cannot charge twice.** The posting and the charge row are written in one
+transaction, and `(merchant_id, period)` is unique. A restarted worker, a job
+firing on two instances, or an administrator repeating it by hand all find the
+row and move nothing. It is therefore run on **every worker sweep** rather than
+from a cron entry: a cron that does not fire is a month nobody is charged for
+and nothing that notices, whereas this recovers on its own.
+
+**The month charged is the month that has finished.** A shop is billed for
+software it has already had, which also settles what "month end" means on a UTC
+server serving shops in Addis Ababa.
+
+> **A platform fee is never a shop's earnings.** The fee credits `TELGA_REVENUE`
+> attributed to the shop it was charged to, and `profitForDay` /
+> `profitAvailableMinor` sum exactly that. Both **exclude `FEE_DEBIT`** — without
+> that exclusion, charging a shop 1,250 birr would raise the profit its dashboard
+> showed by 1,250, and the owner could transfer that 1,250 into their selling
+> balance. A fee taken would become money invented. The exclusion is by entry
+> type, so any fee added later is covered by the same rule.
+
+**Not yet settled:** whether this fee may lawfully be charged. §8 requires a
+merchant agreement and fee disclosure before live money; neither is written. The
+mechanism is built, the amount is the founder's, and it runs against a training
+float.
+
 ## 20. Funding and reconciliation
 
 Permitted **only** under an approved structure: bank deposit/transfer, manual verification,

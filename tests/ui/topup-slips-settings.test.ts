@@ -19,6 +19,7 @@ import {
   TEST_PIN,
   callWith,
   makeUiHarness,
+  pinRoundProfitRates,
   seedSale,
   signInAs,
 } from '../auth/helpers';
@@ -70,9 +71,28 @@ async function screenFor(
 const asOwner = (h: UiHarness) =>
   signInAs(h.api, { userId: OWNER_USER, role: 'MERCHANT_OWNER', pin: TEST_PIN });
 
+/**
+ * These tests are about top-up slips and the settings screens — not about the commission rate.
+ *
+ * `pinRoundProfitRates` sets the platform rates so one 25-birr sale earns
+ * exactly 1.00 birr, which is what it earned before D165 changed the model.
+ * At the real defaults the figure is 53 santim (3% of 2,500 = 75, of which the
+ * shop keeps 70% = 52.5, rounded up to the shop) — not a whole number of birr
+ * at any practical quantity. That makes the assertions below unreadable, and it
+ * makes "move the whole profit" inexpressible through a whole-birr transfer API.
+ *
+ * The split itself is proved in `tests/domain/commission-split.test.ts` and
+ * `tests/application/settings-and-profit.test.ts`, at the real defaults.
+ */
+function freshHarness(...args: Parameters<typeof makeUiHarness>): UiHarness {
+  const created = makeUiHarness(...args);
+  pinRoundProfitRates(created);
+  return created;
+}
+
 describe('the top-up flow', () => {
   it('offers a top-up beside airtime once a network is chosen', async () => {
-    harness = makeUiHarness('topup-tile');
+    harness = freshHarness('topup-tile');
     const screen = await screenFor(harness, '/vouchers/airtime/NETWORK_A');
     const html = screen?.html ?? '';
     expect(html).toContain('data-testid="product-type-airtime"');
@@ -81,7 +101,7 @@ describe('the top-up flow', () => {
   });
 
   it('asks for a phone number on the top-up amount screen', async () => {
-    harness = makeUiHarness('topup-amount-screen');
+    harness = freshHarness('topup-amount-screen');
     const screen = await screenFor(harness, '/vouchers/airtime/NETWORK_A/TOPUP');
     expect(screen?.status).toBe(200);
     const html = screen?.html ?? '';
@@ -91,7 +111,7 @@ describe('the top-up flow', () => {
   });
 
   it('does not ask for one on the airtime voucher screen', async () => {
-    harness = makeUiHarness('airtime-amount-screen');
+    harness = freshHarness('airtime-amount-screen');
     const screen = await screenFor(harness, '/vouchers/airtime/NETWORK_A/AIRTIME');
     const html = screen?.html ?? '';
     // Absent, not hidden: there is nothing for a tampered form to submit.
@@ -111,7 +131,7 @@ describe('what an operator sees before entering a PIN', () => {
   }
 
   it('shows the amount and the profit, as two separate figures', async () => {
-    harness = makeUiHarness('pin-shows-profit');
+    harness = freshHarness('pin-shows-profit');
     const session = await signInAs(harness.api);
     const orderId = await orderFor(harness, session, {
       network: 'NETWORK_A',
@@ -138,7 +158,7 @@ describe('what an operator sees before entering a PIN', () => {
   });
 
   it('shows the masked phone number for a top-up, never the full one', async () => {
-    harness = makeUiHarness('pin-shows-recipient');
+    harness = freshHarness('pin-shows-recipient');
     const session = await signInAs(harness.api);
     const orderId = await orderFor(harness, session, {
       network: 'NETWORK_A',
@@ -160,7 +180,7 @@ describe('what an operator sees before entering a PIN', () => {
   });
 
   it('shows a custom amount as the amount actually ordered, not the catalog placeholder', async () => {
-    harness = makeUiHarness('pin-custom-amount');
+    harness = freshHarness('pin-custom-amount');
     const session = await signInAs(harness.api);
     const orderId = await orderFor(harness, session, {
       network: 'NETWORK_A',
@@ -186,7 +206,7 @@ describe('what an operator sees before entering a PIN', () => {
 
 describe('the slip', () => {
   it('carries the training notice, on every slip, without the caller asking', async () => {
-    harness = makeUiHarness('slip-training-notice');
+    harness = freshHarness('slip-training-notice');
     const id = await seedSale(harness);
     const screen = await screenFor(harness, `/transactions/${id}/slip`);
     const html = screen?.html ?? '';
@@ -195,7 +215,7 @@ describe('the slip', () => {
   });
 
   it('prints at the width the owner chose', async () => {
-    harness = makeUiHarness('slip-width');
+    harness = freshHarness('slip-width');
     const owner = await asOwner(harness);
     const id = await seedSale(harness);
 
@@ -213,7 +233,7 @@ describe('the slip', () => {
   });
 
   it('carries the shop advertisement when one is set, and nothing when it is not', async () => {
-    harness = makeUiHarness('slip-advert');
+    harness = freshHarness('slip-advert');
     const owner = await asOwner(harness);
     const id = await seedSale(harness);
 
@@ -231,7 +251,7 @@ describe('the slip', () => {
   });
 
   it('escapes an advertisement rather than rendering it as markup', async () => {
-    harness = makeUiHarness('slip-advert-escaped');
+    harness = freshHarness('slip-advert-escaped');
     const owner = await asOwner(harness);
     const id = await seedSale(harness);
     await callWith(harness.api, 'POST', '/api/training/settings', {
@@ -245,7 +265,7 @@ describe('the slip', () => {
   });
 
   it('shows the same slip after a sale as the history screen shows later', async () => {
-    harness = makeUiHarness('slip-standardised');
+    harness = freshHarness('slip-standardised');
     const session = await signInAs(harness.api);
     const id = await seedSale(harness);
 
@@ -266,7 +286,7 @@ describe('the slip', () => {
   });
 
   it('marks a reprint as a reprint and never as a new sale', async () => {
-    harness = makeUiHarness('slip-reprint-marked');
+    harness = freshHarness('slip-reprint-marked');
     const session = await signInAs(harness.api);
     const id = await seedSale(harness);
     const balanceBefore = harness.deps.driver.balanceFor(MERCHANT_A).available.minor;
@@ -308,7 +328,7 @@ describe('the settings screen', () => {
    * coverage that disappears on the next edit.
    */
   it('shows who is signed in, on which device, and the way out', async () => {
-    harness = makeUiHarness('settings-identity');
+    harness = freshHarness('settings-identity');
     const screen = await screenFor(harness, '/settings');
     expect(screen?.status).toBe(200);
     const html = screen?.html ?? '';
@@ -325,7 +345,7 @@ describe('the settings screen', () => {
   });
 
   it('offers no way for a shop to set its own profit rate', async () => {
-    harness = makeUiHarness('settings-no-profit');
+    harness = freshHarness('settings-no-profit');
     const screen = await screenFor(harness, '/settings');
     expect(screen?.status).toBe(200);
     const html = screen?.html ?? '';
@@ -340,7 +360,7 @@ describe('the settings screen', () => {
 
 
   it('is reachable from the dashboard navigation', async () => {
-    harness = makeUiHarness('settings-nav');
+    harness = freshHarness('settings-nav');
     const screen = await screenFor(harness, '/dashboard');
     expect(screen?.html).toContain('data-testid="dashboard-nav-settings"');
     expect(screen?.html).toContain('href="/settings"');
@@ -349,7 +369,7 @@ describe('the settings screen', () => {
 
 describe('the Telga Pay deposit screens', () => {
   it('offers the three card gestures, and a form that carries CSRF', async () => {
-    harness = makeUiHarness('deposit-screen');
+    harness = freshHarness('deposit-screen');
     const owner = await asOwner(harness);
     const screen = await screenFor(harness, '/pay/deposit', new URLSearchParams(), owner);
     expect(screen?.status).toBe(200);
@@ -364,14 +384,14 @@ describe('the Telga Pay deposit screens', () => {
   });
 
   it('is linked from the Telga Pay entry screen', async () => {
-    harness = makeUiHarness('deposit-link');
+    harness = freshHarness('deposit-link');
     const screen = await screenFor(harness, '/pay');
     expect(screen?.html).toContain('data-testid="pay-deposit-link"');
     expect(screen?.html).toContain('href="/pay/deposit"');
   });
 
   it('prints a deposit slip in the same format as a sale slip', async () => {
-    harness = makeUiHarness('deposit-slip');
+    harness = freshHarness('deposit-slip');
     const owner = await asOwner(harness);
     const screen = await screenFor(
       harness,

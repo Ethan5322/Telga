@@ -22,7 +22,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MERCHANT_A, OWNER_USER, TEST_PIN, callWith, makeUiHarness, signInAs } from '../auth/helpers';
+import { MERCHANT_A, OWNER_USER, TEST_PIN, callWith, makeUiHarness, pinRoundProfitRates, signInAs } from '../auth/helpers';
 import type { UiHarness } from '../auth/helpers';
 
 let harness: UiHarness | undefined;
@@ -69,9 +69,28 @@ async function move(h: UiHarness, cookie: string, csrfToken: string, birr: numbe
   return envelope.ok;
 }
 
+/**
+ * These tests are about what a day reports after profit is collected — not about the commission rate.
+ *
+ * `pinRoundProfitRates` sets the platform rates so one 25-birr sale earns
+ * exactly 1.00 birr, which is what it earned before D165 changed the model.
+ * At the real defaults the figure is 53 santim (3% of 2,500 = 75, of which the
+ * shop keeps 70% = 52.5, rounded up to the shop) — not a whole number of birr
+ * at any practical quantity. That makes the assertions below unreadable, and it
+ * makes "move the whole profit" inexpressible through a whole-birr transfer API.
+ *
+ * The split itself is proved in `tests/domain/commission-split.test.ts` and
+ * `tests/application/settings-and-profit.test.ts`, at the real defaults.
+ */
+function freshHarness(...args: Parameters<typeof makeUiHarness>): UiHarness {
+  const created = makeUiHarness(...args);
+  pinRoundProfitRates(created);
+  return created;
+}
+
 describe('collecting profit does not report a loss', () => {
   it('leaves today’s earnings unchanged after a transfer', async () => {
-    harness = makeUiHarness('today-profit-transfer', { fundBirr: 900 });
+    harness = freshHarness('today-profit-transfer', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn'); // 4 birr earned
     const earned = todayProfit(harness);
     expect(earned).toBe(400);
@@ -86,7 +105,7 @@ describe('collecting profit does not report a loss', () => {
 
   it('never goes negative, however many times profit is collected', async () => {
     // The reported sequence: collect, then collect again.
-    harness = makeUiHarness('today-profit-repeat', { fundBirr: 900 });
+    harness = freshHarness('today-profit-repeat', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
 
@@ -99,7 +118,7 @@ describe('collecting profit does not report a loss', () => {
 
   it('still counts profit earned after a transfer', async () => {
     // The exclusion must not swallow later earnings on the same day.
-    harness = makeUiHarness('today-profit-then-earn', { fundBirr: 900 });
+    harness = freshHarness('today-profit-then-earn', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn_1');
     const owner = await asOwner(harness);
     await move(harness, owner.cookieHeader, owner.csrfToken, 4);
@@ -109,7 +128,7 @@ describe('collecting profit does not report a loss', () => {
   });
 
   it('keeps the ledger balanced throughout', async () => {
-    harness = makeUiHarness('today-profit-ledger', { fundBirr: 900 });
+    harness = freshHarness('today-profit-ledger', { fundBirr: 900 });
     await earnProfit(harness, 4, 'req_earn');
     const owner = await asOwner(harness);
     await move(harness, owner.cookieHeader, owner.csrfToken, 4);

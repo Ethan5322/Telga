@@ -188,7 +188,14 @@ describe('changing the rate', () => {
    * ledger must not be able to say otherwise — which is why the day's profit
    * is summed from entries rather than recomputed from the current setting.
    */
-  it('changes the next sale and cannot restate an earlier one', async () => {
+  it('is not changed by anything the shop can set', async () => {
+    // Founder instruction, 2026-09-14: *"only admin panel can decide the
+    // percent of commission the shop earns ... shops can't decide."*
+    //
+    // This test used to assert the opposite — that posting `profitPercent`
+    // changed the next sale. It is inverted rather than removed, because a
+    // removed test leaves nothing at all asserting that a shop cannot set its
+    // own rate, and that is now the rule.
     const h = makeUiHarness('profit-rate-change');
     const owner = await asOwner(h.api);
     const today = h.deps.now().slice(0, 10);
@@ -202,14 +209,40 @@ describe('changing the rate', () => {
       body: { csrfToken: owner.csrfToken, profitPercent: '10' },
     });
 
-    // The first sale's credit is untouched by the new rate.
+    // The first sale's credit is untouched — the ledger is append-only.
     expect(h.deps.driver.profitForDay(MERCHANT_A, today)).toBe(afterFirst);
 
     await seedSale(h, { clientRequestId: 'req_second_sale' });
-    const afterSecond = h.deps.driver.profitForDay(MERCHANT_A, today);
-    const secondCredit = afterSecond - afterFirst;
+    const secondCredit = h.deps.driver.profitForDay(MERCHANT_A, today) - afterFirst;
 
-    // The second sale earned at the new rate, not the old one.
+    // And the second sale earned exactly what the first did. The shop asked
+    // for 10% and got the platform rate, because the shop does not decide.
+    expect(secondCredit).toBe(afterFirst);
+    expect(h.deps.driver.ledgerResidualMinor()).toBe(0);
+    h.cleanup();
+  });
+
+  it('is changed by the platform rate, which only an administrator can set', async () => {
+    // The other half: the rate is not frozen, it has simply moved to the one
+    // place the founder put it. Without this, the test above would also pass
+    // if nothing could change the rate at all.
+    const h = makeUiHarness('profit-platform-rate');
+    const today = h.deps.now().slice(0, 10);
+
+    await seedSale(h);
+    const afterFirst = h.deps.driver.profitForDay(MERCHANT_A, today);
+
+    // Double the shop's share of the provider commission. There is no merchant
+    // id in this call, and there is nowhere to put one.
+    h.deps.driver.writePlatformFeeSettings({
+      shopShareBps: 10_000,
+      adminId: 'adm_1',
+      at: h.deps.now(),
+    });
+
+    await seedSale(h, { clientRequestId: 'req_second_sale' });
+    const secondCredit = h.deps.driver.profitForDay(MERCHANT_A, today) - afterFirst;
+
     expect(secondCredit).toBeGreaterThan(afterFirst);
     expect(h.deps.driver.ledgerResidualMinor()).toBe(0);
     h.cleanup();
@@ -221,7 +254,7 @@ describe('changing the rate', () => {
     const entries = h.deps.driver.readEntriesByMerchant(MERCHANT_A);
     const profit = entries.filter((entry) => entry.account_type === 'TELGA_REVENUE');
     expect(profit.length).toBe(1);
-    expect(profit[0]?.rule_version).toMatch(/^training-profit-\d+bps$/);
+    expect(profit[0]?.rule_version).toMatch(/^commission-share-\d+bps$/);
     h.cleanup();
   });
 });

@@ -273,6 +273,23 @@ export function profitAvailableMinor(db: Db, merchantId: MerchantId): number {
   return row.net;
 }
 
+/**
+ * A note on platform fees, and why neither figure above filters by entry type.
+ *
+ * Both sum `TELGA_REVENUE` **for one merchant**, so what keeps a platform fee
+ * out of them is that its revenue leg names **no merchant at all** — see
+ * `chargeSoftwareFee` in `operations.ts`. The monthly software fee debits the
+ * shop's available balance and credits Telga; only the debit is attributed,
+ * and the debit is against `MERCHANT_AVAILABLE`, which neither query reads.
+ *
+ * **An earlier fix excluded `FEE_DEBIT` here instead, and it was wrong.** A
+ * fee charged *against a shop's earnings* is real and must reduce the day —
+ * which is exactly what `today-profit-after-transfer` asserts, listing
+ * `FEE_DEBIT` among the things that must keep counting. Filtering the entry
+ * type would have hidden that whole class of movement to solve an attribution
+ * mistake. Not attributing the merchant solves it at the source and leaves
+ * every genuine merchant-side fee visible.
+ */
 /** Whole-ledger residual. Zero when double entry holds across every account. */
 export function ledgerResidualMinor(db: Db): number {
   const row = db

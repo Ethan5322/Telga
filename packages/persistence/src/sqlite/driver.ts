@@ -66,6 +66,8 @@ import * as recovery from '../repositories/recovery';
 import * as identity from '../repositories/identity';
 import * as pendingOrders from '../repositories/pendingOrders';
 import * as settings from '../repositories/settings';
+import * as commission from '../repositories/commission';
+import * as softwareFee from '../repositories/softwareFee';
 import * as shopbook from '../repositories/shopbook';
 import * as applications from '../repositories/applications';
 import * as extensions from '../repositories/extensions';
@@ -381,6 +383,87 @@ export class SqliteLedgerDriver implements LedgerDriver {
 
   countAuditEvents(eventType: string, entityId: string): number {
     return audit.countAuditEvents(this.handle(), eventType, entityId);
+  }
+
+  /** Every shop currently trading — the month-end fee run's population. */
+  activeMerchantIds(): readonly MerchantId[] {
+    return merchants.activeMerchantIds(this.handle());
+  }
+
+  // --- the monthly software fee ----------------------------------------------
+
+  findSoftwareFeeCharge(
+    merchantId: MerchantId,
+    period: string,
+  ): softwareFee.SoftwareFeeCharge | undefined {
+    return softwareFee.findCharge(this.handle(), merchantId, period);
+  }
+
+  insertPaidCharge(input: Parameters<typeof softwareFee.insertPaidCharge>[1]): void {
+    softwareFee.insertPaidCharge(this.handle(), input);
+  }
+
+  insertArrears(input: Parameters<typeof softwareFee.insertArrears>[1]): void {
+    softwareFee.insertArrears(this.handle(), input);
+  }
+
+  softwareFeeChargesFor(
+    merchantId: MerchantId,
+    range?: { readonly from?: string; readonly to?: string },
+  ): readonly softwareFee.SoftwareFeeCharge[] {
+    return softwareFee.chargesFor(this.handle(), merchantId, range);
+  }
+
+  outstandingSoftwareFees(merchantId?: MerchantId): readonly softwareFee.SoftwareFeeCharge[] {
+    return softwareFee.outstandingCharges(this.handle(), merchantId);
+  }
+
+  waiveSoftwareFee(input: Parameters<typeof softwareFee.waiveCharge>[1]): boolean {
+    return softwareFee.waiveCharge(this.handle(), input);
+  }
+
+  // --- commission policy -----------------------------------------------------
+  //
+  // Platform-level, and every method here says so by what it does NOT take: no
+  // merchant id reaches the fee configuration, because a shop does not set its
+  // own rate (founder instruction, 2026-09-14). Only `recordCommission` and the
+  // totals name a merchant, and those record or read what a shop *earned* —
+  // never what it may earn.
+
+  readPlatformFeeSettings(): commission.PlatformFeeSettings {
+    return commission.readPlatformFeeSettings(this.handle());
+  }
+
+  writePlatformFeeSettings(update: commission.FeeSettingsUpdate): void {
+    commission.writePlatformFeeSettings(this.handle(), update);
+  }
+
+  readProviderRates(): readonly commission.ProviderCommissionRate[] {
+    return commission.readProviderRates(this.handle());
+  }
+
+  saveProviderRate(input: commission.ProviderRateInput): void {
+    commission.saveProviderRate(this.handle(), input);
+  }
+
+  effectiveCommissionBps(providerId: string | null, productType: string): number {
+    return commission.effectiveCommissionBps(this.handle(), providerId, productType);
+  }
+
+  recordCommission(input: commission.CommissionEntryInput): void {
+    commission.recordCommission(this.handle(), input);
+  }
+
+  commissionTotalsFor(merchantId: MerchantId): commission.CommissionTotals {
+    return commission.commissionTotalsFor(this.handle(), merchantId);
+  }
+
+  platformCommissionTotals(): commission.CommissionTotals {
+    return commission.platformCommissionTotals(this.handle());
+  }
+
+  reverseCommission(transactionId: string, at: Timestamp, reversalTransactionId?: string): void {
+    commission.reverseCommission(this.handle(), transactionId, at, reversalTransactionId);
   }
 
   // --- merchant settings -----------------------------------------------------

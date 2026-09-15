@@ -78,11 +78,16 @@ import {
   revokeAdminSession,
   revokeAllAdminSessions,
   saveAdminUser,
+  readPlatformFeeSettings,
+  writePlatformFeeSettings,
+  readProviderRates,
+  platformCommissionTotals,
 } from '@telga/persistence';
 import {
   activityScreen,
   complaintDetailScreen,
   complaintsScreen,
+  feePolicyScreen,
   retireDeviceScreen,
   reversalsScreen,
   transfersScreen,
@@ -857,6 +862,9 @@ export function createConsoleServer(options: ConsoleOptions): Server {
     }
 
     // --- the second factor, before anything else -------------------------
+    /** Santim to a readable birr figure. Integer in, string out — never a float. */
+    const birrFrom = (minor: number): string => `ETB ${(minor / 100).toFixed(2)}`;
+
     const screen = (body: ReturnType<typeof dashboardScreen>, title: string): void =>
       respond(response, 200, document(body, title));
 
@@ -1516,7 +1524,25 @@ export function createConsoleServer(options: ConsoleOptions): Server {
      */
     const documentMatch = /^\/applications\/([^/]+)\/documents\/([^/]+)$/.exec(path);
     if (documentMatch && method === 'GET') {
-      if (!guard('ADMIN_EXPORT_DATA')) return;
+      /**
+       * Looking at a document and taking a copy of it are different acts.
+       *
+       * `?inline=1` is the review screen displaying the scan in the page so a
+       * reviewer can judge whether it is forged — founder instruction,
+       * 2026-09-14. That is part of reviewing, so it needs
+       * `ADMIN_REVIEW_APPLICATION`.
+       *
+       * Without the parameter it is a **download**: the file leaves the
+       * platform, which is a data export, and keeps `ADMIN_EXPORT_DATA` and
+       * the step-up re-authentication that comes with it.
+       *
+       * The previous code required the export permission for both — so
+       * `OPERATIONS_ADMIN`, the role whose entire job is reviewing
+       * applications, could not open a single document and was reviewing
+       * blind. That is the defect this splits apart.
+       */
+      const inlineView = url.searchParams.get('inline') === '1';
+      if (!guard(inlineView ? 'ADMIN_REVIEW_APPLICATION' : 'ADMIN_EXPORT_DATA')) return;
 
       const applicationId = decodeURIComponent(documentMatch[1]);
       const documentId = decodeURIComponent(documentMatch[2]);
@@ -1550,7 +1576,17 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         // Which kind of document, and whose application. Never the reference
         // number — an audit trail carrying passport numbers turns every reader
         // of the audit screen into a holder of them.
-        metadata: { applicationId, kind: row.kind },
+        //
+        // `via` matters: an inline view fires when the **review page loads**,
+        // for every document on it, whereas a download is somebody deliberately
+        // taking one away. Recording both as the same event would quietly turn
+        // "opened this passport" into "opened the queue", which is the more
+        // serious claim being weakened by the less serious one.
+        metadata: {
+          applicationId,
+          kind: row.kind,
+          via: inlineView ? 'REVIEW_SCREEN' : 'DIRECT_DOWNLOAD',
+        },
       });
 
       let plaintext: Buffer;
@@ -1565,9 +1601,18 @@ export function createConsoleServer(options: ConsoleOptions): Server {
 
       response.writeHead(200, {
         'content-type': row.media_type,
-        // Never rendered inline and never cached: a passport left in a browser
-        // cache on a shared laptop outlives the session that opened it.
-        'content-disposition': `attachment; filename="${row.kind.toLowerCase()}"`,
+        /**
+         * Inline for a reviewer looking at it; an attachment for a download.
+         *
+         * The rule that actually protects a passport on a shared laptop is
+         * `cache-control: no-store, private` below, and it is unchanged on both
+         * paths. The previous comment here justified `attachment` by citing the
+         * browser cache — but disposition does not control caching. Separating
+         * the two is what makes showing the document safe.
+         */
+        'content-disposition': inlineView
+          ? 'inline'
+          : `attachment; filename="${row.kind.toLowerCase()}"`,
         'cache-control': 'no-store, private',
         'content-security-policy': "default-src 'none'; sandbox",
         'x-content-type-options': 'nosniff',
@@ -1601,8 +1646,9 @@ export function createConsoleServer(options: ConsoleOptions): Server {
         reference: string;
         expires_at: string | null;
         document_uri: string | null;
+        media_type: string | null;
       }>(
-        `SELECT id, kind, reference, expires_at, document_uri
+        `SELECT id, kind, reference, expires_at, document_uri, media_type
            FROM merchant_application_documents WHERE application_id = ?`,
         found.id,
       );
@@ -1614,6 +1660,7 @@ export function createConsoleServer(options: ConsoleOptions): Server {
           reference: d.reference,
           expiresAt: d.expires_at,
           documentUri: d.document_uri,
+          mediaType: d.media_type,
         })),
         options.now(),
       );
@@ -1635,6 +1682,7 @@ export function createConsoleServer(options: ConsoleOptions): Server {
                 expiresAt: d.expiresAt,
                 daysToExpiry: d.daysToExpiry,
                 documentId: d.documentId,
+                mediaType: d.mediaType,
               })),
             },
           },
@@ -2866,6 +2914,116 @@ export function createConsoleServer(options: ConsoleOptions): Server {
     if (path === '/tenants') {
       if (!guard('ADMIN_VIEW_MERCHANT')) return;
       screen(tenantsScreen(chromeFor(context, csrf), tenants(), options.schemaVersion), 'Tenants');
+      return;
+    }
+
+    /**
+     * The fee policy — the one place the commission and the software fee live.
+     *
+     * Founder instruction, 2026-09-14: *"only admin panel can decide the
+     * percent of commission the shop earns… shops can't decide."* Reading it
+     * is open to every console role, because an operations desk answering
+     * "why did this shop earn 2.10" cannot do so without seeing the rate.
+     * **Changing** it is `PLATFORM_OWNER` alone, and carries a step-up.
+     */
+    if (path === '/fees' && method === 'GET') {
+      if (!guard('ADMIN_VIEW_FEE_POLICY')) return;
+      const fees = readPlatformFeeSettings(options.db as never);
+      const totals = platformCommissionTotals(options.db as never);
+      screen(
+        feePolicyScreen({
+          chrome: chromeFor(context, csrf),
+          defaultCommissionBps: fees.defaultCommissionBps,
+          shopShareBps: fees.shopShareBps,
+          softwareFeeMinor: fees.softwareFeeMinor,
+          softwareFeeEnabled: fees.softwareFeeEnabled,
+          providerRates: readProviderRates(options.db as never),
+          updatedAt: fees.updatedAt,
+          updatedBy: fees.updatedByAdminId,
+          telgaRevenueFormatted: birrFrom(totals.telgaShareMinor),
+          unsettledFormatted: birrFrom(totals.unsettledMinor),
+          saved: url.searchParams.get('saved') === '1',
+          error: url.searchParams.get('error') ?? undefined,
+        }),
+        'Fee policy',
+      );
+      return;
+    }
+
+    if (path === '/fees' && method === 'POST') {
+      if (!guard('ADMIN_MANAGE_FEE_POLICY')) return;
+      const form = await readForm(request);
+
+      /**
+       * Every figure is validated here and not only by the input element.
+       *
+       * `type="number"` with `min` and `max` is a courtesy to a person using a
+       * browser. It is not a control: a form post is a form post, and a rate
+       * that arrived as "abc" or "-500" would otherwise be written straight
+       * into what every shop earns.
+       */
+      const readBps = (field: string): number | undefined => {
+        const raw = (form[field] ?? '').trim();
+        if (raw === '') return undefined;
+        const value = Number(raw);
+        if (!Number.isSafeInteger(value) || value < 0 || value > 10_000) return undefined;
+        return value;
+      };
+
+      const shopShareBps = readBps('shopShareBps');
+      const defaultCommissionBps = readBps('defaultCommissionBps');
+      const rawFee = (form['softwareFeeMinor'] ?? '').trim();
+      const softwareFeeMinor = Number(rawFee);
+
+      if (shopShareBps === undefined || defaultCommissionBps === undefined) {
+        response.writeHead(303, {
+          location:
+            '/fees?error=' +
+            encodeURIComponent('Rates must be whole numbers between 0 and 10000 basis points.'),
+        });
+        response.end();
+        return;
+      }
+      if (rawFee === '' || !Number.isSafeInteger(softwareFeeMinor) || softwareFeeMinor < 0) {
+        response.writeHead(303, {
+          location:
+            '/fees?error=' +
+            encodeURIComponent('The monthly fee must be a whole number of santim, zero or more.'),
+        });
+        response.end();
+        return;
+      }
+
+      writePlatformFeeSettings(options.db as never, {
+        shopShareBps,
+        defaultCommissionBps,
+        softwareFeeMinor,
+        // An unchecked checkbox is absent from the body rather than "off",
+        // which is why this reads presence and not a value.
+        softwareFeeEnabled: form['softwareFeeEnabled'] !== undefined,
+        adminId: context.user.id,
+        at: options.now() as never,
+      });
+
+      record({
+        event: 'ADMIN_FEE_POLICY_CHANGED',
+        actorId: context.user.id,
+        actorRole: context.user.role,
+        entityType: 'PLATFORM',
+        entityId: 'fee_policy',
+        // The figures themselves, so the audit answers "what did it become"
+        // and not merely "somebody changed it". A rate change that cannot be
+        // reconstructed from the audit cannot be investigated.
+        metadata: {
+          shopShareBps,
+          defaultCommissionBps,
+          softwareFeeMinor,
+          softwareFeeEnabled: form['softwareFeeEnabled'] !== undefined,
+        },
+      });
+
+      response.writeHead(303, { location: '/fees?saved=1' });
+      response.end();
       return;
     }
 

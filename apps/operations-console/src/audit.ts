@@ -50,6 +50,15 @@ export type AdminAuditEvent =
   | 'ADMIN_OTP_REFUSED'
   /** The second factor was satisfied and the session is fully live. */
   | 'ADMIN_OTP_ACCEPTED'
+  /**
+   * The commission rate or the monthly software fee was changed.
+   *
+   * Its own event, carrying the figures themselves rather than only the fact
+   * of a change. This one setting decides what every Telga shop earns on every
+   * future sale, so "somebody changed it on Tuesday" is not an answer anybody
+   * can investigate — the audit has to be able to reconstruct what it became.
+   */
+  | 'ADMIN_FEE_POLICY_CHANGED'
   | 'ADMIN_SIGNED_OUT'
   | 'ADMIN_MFA_ENROLLED'
   | 'ADMIN_MFA_CONFIRMED'

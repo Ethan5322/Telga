@@ -30,7 +30,7 @@
  * known limitation in `09 Engineering/Merchant POS UI.md`.
  */
 
-import { money, profitBpsFrom, trainingProfitMinor, transactionId as toTransactionId } from '@telga/domain';
+import { money, splitCommission, transactionId as toTransactionId } from '@telga/domain';
 import type { MerchantId, ProductId, TransactionState } from '@telga/domain';
 import type {
   ApiEnvelope,
@@ -521,9 +521,21 @@ export interface CreateOrderDto {
 // batch from the order's device and client request id, so it needs the fields
 // a hand-written subset kept leaving out.
 function toCreateOrderDto(deps: AuthedApiDeps, order: PendingOrderRow): CreateOrderDto {
-  const profitBps = profitBpsFrom(
-    deps.driver.readSetting(order.merchant_id as MerchantId, 'PROFIT_PERCENT_BPS'),
+  /**
+   * The preview must agree with what the sale will actually pay.
+   *
+   * This is the figure an operator sees *before* confirming, so it is computed
+   * the same way `createSale` computes the real one — the same two-step split,
+   * from the same platform configuration. When these two drifted apart, an
+   * operator would be shown one margin and credited another, and nothing in
+   * the system would notice.
+   */
+  const fees = deps.driver.readPlatformFeeSettings();
+  const commissionBps = deps.driver.effectiveCommissionBps(
+    String(deps.providerId),
+    order.product_type,
   );
+  const split = splitCommission(order.amount_minor, commissionBps, fees.shopShareBps);
   return {
     orderId: order.id,
     network: order.network,
@@ -537,9 +549,12 @@ function toCreateOrderDto(deps: AuthedApiDeps, order: PendingOrderRow): CreateOr
     transactionId: order.transaction_id,
     transactionIds: order.status === 'AUTHORIZED' ? batchTransactionIds(deps, order) : [],
     recipientMasked: order.recipient,
-    // Profit on the whole order, so a batch of ten shows what ten earns.
-    profitMinor: trainingProfitMinor(order.amount_minor, profitBps) * order.quantity,
-    profitBps,
+    // Profit on the whole order, so a batch of ten shows what ten earns. Each
+    // unit is its own transaction and each is split separately, so the total
+    // is the per-unit share multiplied — not a split of the order total, which
+    // would round differently and disagree with the sum of the receipts.
+    profitMinor: split.shopShareMinor * order.quantity,
+    profitBps: commissionBps,
   };
 }
 

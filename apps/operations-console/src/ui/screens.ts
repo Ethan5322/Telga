@@ -984,6 +984,8 @@ export interface ApplicationDetail extends ApplicationRow {
       readonly expiresAt: string | null;
       readonly daysToExpiry: number | null;
       readonly documentId: string | null;
+      /** How to render the scan: a PDF needs an `<object>`, a photo an `<img>`. */
+      readonly mediaType: string | null;
     }[];
   };
 }
@@ -1115,19 +1117,58 @@ export function applicationDetailScreen(
                   h(
                     'td',
                     {},
-                    // Opening a scan is a data export: it carries its own
-                    // permission and its own audit line. Offered only when
-                    // there is something to open and somebody who may.
-                    document.documentId !== null && allowed.has('ADMIN_EXPORT_DATA')
-                      ? h(
-                          'a',
-                          {
-                            href: `/applications/${encodeURIComponent(application.id)}/documents/${encodeURIComponent(document.documentId)}`,
-                            'data-testid': `readiness-view-${document.kind}`,
-                          },
-                          'View scan',
-                        )
-                      : '',
+                    /**
+                     * The document itself, not a link to it.
+                     *
+                     * Founder instruction, 2026-09-14: *"each document must
+                     * display clearly, not just mention — to evaluate if it's
+                     * fake or not."* A reviewer deciding whether a licence is
+                     * forged cannot do it from a filename.
+                     *
+                     * A PDF goes in an `<object>` and everything else in an
+                     * `<img>`: business licences arrive as PDFs at least as
+                     * often as photographs, and a reviewer who can see the
+                     * JPEGs and not the PDFs is still half blind.
+                     *
+                     * The thumbnail links to the full-size view, because a
+                     * stamp or a laminate edge is the thing being judged and a
+                     * 220-pixel box will not settle it.
+                     */
+                    document.documentId === null
+                      ? ''
+                      : allowed.has('ADMIN_REVIEW_APPLICATION')
+                        ? h(
+                            'a',
+                            {
+                              href: `/applications/${encodeURIComponent(application.id)}/documents/${encodeURIComponent(document.documentId)}?inline=1`,
+                              'data-testid': `readiness-view-${document.kind}`,
+                              class: 'console__scan-link',
+                            },
+                            document.mediaType === 'application/pdf'
+                              ? h('object', {
+                                  data: `/applications/${encodeURIComponent(application.id)}/documents/${encodeURIComponent(document.documentId)}?inline=1`,
+                                  type: 'application/pdf',
+                                  class: 'console__scan',
+                                  'data-testid': `readiness-scan-${document.kind}`,
+                                  'aria-label': `${document.kind} document`,
+                                })
+                              : h('img', {
+                                  src: `/applications/${encodeURIComponent(application.id)}/documents/${encodeURIComponent(document.documentId)}?inline=1`,
+                                  class: 'console__scan',
+                                  'data-testid': `readiness-scan-${document.kind}`,
+                                  // Says what it is *and* that it should be
+                                  // visible, so a reviewer meeting a broken
+                                  // image knows it is a fault rather than an
+                                  // application with no paperwork.
+                                  alt: `Scan of ${document.kind} — open to view full size`,
+                                  loading: 'lazy',
+                                }),
+                          )
+                        : h(
+                            'span',
+                            { class: 'console__hint' },
+                            'On file — you do not have permission to view it',
+                          ),
                   ),
                 ),
               ),

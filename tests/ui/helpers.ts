@@ -159,6 +159,36 @@ export interface UiHarness extends Harness {
   setBehaviour(behaviour: MockBehaviour): void;
 }
 
+/**
+ * Pin the platform fee rates so one 25-birr sale earns exactly **100 santim**.
+ *
+ * `defaultCommissionBps: 400` with `shopShareBps: 10000` means the shop keeps
+ * the whole 4% — which reproduces the pre-D165 figure exactly, in one step
+ * rather than two.
+ *
+ * ## Why a test would want that
+ *
+ * Under the real defaults a 25-birr sale earns **53** santim (3% of 2,500 = 75,
+ * of which the shop keeps 70% = 52.5, rounded up to the shop). 53 is not a
+ * whole number of birr at any practical quantity, and the profit-transfer API
+ * takes whole birr — so "move the whole profit" becomes inexpressible, and
+ * every slip assertion becomes an unreadable fraction.
+ *
+ * Tests about **transfers, PINs, printing and slips** are not tests about the
+ * commission rate. This lets each keep measuring what it was written for.
+ *
+ * **Do not use it in a test about the split itself.** `commission-split` and
+ * `settings-and-profit` prove that, at the real defaults.
+ */
+export function pinRoundProfitRates(harness: UiHarness): void {
+  harness.deps.driver.writePlatformFeeSettings({
+    defaultCommissionBps: 400,
+    shopShareBps: 10_000,
+    adminId: 'test',
+    at: harness.deps.now(),
+  });
+}
+
 export function makeUiHarness(
   name: string,
   options: Parameters<typeof makeHarness>[1] & {

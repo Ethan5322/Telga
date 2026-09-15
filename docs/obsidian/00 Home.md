@@ -60,6 +60,7 @@ publication by `.gitignore`.
 - [[Domain Glossary]] — the 27 entities and the words we use for them
 - [[Transaction State Machine]] — **Mermaid: airtime transaction state machine**
 - [[Ledger Invariants]] — the nine rules that tests enforce
+- [[Commission and Fees]] — how a sale divides between shop, Telga and provider, and the monthly software fee
 - [[Balance Model]] — **Mermaid: available, reserved and under-review balance lifecycle**
 - [[Idempotency]] — why an uncertain outcome is never retried as a new sale
 

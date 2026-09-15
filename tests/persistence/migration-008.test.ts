@@ -212,28 +212,37 @@ describe('migration 008', () => {
       //   018 → registration_attempts
       //   019 → reversal_requests, complaint_reviews, shop_transfers
       //   020 → topup_orders
+      //   023 → platform_fee_settings, provider_commission_rates,
+      //         commission_entries
+      //   024 → software_fee_charges
       //
       // 015 also adds `merchant_users.must_change_pin`, 016 adds
       // `device_enrollments.deposit_lookup`, and 018 adds
-      // `merchant_applications.submitted_via`. All are columns and so do not
-      // appear here. That columns are invisible to this guard is why
+      // `merchant_applications.submitted_via`; 022 adds three columns to
+      // `topup_orders`, and 024 adds `software_fee_minor` and
+      // `software_fee_enabled` to `platform_fee_settings`. All are columns and
+      // so do not appear here. That columns are invisible to this guard is why
       // migration-015.test.ts asserts its one directly, against a database
       // populated before the migration ran.
       expect(added).toEqual([
         'admin_permissions',
         'admin_sessions',
         'admin_users',
+        'commission_entries',
         'complaint_reviews',
         'customers',
         'funding_submissions',
         'merchant_application_documents',
         'merchant_applications',
+        'platform_fee_settings',
+        'provider_commission_rates',
         'provider_health_events',
         'registration_attempts',
         'reversal_requests',
         'settings',
         'shifts',
         'shop_transfers',
+        'software_fee_charges',
         'tenant_registry',
         'topup_orders',
         'transaction_attempts',

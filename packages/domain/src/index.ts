@@ -18,6 +18,7 @@ export * from './idempotency';
 export * from './ledger';
 export * from './balance';
 export * from './commission';
+export * from './commissionSplit';
 export * from './voucherCode';
 export * from './depositReference';
 export * from './topupOrder';

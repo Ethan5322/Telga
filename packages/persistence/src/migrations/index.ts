@@ -34,6 +34,8 @@ import { m019ReversalComplaintsTransfers } from './019_reversal_complaints_trans
 import { m020TopupOrders } from './020_topup_orders';
 import { m021ShopDepositReference } from './021_shop_deposit_reference';
 import { m022DepositMethod } from './022_deposit_method';
+import { m023CommissionPolicy } from './023_commission_policy';
+import { m024SoftwareFee } from './024_software_fee';
 
 export interface Migration {
   /** Sort key. Zero-padded so lexical order is execution order. */
@@ -66,6 +68,8 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
   m020TopupOrders,
   m021ShopDepositReference,
   m022DepositMethod,
+  m023CommissionPolicy,
+  m024SoftwareFee,
 ]);
 
 export {
@@ -91,5 +95,7 @@ export {
   m020TopupOrders,
   m021ShopDepositReference,
   m022DepositMethod,
+  m023CommissionPolicy,
+  m024SoftwareFee,
 };
 
