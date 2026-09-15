@@ -23,7 +23,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { MOCK_BEHAVIOURS } from '@telga/provider-mock-airtime';
 import { authenticate } from '@telga/api';
-import { TRAINING_DATA_CATEGORIES, renderScreen } from '@telga/merchant-pos';
+import { TRAINING_DATA_CATEGORIES, loginScreen, renderScreen, renderToHtml } from '@telga/merchant-pos';
 import type { PosServerOptions } from '@telga/merchant-pos';
 import { MERCHANT_A, makeUiHarness, signInAs } from '../auth/helpers';
 import type { TestSession, UiHarness } from '../auth/helpers';
@@ -67,6 +67,7 @@ async function screenAt(h: UiHarness, path: string, s: TestSession): Promise<str
   return screen.html;
 }
 
+
 /** The screens a shopkeeper actually stands in front of all day. */
 const EVERYDAY = ['/dashboard', '/sell', '/statements', '/menu'];
 
@@ -109,6 +110,59 @@ describe('the identity strip is not on every screen', () => {
       );
       expect(html, `${path} must not carry the phrase`).not.toContain('Last updated from Telga');
     }
+  });
+});
+
+describe('the screens shown before anyone signs in', () => {
+  /**
+   * The gap this closes, found by fingerprinting the live site.
+   *
+   * `page()` lost its footer, the tests above proved it on four authenticated
+   * screens, the suite went green and it deployed — and `/login` still printed
+   * `Telga time: 2026-09-15T16:23:44.256Z`, because **the sign-in screens have
+   * their own shell**. Worded differently from the sentence the founder quoted,
+   * so a search for that sentence never found it.
+   *
+   * The first screen a shopkeeper sees was the last one still showing a raw ISO
+   * timestamp. Every test above ran on screens that require a session; none of
+   * them could ever have caught it.
+   */
+  /**
+   * Rendered directly rather than through `renderScreen`, because the sign-in
+   * screen is reachable with **no session** and the route renderer requires
+   * one. That asymmetry is the whole reason the clock survived here: every
+   * other test in this file needs a signed-in operator, so none of them could
+   * ever have reached this screen.
+   */
+  const signIn = (): string =>
+    renderToHtml(
+      loginScreen({
+        chrome: {
+          locale: 'en',
+          // The screen refuses to render in any other mode, which is the
+          // guard `RefusedNonTrainingModeError` exists for. Supplied, not
+          // bypassed.
+          mode: 'TRAINING',
+          serverTime: '2026-09-15T16:23:44.256Z',
+          csrfToken: 'test-csrf',
+        } as never,
+      } as never),
+    );
+
+  it('shows no clock on the sign-in screen', () => {
+    const html = signIn();
+    expect(html, 'the first screen a shopkeeper sees').not.toContain(
+      'data-testid="server-time"',
+    );
+    expect(html).not.toContain('Telga time:');
+    expect(html).not.toContain('Last updated from Telga');
+    // And not merely because the timestamp changed shape.
+    expect(html).not.toContain('2026-09-15T16:23:44');
+  });
+
+  it('still renders the sign-in form itself', () => {
+    // Without this, "the clock is gone" would also pass on a blank page.
+    expect(signIn()).toContain('form');
   });
 });
 

@@ -74,11 +74,23 @@ export function authPage(
       h('h1', { class: 'screen__title' }, title),
       ...content,
     ),
-    h(
-      'footer',
-      { class: 'pos__footer' },
-      h('span', { 'data-testid': 'server-time' }, `Telga time: ${chrome.serverTime}`),
-    ),
+    /**
+     * No clock here either — and this is the screen it mattered most on.
+     *
+     * `page()` lost its footer on 2026-09-15 (D167) after the founder
+     * photographed `Last updated from Telga: 2026-09-15T05:05:31.256Z` and
+     * asked twice for nothing to sit below the screen. **The sign-in screens
+     * carry their own shell**, so they kept a second copy of it — worded
+     * differently (`Telga time:`) and therefore invisible to a search for the
+     * sentence the founder quoted.
+     *
+     * It survived a fix, a test and a deployment, and was found only by
+     * fingerprinting the live site and being surprised: the marker was still
+     * there on `/login` when it was gone everywhere else. The first screen a
+     * shopkeeper sees was the last one still showing a raw ISO timestamp.
+     *
+     * Settings carries the time, in readable form, for anybody who needs it.
+     */
   );
 }
 
