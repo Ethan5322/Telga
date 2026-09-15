@@ -264,6 +264,11 @@ network is integrated. Currency stays ETB throughout; nothing here introduces an
 | `settings.section.admin` | Admin only |
 | `settings.section.security` | Security |
 | `settings.section.about` | About and policies |
+| `settings.section.identity` | This device |
+| `settings.identity.operator` | Signed in as |
+| `settings.identity.shop` | Shop |
+| `settings.identity.device` | Device |
+| `settings.identity.synced` | Last updated from Telga |
 | `settings.toggle.sound` | Play sound |
 | `settings.toggle.hide_balance` | Hide Telga balance |
 | `settings.toggle.low_balance` | Alert me when balance is low |

@@ -2698,6 +2698,47 @@ export function settingsScreen(props: SettingsScreenProps): El {
       ),
     ),
 
+    /**
+     * Who is signed in, on which device, and when Telga last answered.
+     *
+     * This is the strip that used to sit under **every** screen — the founder
+     * photographed it twice asking for it to go. What it showed is not thrown
+     * away, because a support call opens with exactly these four facts; it is
+     * moved to the one screen a person reaches deliberately, next to the
+     * sign-out that shares its subject.
+     *
+     * **The time is rendered in words, not as an ISO string.** The footer
+     * printed `2026-09-15T05:05:31.256Z`, which is a machine's notation shown
+     * to a shopkeeper. The date and the minute are the parts a person reads
+     * back down a telephone; the milliseconds and the `T` never were.
+     */
+    h('h2', { class: 'settings__section' }, t(locale, 'settings.section.identity')),
+    h(
+      'dl',
+      { class: 'settings__identity', 'data-testid': 'settings-identity' },
+      h('dt', {}, t(locale, 'settings.identity.operator')),
+      h(
+        'dd',
+        { 'data-testid': 'settings-identity-operator' },
+        chrome.operatorName ?? chrome.merchantId,
+      ),
+      h('dt', {}, t(locale, 'settings.identity.shop')),
+      h('dd', { 'data-testid': 'settings-identity-shop' }, chrome.merchantId),
+      ...(chrome.deviceId === undefined
+        ? []
+        : [
+            h('dt', {}, t(locale, 'settings.identity.device')),
+            h('dd', { 'data-testid': 'settings-identity-device' }, chrome.deviceId),
+          ]),
+      h('dt', {}, t(locale, 'settings.identity.synced')),
+      h(
+        'dd',
+        { 'data-testid': 'settings-identity-synced' },
+        // `2026-09-15T05:05:31.256Z` becomes `2026-09-15 05:05`.
+        `${chrome.serverTime.slice(0, 10)} ${chrome.serverTime.slice(11, 16)}`,
+      ),
+    ),
+
     // The full sign-out: device, device key, operator and PIN. Deliberately
     // here rather than on the counter screens — an idle timeout should cost
     // an operator a PIN, and the one action that costs them everything should

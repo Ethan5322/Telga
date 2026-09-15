@@ -116,6 +116,13 @@ export interface DashboardProps {
   readonly hideBalance?: boolean;
   /** Warn when the float is running out, so a sale is not refused mid-queue. */
   readonly lowBalanceAlert?: boolean;
+  /**
+   * The shop's own name, from its settings.
+   *
+   * Absent until the shop fills it in, and absent is rendered as **nothing** —
+   * never as the merchant id, which is what this screen used to print.
+   */
+  readonly businessName?: string;
   /** Below this, the alert shows. Minor units. */
   readonly lowBalanceThresholdMinor?: number;
 }
@@ -192,10 +199,27 @@ export function dashboardScreen(props: DashboardProps): El {
   return page(
     chrome,
     t(locale, 'screen.dashboard'),
-    // No dedicated "shop name" field exists in the domain model (confirmed:
-    // `MerchantRow` carries only an id). The merchant identifier is shown
-    // plainly rather than inventing a friendly name the schema does not have.
-    h('p', { class: 'dashboard__merchant', 'data-testid': 'dashboard-merchant' }, `${chrome.merchantId}`),
+    /**
+     * The shop's own name — or nothing at all.
+     *
+     * This printed `chrome.merchantId` verbatim, so a shopkeeper's home screen
+     * read **merchant_alpha**. The comment that justified it said no shop name
+     * exists in the domain model, and that stopped being true when the business
+     * details were added to settings: `BUSINESS_NAME` is a field the shop fills
+     * in itself, and it is already printed on every slip.
+     *
+     * So the name is shown when the shop has given one, and **nothing** is
+     * shown when it has not. A blank line is better than a database identifier:
+     * the id means nothing to the person reading it, cannot be acted on, and is
+     * exactly the clutter the founder asked to have taken off this screen.
+     */
+    props.businessName !== undefined && props.businessName.trim() !== ''
+      ? h(
+          'p',
+          { class: 'dashboard__merchant', 'data-testid': 'dashboard-merchant' },
+          props.businessName,
+        )
+      : false,
     // The service grid first, then the balance/profit pills, then the bottom
     // navigation — the order the reference terminal uses, so an operator
     // reads services first and their money second.

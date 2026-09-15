@@ -875,6 +875,19 @@ dd { margin: 0; }
   width: min(22rem, 100%); margin-top: 0.5rem; font-size: 1.1rem;
   background: var(--pill); color: var(--pill-ink);
 }
+/* The identity block on Settings. A two-column definition list: the label is
+   quiet, the value is what a person reads back down a telephone.
+
+   It replaced a strip under every screen, so it is deliberately plain here -
+   this is a reference panel, not something competing with the sale. */
+.settings__identity {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0.5rem 0 1.5rem;
+}
+.settings__identity dt { color: var(--telga-ink-thin); font-size: 0.85rem; }
+.settings__identity dd { margin: 0; font-variant-numeric: tabular-nums; }
 .lock__signout { margin-top: 1.75rem; }
 .lock__signout button { background: transparent; color: var(--telga-vellum-ground-pale); border: 2px solid rgba(255,255,255,0.5); }
 /* The lock owns the whole screen — no white card behind it. */

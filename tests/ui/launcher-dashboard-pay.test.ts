@@ -382,11 +382,27 @@ describe('the Telga vending dashboard', () => {
     expect(Number((shown?.[1] ?? '').replace(/,/g, ''))).toBe(ledgerProfitMinor / 100);
   });
 
-  it('shows the merchant identifier', async () => {
+  it('shows the shop its own name, never its database id', async () => {
+    /**
+     * Inverted on 2026-09-15, not deleted.
+     *
+     * This asserted that the dashboard printed `MERCHANT_A` — so a shopkeeper's
+     * home screen read **merchant_alpha**, and a test guaranteed it kept doing
+     * so. The founder asked twice for the header to be arranged properly and
+     * photographed the result; this was part of what they were looking at.
+     *
+     * The shop's name comes from `BUSINESS_NAME`, which the shop fills in
+     * itself and which is already printed on every slip. Until it does, the
+     * line renders **nothing** — a blank space is better than an identifier
+     * that means nothing to the person reading it and cannot be acted on.
+     *
+     * A fixture shop has set no business name, so nothing is what this asserts.
+     * `tests/ui/header-footer-arrangement.test.ts` holds the rest of the rule.
+     */
     harness = makeUiHarness('dashboard-merchant');
     const screen = await screenFor(harness, '/dashboard');
-    expect(screen?.html).toContain('data-testid="dashboard-merchant"');
-    expect(screen?.html).toContain(MERCHANT_A);
+    expect(screen?.html).not.toContain('data-testid="dashboard-merchant"');
+    expect(screen?.html).not.toContain(MERCHANT_A);
   });
 
   it('the Airtime tile opens the approved voucher sequence', async () => {

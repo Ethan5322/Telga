@@ -210,6 +210,11 @@ literal-from-English.
 | `settings.section.admin` | Admin only | ለአስተዳዳሪ ብቻ | ☐ |
 | `settings.section.security` | Security | ደህንነት | ☐ |
 | `settings.section.about` | About and policies | ስለ እና ፖሊሲዎች | ☐ |
+| `settings.section.identity` | This device | ይህ መሣሪያ | ☐ |
+| `settings.identity.operator` | Signed in as | የገባው | ☐ |
+| `settings.identity.shop` | Shop | ሱቅ | ☐ |
+| `settings.identity.device` | Device | መሣሪያ | ☐ |
+| `settings.identity.synced` | Last updated from Telga | ከቴልጋ የተዘመነው | ☐ |
 | `settings.toggle.sound` | Play sound | ድምጽ አጫውት | ☐ |
 | `settings.toggle.hide_balance` | Hide Telga balance | የተልጋ ቀሪ ሂሳብ ደብቅ | ☐ |
 | `settings.toggle.low_balance` | Alert me when balance is low | ቀሪ ሂሳብ ሲያንስ አሳውቀኝ | ☐ |

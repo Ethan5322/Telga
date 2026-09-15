@@ -249,9 +249,27 @@ would be followed by anything that prefetches. It carries the session's CSRF
 token like every other write, and is omitted entirely when there is no token to
 carry — better to show nothing than a control that would be refused.
 
-The POS renders the authenticated merchant identity, but **never treats it as
-authority**: no navigation link, no form field and no href carries a merchant id
-any more. The session decides scope on the server, every time.
+The POS **never treats merchant identity as authority**: no navigation link, no
+form field and no href carries a merchant id. The session decides scope on the
+server, every time.
+
+**Nor does it display one on a counter screen** — [[Decision Log]] **D167**,
+2026-09-15. The dashboard printed the raw id (`merchant_alpha`) under its title
+and an identity strip sat under every screen; both are gone. The dashboard shows
+the shop's own `BUSINESS_NAME` when it has set one and **nothing** when it has
+not, because a database identifier means nothing to the person reading it and
+cannot be acted on.
+
+Who is signed in, on which device, and when Telga last answered now live on
+**Settings**, beside the sign-out that shares their subject — the one screen a
+person reaches deliberately, which is the only time those four facts are wanted.
+The last-sync time is rendered `2026-09-15 05:05` rather than as the ISO string
+the footer used to print: the date and the minute are what gets read back down a
+telephone.
+
+`tests/ui/header-footer-arrangement.test.ts` renders the real screens and holds
+all of this, because the first attempt at it was reported done with nothing
+asserting it.
 
 ### The device enrolment screen
 

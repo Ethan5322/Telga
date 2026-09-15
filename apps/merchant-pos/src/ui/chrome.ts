@@ -212,55 +212,41 @@ export function page(
       ...content,
     ),
     /**
-     * The identity bar is gone from every screen.
+     * Nothing below the screen. No identity bar, and no clock.
      *
-     * Founder instruction, 2026-09-14: *"anything above the header or below
-     * the footer must be inside settings."* Who is signed in, on which device,
-     * is a fact an operator looks up occasionally — not a strip under every
-     * screen. Settings carries it now, beside the sign-out it belongs with.
+     * Founder instruction, 2026-09-14: *"anything above the header or below the
+     * footer must be inside settings."* Both halves of that are now true.
+     *
+     * **The identity bar** — who is signed in, on which device — is a fact an
+     * operator looks up occasionally, not a strip under every screen. Settings
+     * carries it, beside the sign-out it belongs with.
+     *
+     * **The clock** went with it, on the founder's second report (2026-09-15),
+     * which quoted it verbatim. `Last updated from Telga:
+     * 2026-09-15T05:05:31.256Z` is a raw ISO timestamp — a developer's
+     * diagnostic in a developer's format, printed under the screen a shopkeeper
+     * uses to sell airtime. It answered a real question (is this screen stale?)
+     * for the wrong audience, in a notation no shopkeeper reads. Settings shows
+     * it, in words.
      *
      * The balance and the profit stay where they are, on Telga Vending: those
      * are read constantly and were never the clutter.
      */
-    chrome.bare !== true &&
-      h(
-        'footer',
-        { class: 'pos__footer' },
-        h('span', { 'data-testid': 'server-time' }, `Last updated from Telga: ${chrome.serverTime}`),
-      ),
   );
 }
 
 /**
- * Who is signed in, on which device, and the way out.
+ * The identity bar used to live here, and is deliberately gone.
  *
- * The logout control is a **form**, not a link: signing out changes server
- * state, and a link would be followed by anything that prefetches. It carries
- * the session's CSRF token like every other write.
+ * It rendered `operator_1 · merchant_alpha · Device device_1` under every
+ * screen. The founder asked for it to be removed on 2026-09-14 and photographed
+ * it again on 2026-09-15; by then `page()` had already stopped calling it, but
+ * the function remained — dead code that draws exactly the thing somebody asked
+ * to have removed, one import away from coming back.
+ *
+ * What it showed is not lost: `settingsScreen` names the operator, the shop and
+ * the device, next to the sign-out they belong with.
  */
-export function identityBar(chrome: Chrome): El {
-  return h(
-    'section',
-    { class: 'pos__identity', 'data-testid': 'identity-bar', 'aria-label': 'Signed in as' },
-    h(
-      'span',
-      { 'data-testid': 'identity-operator' },
-      `${chrome.operatorName ?? 'Unknown operator'} · ${chrome.merchantId}`,
-    ),
-    chrome.deviceId !== undefined &&
-      h('span', { 'data-testid': 'identity-device' }, ` · Device ${chrome.deviceId}`),
-    // Sign out is NOT here. Founder instruction, 2026-09-14: "sign out is
-    // everywhere, it must be on settings only."
-    //
-    // It sat in the identity bar on every screen, and because `.pos__identity`
-    // carried no styling of its own the button inherited the generic control
-    // treatment — so the heaviest, most button-shaped thing on the vending
-    // home was the control that ends the shift. A shopkeeper reaching for the
-    // sale reached past a 48px block that signs them out.
-    //
-    // One way out, in one place a person goes deliberately.
-  );
-}
 
 /** A labelled navigation bar. Every destination is a real link, reachable by keyboard. */
 export function nav(

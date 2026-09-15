@@ -89,6 +89,7 @@ publication by `.gitignore`.
 - [[Support and Disputes]] — **Mermaid: customer complaint flow**
 - [[Provider Health]] — **Mermaid: outage isolation · provider timeout and manual review**
 - [[Runbooks]] — the operational procedures, and the log of every fix
+- [[Is This The Current Build]] — telling a live defect from a stale build before spending a day on the wrong one
 - [[Database Operations Runbook]] — health, ledger residual, migrations, restore
 - [[Console Money Ports Incident]] — the console refused every amount carrying santim, and why
 - [[Transaction Failure Runbook]] — triage by state, stuck transactions, reversals

@@ -1158,6 +1158,9 @@ export async function renderScreen(
             balance: remoteOf(balance, at),
             hideBalance: prefs.hideBalance,
             lowBalanceAlert: prefs.lowBalanceAlert,
+            // The shop's own name if it has given one. Never the merchant id:
+            // a shopkeeper's home screen read "merchant_alpha" until now.
+            businessName: slipStyle.business?.name,
           }),
         ),
         chrome,

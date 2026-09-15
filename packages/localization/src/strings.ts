@@ -256,6 +256,14 @@ export const EN = Object.freeze({
   'settings.section.admin': 'Admin only',
   'settings.section.security': 'Security',
   'settings.section.about': 'About and policies',
+  // Who is signed in and on what — rehomed from the strip that used to sit
+  // under every screen. Here it is looked up deliberately, which is the only
+  // time anybody actually wants it: a support call.
+  'settings.section.identity': 'This device',
+  'settings.identity.operator': 'Signed in as',
+  'settings.identity.shop': 'Shop',
+  'settings.identity.device': 'Device',
+  'settings.identity.synced': 'Last updated from Telga',
   'settings.toggle.sound': 'Play sound',
   'settings.toggle.hide_balance': 'Hide Telga balance',
   'settings.toggle.low_balance': 'Alert me when balance is low',
@@ -811,6 +819,11 @@ export const AM: Readonly<Partial<Record<MessageKey, string>>> = Object.freeze({
   'settings.section.admin': 'ለአስተዳዳሪ ብቻ',
   'settings.section.security': 'ደህንነት',
   'settings.section.about': 'ስለ እና ፖሊሲዎች',
+  'settings.section.identity': 'ይህ መሣሪያ',
+  'settings.identity.operator': 'የገባው',
+  'settings.identity.shop': 'ሱቅ',
+  'settings.identity.device': 'መሣሪያ',
+  'settings.identity.synced': 'ከቴልጋ የተዘመነው',
   'settings.toggle.sound': 'ድምጽ አጫውት',
   'settings.toggle.hide_balance': 'የተልጋ ቀሪ ሂሳብ ደብቅ',
   'settings.toggle.low_balance': 'ቀሪ ሂሳብ ሲያንስ አሳውቀኝ',
