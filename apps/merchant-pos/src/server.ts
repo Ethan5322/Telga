@@ -28,6 +28,7 @@
  * than serving a banner that lies.
  */
 
+import { gzip } from 'node:zlib';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -2308,6 +2309,98 @@ export function createPosServer(options: PosServerOptions): Server {
     });
   };
 
+  /**
+   * Compress what goes down the wire.
+   *
+   * Measured 2026-09-16, on the founder's report that the app *"feels slow to
+   * open on a phone and POS, especially on a poor connection"*: a screen was
+   * **about 90 KB in the clear**, with no `content-encoding` on any response
+   * and no compression anywhere in the tree. Gzip takes that to roughly 13 KB.
+   *
+   * It is the largest number available here, and it helps the **first**
+   * request - which is the one being described. Caching would not: the HTML is
+   * deliberately `no-store`, because a POS is a shared machine and a back
+   * button that re-renders the previous operator's balance is a real leak on a
+   * counter. That header is a security decision, and it stays.
+   *
+   * **Here rather than in `respondHtml`.** The first attempt put it there with
+   * an optional `request` parameter, and none of the eighteen callers passed
+   * one - so it would have shipped switched off. This is the single place the
+   * request and the response are already together, and wrapping it covers
+   * every route rather than the ones somebody remembered.
+   *
+   * `zlib` is in Node; no dependency is added.
+   *
+   * **Gzip, not Brotli.** Brotli is smaller and costs meaningfully more CPU per
+   * response, and this process shares a container with the operations console
+   * and the recovery worker. Gzip at level 6 is the trade every CDN makes by
+   * default, for the same reason.
+   */
+  const withCompression = (request: IncomingMessage, response: ServerResponse): void => {
+    const accepts = String(request.headers['accept-encoding'] ?? '');
+    if (!accepts.includes('gzip')) {
+      void handler(request, response);
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    const originalWrite = response.write.bind(response);
+    const originalEnd = response.end.bind(response);
+    const originalWriteHead = response.writeHead.bind(response);
+
+    let compress = false;
+
+    // Decided when the headers are written, because that is when the content
+    // type is known. An image or a font is already compressed; running gzip
+    // over it spends CPU to make it very slightly larger.
+    response.writeHead = ((status: number, headers?: Record<string, string>) => {
+      const type = String(headers?.['content-type'] ?? '');
+      compress = /text\/|application\/(json|javascript|manifest)/.test(type);
+      if (compress) {
+        const merged = { ...(headers ?? {}), 'content-encoding': 'gzip' } as Record<string, string>;
+        // A cache must never hand a gzipped body to a client that did not ask
+        // for one.
+        merged['vary'] = 'accept-encoding';
+        // The packed length is not known yet, and a stale one is worse than
+        // none: a browser that trusts it truncates the page.
+        delete merged['content-length'];
+        delete merged['Content-Length'];
+        return originalWriteHead(status, merged);
+      }
+      return originalWriteHead(status, headers as never);
+    }) as typeof response.writeHead;
+
+    response.write = ((chunk: unknown, ...rest: unknown[]) => {
+      if (!compress) return (originalWrite as (...a: unknown[]) => boolean)(chunk, ...rest);
+      if (chunk !== undefined && chunk !== null) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf-8'));
+      }
+      return true;
+    }) as typeof response.write;
+
+    response.end = ((chunk?: unknown, ...rest: unknown[]) => {
+      if (!compress) return (originalEnd as (...a: unknown[]) => ServerResponse)(chunk, ...rest);
+      if (typeof chunk === 'string' || Buffer.isBuffer(chunk)) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf-8'));
+      }
+      const raw = Buffer.concat(chunks);
+
+      // Below about a kilobyte the gzip header costs more than it saves.
+      if (raw.byteLength < 1024) {
+        response.removeHeader?.('content-encoding');
+        return (originalEnd as (...a: unknown[]) => ServerResponse)(raw);
+      }
+
+      gzip(raw, { level: 6 }, (error, packed) => {
+        // A compression failure must never cost a shopkeeper the screen.
+        (originalEnd as (...a: unknown[]) => ServerResponse)(error ? raw : packed);
+      });
+      return response;
+    }) as typeof response.end;
+
+    void handler(request, response);
+  };
+
   if (terminatesTlsItself(transport)) {
     // Validated above, so both paths are present; `loadTlsMaterial` throws a
     // typed error the CLI turns into exit 4 if either is unreadable or if they
@@ -2316,10 +2409,10 @@ export function createPosServer(options: PosServerOptions): Server {
       transport.tlsCertificatePath as string,
       transport.tlsPrivateKeyPath as string,
     );
-    return createTlsServer({ cert: material.cert, key: material.key }, handler);
+    return createTlsServer({ cert: material.cert, key: material.key }, withCompression);
   }
 
-  return createServer(handler);
+  return createServer(withCompression);
 }
 
 /**
@@ -4433,6 +4526,8 @@ function respondHtml(
   scheme: RequestScheme,
   nonce: string,
 ): void {
+  // Compression is not here. It happens once, in `withCompression`, where the
+  // request and the response are already together - see the note there.
   response.writeHead(status, htmlHeaders(transport, scheme, nonce));
   response.end(html);
 }

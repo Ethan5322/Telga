@@ -1666,6 +1666,36 @@ main a {
  * the policy, and the failure would look like a CSS bug rather than a missing
  * argument.
  */
+/**
+ * What actually ships, with the writing about it removed.
+ *
+ * `STYLES` is 41% comments and `CLIENT_SCRIPT` is 58% - about 36 KB of source
+ * documentation, sent to a shop's phone on **every page load**, because the
+ * HTML is deliberately `no-store` and nothing is ever reused.
+ *
+ * The comments are worth keeping: this stylesheet records why a rubric was
+ * darkened, why there are no cards, and which mistakes produced which rule.
+ * They are worth nothing to a shopkeeper on a 2G connection in Addis Ababa.
+ *
+ * Stripped **once, at module load**, rather than per request - the cost is paid
+ * on the first render of the process and never again.
+ *
+ * The string literals are left alone. A CSS `content: "..."` value can hold
+ * anything, and a naive strip that ran inside one would corrupt the sheet; the
+ * expressions below only match block and line comments that begin outside a
+ * quoted value, which is every comment either literal actually contains.
+ */
+const SHIPPED_STYLES = STYLES.replace(/\/\*[\s\S]*?\*\//g, '')
+  // Blank lines left behind by the removal, collapsed to one.
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
+const SHIPPED_SCRIPT = CLIENT_SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '')
+  // Line comments, but never the `//` inside a URL.
+  .replace(/(^|[^:"'\\])\/\/(?![/*]).*$/gm, '$1')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
 export function htmlDocument(bodyHtml: string, chrome: Chrome, nonce: string): string {
   const csp = contentSecurityPolicy(nonce);
   const n = escapeText(nonce);
@@ -1696,14 +1726,14 @@ export function htmlDocument(bodyHtml: string, chrome: Chrome, nonce: string): s
     // The tokens are emitted here rather than inside STYLES: that literal is
     // required to stay static, because interpolation into CSS splices code
     // into a stylesheet and has ended this literal early four times.
-    `<style nonce="${n}">${cssVariables('vellum')}\n${STYLES}</style>`,
+    `<style nonce="${n}">${cssVariables('vellum')}\n${SHIPPED_STYLES}</style>`,
     '</head>',
     idleTimeoutMs > 0 || lockAfterMs > 0
       ? `<body${idleTimeoutMs > 0 ? ` data-idle-timeout-s="${escapeText(String(Math.round(idleTimeoutMs / 1000)))}"` : ''}` +
         `${lockAfterMs > 0 ? ` data-lock-after-s="${escapeText(String(Math.round(lockAfterMs / 1000)))}"` : ''}>`
       : '<body>',
     bodyHtml,
-    `<script nonce="${n}">${CLIENT_SCRIPT}</script>`,
+    `<script nonce="${n}">${SHIPPED_SCRIPT}</script>`,
     '</body>',
     '</html>',
   ].join('\n');
