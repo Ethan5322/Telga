@@ -262,7 +262,15 @@ export function loginScreen(props: LoginProps): El {
         }),
         'Issued by Telga when this device was enrolled.',
       ),
-      h('button', { type: 'submit', 'data-testid': 'login-submit' }, t(locale, 'screen.login')),
+      h(
+        'button',
+        {
+          type: 'submit',
+          class: 'voucher__button voucher__button--primary',
+          'data-testid': 'login-submit',
+        },
+        t(locale, 'screen.login'),
+      ),
     ),
     /**
      * The app's **second** option on open — D138.

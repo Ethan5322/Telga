@@ -180,7 +180,10 @@ function bottomNav(locale: Locale): El {
     // dashboard itself — was a one-tap route straight back to the screen the
     // vending dashboard replaced. Settings is the only account-shaped
     // destination that actually exists.
-    navItem('/settings', 'dashboard-nav-account', '👤', t(locale, 'settings.tile.label'), false),
+    // `dashboard-nav-account` was here: same href, same label, same word
+    // as the Settings tab beside it. Two of five tabs went to one place,
+    // both rendering 'Settings' on two wrapped lines at 62x96px. A tab bar
+    // with a duplicate is a tab bar a shopkeeper stops reading.
     // Reprint now has a real backend — receipt lookup plus `recordReprint`
     // wiring — so this opens the transaction list, where each completed sale
     // carries its own Reprint action.
@@ -277,7 +280,24 @@ export function dashboardScreen(props: DashboardProps): El {
                       h('span', { 'data-testid': 'balance-revealed' }, balance.available.formatted),
                     ),
                   )
-                : `${t(locale, 'dashboard.balance.pill')} ${balance.available.formatted}`,
+                : // Caption and figure as separate spans, so the figure can
+                  // lead. One string could not be set at two sizes, which is
+                  // why the balance sat at body size until 2026-09-16.
+                  h(
+                    'span',
+                    { class: 'dashboard__balance-group' },
+                    h(
+                      'span',
+                      { class: 'dashboard__balance-caption' },
+                      t(locale, 'dashboard.balance.pill'),
+                    ),
+                    h(
+                      'span',
+                      { class: 'dashboard__balance-figure', 'data-testid': 'dashboard-balance' },
+                      balance.available.formatted,
+                      h('span', { class: 'balance__unit' }, balance.available.currency),
+                    ),
+                  ),
             ),
             h(
               'a',

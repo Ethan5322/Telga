@@ -58,30 +58,54 @@ describe('the mark', () => {
   });
 });
 
-describe('the launcher button', () => {
-  it('draws its own ground rather than relying on the image having one', () => {
-    // The ground is the button's, not the mark's. If it ever moved into the
-    // artwork, the same file could no longer sit on a slip or an icon.
-    const css = readFileSync(
-      resolve(process.cwd(), 'apps/merchant-pos/src/ui/document.ts'),
-      'utf-8',
-    );
-    const rule = css.slice(css.indexOf('.launcher__telga {'), css.indexOf('.launcher__telga:hover'));
-    expect(rule).toContain('radial-gradient');
-    expect(rule).toContain('border: 1px solid');
+describe('the surfaces that draw the mark supply their own ground', () => {
+  /**
+   * These two tests watched `.launcher__telga` — the single-button launcher
+   * screen — until D168 removed it on 2026-09-15 and its CSS was deleted on
+   * 2026-09-16.
+   *
+   * The property is unchanged and still matters: **the ground belongs to the
+   * surface, not to the artwork.** If a ground ever moved into the PNG, the
+   * same file could no longer sit on a slip, on a dark screen, and inside a
+   * maskable icon — which is the whole reason it carries alpha.
+   *
+   * Re-homed to the lock screen, which is where the mark is drawn on a dark
+   * ground today.
+   */
+  const css = (): string =>
+    readFileSync(resolve(process.cwd(), 'apps/merchant-pos/src/ui/document.ts'), 'utf-8');
+
+  it('draws the lock screen ground rather than relying on the image having one', () => {
+    const sheet = css();
+    const start = sheet.indexOf('.lock {');
+    expect(start, 'the lock screen must still style its own ground').toBeGreaterThan(-1);
+    const rule = sheet.slice(start, sheet.indexOf('}', start));
+    // A dark ground the mark sits on, owned by the screen.
+    expect(rule).toMatch(/background/);
   });
 
   it('puts no background behind the image itself', () => {
     // The wrapper holds the mark and nothing else: a background here would put
     // a visible box around a transparent PNG, which is what "not transparent"
     // would actually look like.
-    const css = readFileSync(
-      resolve(process.cwd(), 'apps/merchant-pos/src/ui/document.ts'),
-      'utf-8',
-    );
-    const start = css.indexOf('.launcher__telga-icon {');
-    expect(start).toBeGreaterThan(-1);
-    const rule = css.slice(start, css.indexOf('}', start));
+    const sheet = css();
+    const start = sheet.indexOf('.lock__mark {');
+    expect(start, '.lock__mark must exist to hold the mark').toBeGreaterThan(-1);
+    const rule = sheet.slice(start, sheet.indexOf('}', start));
     expect(rule).not.toContain('background');
+  });
+
+  it('keeps no stylesheet for the launcher button that was removed', () => {
+    // The other half of the same lesson. Dead CSS ships to a shop's phone on
+    // every page load, and a reader who finds a rule for a deleted screen
+    // reasonably concludes the screen is still there.
+    //
+    // **Comments are stripped first**, because `document.ts` carries a note
+    // recording that these rules were removed — and a guard that reads prose
+    // matches its own documentation. That has now happened three times in one
+    // day on three different guards, so it is worth saying plainly: a guard
+    // must read the code, never the writing about the code.
+    const withoutComments = css().replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(withoutComments).not.toContain('.launcher__telga');
   });
 });

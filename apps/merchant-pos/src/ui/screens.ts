@@ -1702,7 +1702,10 @@ export function pinAuthScreen(props: PinAuthScreenProps): El {
         ),
         h(
           'button',
-          { type: 'submit', class: 'voucher__button voucher__button--print', 'data-testid': 'pin-confirm' },
+          // The primary, stated rather than inherited from the element. It
+          // carried `--print` until 2026-09-16 and rendered vermilion anyway,
+          // because the old selector overrode every modifier.
+          { type: 'submit', class: 'voucher__button voucher__button--primary', 'data-testid': 'pin-confirm' },
           t(locale, 'voucher.pin.confirm'),
         ),
       ),

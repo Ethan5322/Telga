@@ -18,7 +18,7 @@
  * the header is the authority and the tag is the copy.
  */
 
-import { cssVariables } from '@telga/design-system';
+import { VELLUM, cssVariables } from '@telga/design-system';
 import { escapeText } from './element';
 import type { Chrome } from './chrome';
 import { contentSecurityPolicy } from '../transport/headers';
@@ -477,46 +477,6 @@ dd { margin: 0; }
    The elegance is in restraint: one soft ring, one gentle lift on press, and a
    dark ground the transparent artwork sits on cleanly. No drop shadows under
    the mark, which would fight the render's own lighting. */
-.launcher__single { display: flex; justify-content: center; padding: 2.5rem 1rem 3rem; }
-.launcher__telga {
-  display: flex; flex-direction: column; align-items: center; gap: 0.9rem;
-  padding: 2.5rem 3rem 2rem; border-radius: 1.75rem; text-decoration: none;
-  color: var(--telga-vellum-ground-pale);
-  /* A soft radial pool behind the mark, so the artwork sits in light rather
-     than on a flat panel. */
-  background:
-    radial-gradient(120% 90% at 50% 18%, rgba(143,196,189,0.16) 0%, rgba(143,196,189,0) 62%),
-    linear-gradient(180deg, var(--telga-vellum-ink) 0%, var(--telga-leather-ground) 100%);
-  border: 1px solid rgba(143,196,189,0.28);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 28px -14px rgba(0,0,0,0.75);
-  min-width: 17rem; max-width: 22rem;
-  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
-}
-.launcher__telga:hover {
-  border-color: rgba(143,196,189,0.5);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.09) inset, 0 18px 36px -14px rgba(0,0,0,0.8);
-  transform: translateY(-3px);
-}
-.launcher__telga:focus-visible { outline: var(--telga-size-rule-heavy) solid var(--telga-vellum-rubric); outline-offset: 4px; }
-.launcher__telga:active { transform: translateY(-1px) scale(0.99); }
-.launcher__telga-icon { line-height: 0; }
-.launcher__telga-icon img { max-width: 100%; height: auto; }
-.launcher__telga-label {
-  font-size: 1.7rem; font-weight: 800; letter-spacing: 0.28em;
-  /* The tracking pushes the word right; this pulls the block back to centre. */
-  padding-left: 0.28em;
-}
-/* Says what pressing it does. A mark on its own is a picture. */
-.launcher__telga-cue {
-  font-size: 0.78rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
-  color: var(--telga-vellum-ochre);
-  padding: 0.45rem 1.1rem; border-radius: 999px;
-  border: 1px solid rgba(143,196,189,0.35);
-}
-.launcher__back-row { margin-top: 1.5rem; }
-
-/* The flat mark. Its colours are tokens so the glyph follows the theme rather
-   than carrying three hardcoded fills. */
 .telga-glyph {
   --glyph-teal: var(--telga-vellum-rubric);
   --glyph-teal-deep: var(--telga-vellum-ink);
@@ -545,6 +505,16 @@ dd { margin: 0; }
    The 48px touch floor is NOT crossed: a tile is 4.25rem tall and at least a
    quarter of the width of a 320px screen, which is 68px by 80px. Shrinking
    past that would trade a scroll for a mis-tap on a counter. */
+
+/* The single-button launcher screen's rules were here and went with the screen
+   on 2026-09-15 (D168): .launcher__single, .launcher__telga and its icon,
+   label and cue, and .launcher__back-row. All five verdigris rgba literals
+   lived in that block.
+
+   Removing the renderer and leaving its stylesheet is the same mistake as
+   leaving the renderer itself - the critique of 2026-09-16 found both, one day
+   apart. Dead CSS still ships to a shop's phone on every page load. */
+
 .dashboard__grid {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem;
 }
@@ -560,8 +530,9 @@ dd { margin: 0; }
   font-size: 1.15rem; width: 1.9rem; height: 1.9rem; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; background: var(--telga-vellum-ground-deep);
 }
-.dashboard__tile-label { font-size: 0.65rem; font-weight: 600; line-height: 1.05; }
-.dashboard__tile-badge { font-size: 0.6rem; opacity: 0.7; line-height: 1; }
+.dashboard__tile-label { font-size: var(--telga-type-xs); font-weight: 600; line-height: 1.05; }
+.dashboard__tile-badge { font-size: var(--telga-type-xs); line-height: 1;   color: var(--telga-vellum-ink-thin);
+}
 .dashboard__tile[data-status="COMING_SOON"] { opacity: 0.72; }
 /* The icon chips were ten pastels — blue, red, purple, yellow, green, cyan,
    navy, orange, sky, charcoal — inside a world capped at five inks. They
@@ -575,11 +546,58 @@ dd { margin: 0; }
    reference. Profit's *value* is always the honest "not yet available"
    text — see ui/dashboard.ts's file header. */
 .dashboard__pills { display: flex; gap: var(--gap); flex-wrap: wrap; margin-block: var(--gap); }
-.dashboard__pill {
-  flex: 1 1 10rem; display: inline-block; border: 1px solid currentColor; border-radius: 999px;
-  padding: 0.6rem 1.1rem; font-weight: 600; text-align: center;
+/* --- the balance, leading ------------------------------------------------
+
+   DESIGN.md: "The balance leads. The available figure is the largest thing on
+   the merchant home screen, its unit rubricated and set small beside it."
+
+   It did not. It was a border-radius: 999px pill holding body-size text, which
+   rendered as a 173 x 132px ellipse - in a world whose own design record says
+   "Not a pill: this world rules and fills, it does not round." The component
+   that does it properly existed the whole time and rendered only on /home, an
+   address nothing links to.
+
+   Square corners, a rule beneath, and the figure at display size. */
+.dashboard__pills {
+  display: flex; flex-direction: column; gap: var(--telga-space-sm);
+  margin-block: var(--telga-space-md);
 }
-.dashboard__pill--profit { opacity: 0.85; }
+.dashboard__pill {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--telga-space-md);
+  padding: var(--telga-space-sm) 0;
+  border: 0;
+  border-bottom: var(--telga-size-rule-hair) solid var(--telga-vellum-rule);
+  border-radius: 0;
+  color: var(--telga-vellum-ink);
+  text-decoration: none;
+}
+.dashboard__pill-text, .dashboard__balance-group {
+  display: flex; flex-direction: column; gap: 0.1rem; min-width: 0;
+}
+.dashboard__balance-caption {
+  font-size: var(--telga-type-xs);
+  color: var(--telga-vellum-ink-thin);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* The largest thing on the screen, as the design record asks. */
+.dashboard__balance-figure {
+  font-family: var(--telga-type-display);
+  font-size: 2rem;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+/* The unit rubricated and set small beside it. Red ink marking what kind of
+   thing a number is, which is what rubrication is for. */
+.dashboard__balance-figure .balance__unit {
+  font-size: var(--telga-type-sm);
+  color: var(--telga-vellum-rubric);
+  margin-inline-start: 0.35rem;
+}
+.dashboard__pill--profit {
+  color: var(--telga-vellum-ink-thin); }
 
 /* Bottom nav: icon above label per item, the active item picked out —
    matching the reference's Prepaid/Payments/Account row. */
@@ -591,7 +609,7 @@ dd { margin: 0; }
 }
 .dashboard__bottom-nav-item[aria-current="page"] { opacity: 1; font-weight: 700; }
 .dashboard__bottom-nav-icon { font-size: 1.4rem; }
-.dashboard__bottom-nav-label { font-size: 0.75rem; }
+.dashboard__bottom-nav-label { font-size: var(--telga-type-xs); }
 
 /* Voucher screens: white rounded cards in a tapable grid, matching the
    reference vending terminal. Colour lives on the icon badge and on the two
@@ -623,7 +641,7 @@ dd { margin: 0; }
 .voucher__amount-card--custom { flex: 0 0 auto; min-width: 9rem; }
 .voucher__custom-field { display: flex; align-items: center; gap: 0.5rem; }
 .voucher__custom-field input { font-size: 1.1rem; font-weight: 700; width: 7rem; padding: 0.5rem; border: var(--telga-size-rule-major) solid var(--telga-vellum-rule); border-radius: 0.5rem; }
-.voucher__custom-hint { flex-basis: 100%; margin: 0; font-size: 0.8rem; opacity: 0.75; }
+.voucher__custom-hint { flex-basis: 100%; margin: 0; font-size: var(--telga-type-xs); opacity: 0.75; }
 .voucher__amount-card {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem;
   min-height: 4.5rem; padding: 0.75rem 0.5rem; cursor: pointer;
@@ -635,7 +653,7 @@ dd { margin: 0; }
 .voucher__amount-card:has(.voucher__amount-radio:focus-visible) { outline: 3px solid currentColor; outline-offset: 2px; }
 .voucher__amount-card:has(.voucher__amount-radio:disabled) { opacity: 0.5; cursor: not-allowed; }
 .voucher__amount-value { font-size: 1.1rem; font-weight: 700; }
-.voucher__amount-note { font-size: 0.7rem; opacity: 0.75; }
+.voucher__amount-note { font-size: var(--telga-type-xs); opacity: 0.75; }
 
 .voucher__summary-card {
   background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule); border-radius: 0.85rem;
@@ -682,7 +700,7 @@ dd { margin: 0; }
 
 /* Transaction history: a real table, newest first. */
 .history__table { background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border-radius: 0.6rem; overflow: hidden; font-size: 0.85rem; }
-.history__table th { background: var(--telga-vellum-ground-deep); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.history__table th { background: var(--telga-vellum-ground-deep); font-size: var(--telga-type-xs); text-transform: uppercase; letter-spacing: 0.03em; }
 .history__table td, .history__table th { padding: 0.5rem 0.6rem; }
 .history__time { opacity: 0.7; }
 
@@ -1067,7 +1085,7 @@ dd { margin: 0; }
 .pay__card-methods a { border-color: var(--pay-accent); color: var(--pay-accent); border-radius: 0.5rem; }
 .pay__card-badges { display: flex; gap: 0.5rem; justify-content: center; }
 .pay__card-badge {
-  border: 1px solid currentColor; border-radius: 0.3rem; padding: 0.2rem 0.6rem; font-size: 0.8rem;
+  border: 1px solid currentColor; border-radius: 0.3rem; padding: 0.2rem 0.6rem; font-size: var(--telga-type-xs);
   font-weight: 700; letter-spacing: 0.03em;
 }
 
@@ -1240,8 +1258,20 @@ main {
 
 /* --- the primary action --------------------------------------------------
    One per screen. A rubricated block, not a pill: this world rules and fills,
-   it does not round. */
-.pos main button[type="submit"],
+   it does not round.
+
+   OPT-IN, not element-driven. This selector was
+   .pos main button[type=submit] at specificity 0,2,2, which beat every
+   modifier meant to differentiate a button (--cancel and --print are both
+   0,1,0). So EVERY submit inside main painted itself the primary: three
+   identical vermilion blocks on the PIN screen (Confirm, Cancel order, Main),
+   and Reprint - a form - outshouting Print - a plain button - which is the
+   exact opposite of what section 18.5 requires of that pair.
+
+   An element selector cannot know which of three submits is the primary one.
+   Only the screen knows, so the screen says so, and the guard test in
+   tests/ui/design-rules.test.ts holds the count at one. */
+.voucher__button--primary,
 .button--primary {
   min-height: var(--telga-size-primary);
   background: var(--telga-vellum-rubric);
@@ -1255,7 +1285,7 @@ main {
 }
 
 /* Press feedback: the block seats itself against its rule. */
-.pos main button[type="submit"]:active,
+.voucher__button--primary:active,
 .button--primary:active { filter: brightness(0.92); }
 
 /* --- the bottom tab bar --------------------------------------------------
@@ -1383,7 +1413,7 @@ html, body { overflow-x: hidden; max-width: 100%; }
    every screen to the full width of a counter display — a 1024px line of body
    text, which is roughly twice a readable measure. Containment is for the
    children that would otherwise push past the shell. */
-.pos__topbar, main, .pos__identity, .pos__footer { max-width: 100%; }
+.pos__topbar, main, /* Rules for the identity bar (D167) went with it. */
 
 /* The app bar is the skin, not a pale strip. Stated with the shell's own
    specificity because it renders above the fold on every screen. */

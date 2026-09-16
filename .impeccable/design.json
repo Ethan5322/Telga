@@ -9,22 +9,22 @@
       "groundPale": "#EDDCBC",
       "groundDeep": "#D3B98C",
       "ink": "#1A1410",
-      "inkThin": "#6B5636",
-      "rubric": "#C0341F",
+      "inkThin": "#63502F",
+      "rubric": "#A32A16",
       "indigo": "#23375E",
       "ochre": "#C98A14",
       "rule": "#A8916A"
     },
     "leather": {
-      "ground": "#2A1D14",
+      "ground": "#E2CBA3",
       "groundRaised": "#382718",
-      "groundDeep": "#1E140D",
-      "ink": "#EFDFC4",
-      "inkThin": "#B49A72",
-      "rubric": "#E0604A",
-      "indigo": "#7A93C8",
-      "ochre": "#D9A83C",
-      "rule": "#5A4231"
+      "groundDeep": "#D3B98C",
+      "ink": "#1A1410",
+      "inkThin": "#63502F",
+      "rubric": "#A32A16",
+      "indigo": "#23375E",
+      "ochre": "#C98A14",
+      "rule": "#A8916A"
     }
   },
   "space": {
