@@ -95,15 +95,25 @@ describe('no colour literal outside the token system', () => {
    * per dot. A ratchet that can only fall is the honest shape for a debt being
    * paid down — and it fails the moment somebody adds one more.
    *
-   * The remaining debt, in rough order of how much it is worth paying:
-   * `.card__result--approved/--declined/--no_response` are a green/red/amber
-   * vocabulary that says status by hue alone, twenty lines above the
-   * `[data-phase]` system built to replace it; `--pay-accent` (#0f9b8e) is a
-   * sixth ink from the released palette; and the slip's paper white and ink
-   * want a `--telga-paper` / `--telga-paper-ink` pair so the cap can be tested
-   * honestly rather than exempted by hand.
+   * **15 became 6 on 2026-09-16**, in the polish pass over Telga Vending and
+   * Telga Pay. What went, and why each was debt rather than decoration:
+   *
+   * - `--pay-accent` (#0f9b8e) and the pale teal that checked a card gesture —
+   *   the last of the released reference world still colouring a module. The
+   *   accent measured **2.18:1** against the page, on the figure for today's
+   *   sales and on the tap/insert/swipe controls.
+   * - `.card__result--approved/--declined/--no_response` — a green/red/amber
+   *   vocabulary saying status by hue alone, twenty lines above the phase
+   *   system built to replace it. Now ruled by pattern and ink.
+   * - `.dashboard__alert`'s three ambers, one of which was `ochre-ink` written
+   *   out by hand on an element already carrying `data-tone="CAUTION"`.
+   *
+   * The remaining debt is the slip: paper white and its ink want a
+   * `--telga-paper` / `--telga-paper-ink` pair so the cap can be tested honestly
+   * rather than exempted by hand. `#2a3a52` rules the sign-in screen's divider
+   * and belongs to the same reference world; it was outside this pass's scope.
    */
-  const CEILING = 15;
+  const CEILING = 6;
 
   it('adds no new hard-coded hex colour', () => {
     const css = withoutComments(stylesheet());

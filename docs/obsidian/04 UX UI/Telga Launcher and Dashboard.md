@@ -16,6 +16,7 @@ related:
   - "[[Voucher Purchase Flow]]"
   - "[[Telga Pay Card Simulator]]"
   - "[[Decision Log]]"
+  - "[[Guards That Read Themselves]]"
 depends_on:
   - "[[Product Scope]]"
 implements: []

@@ -61,6 +61,20 @@ that are is the job this does.
 `sell` rubric · `utility` verdigris · `official` indigo · `media` plum ·
 `money` ochreInk · `transport` sienna.
 
+**The status a family reads is `IMPLEMENTED`, and it took a day to notice it
+was not.** The rules picking out a working tile were written against
+`[data-status="AVAILABLE"]`, a value the markup has never emitted, so they
+matched nothing and the two services that work shipped drawn like the fourteen
+that do not — the one job this whole scheme exists to do. The guard missed it by
+reading the stylesheet against itself. It now starts from the statuses the
+source emits, and refuses a rule that paints a status nothing renders.
+
+**`money` is also Telga Pay's ink**, not only the Account tile's. Telga Pay was
+accented in `#0f9b8e`, a teal from the released reference world, measured at
+2.18:1 as text on the page and 3.44:1 as a white glyph on its own chip. A module
+about money takes the ink that already means money — 5.11:1 and 5.98:1 — so the
+cap stays at eight and nothing new was invented to fix a contrast failure.
+
 **Families cannot be told apart in monochrome, and do not need to be.** Every
 family ink must clear 4.5:1 against the pale ground, which caps its luminance
 near 0.12 — six colours inside a band that narrow cannot separate by lightness.
@@ -146,8 +160,19 @@ cards as page structure is the category default this refuses.
 - **The balance leads.** The available figure is the largest thing on the
   merchant home screen, its unit **rubricated** and set small beside it. Red ink
   marks what kind of thing a number is, which is what rubrication is for.
+  The unit is taken **off** the formatted figure, never added to it: the domain
+  formatter already ends every amount with its currency, and two screens that
+  appended it again printed `100.00 ETB ETB` on the one number a shopkeeper
+  opens this app to read. `apps/merchant-pos/src/ui/money.ts` owns the split.
 - **Primary action**: a rubricated block seated on a heavy rule, one per screen.
-  Not a pill — this world rules and fills, it does not round.
+  Not a pill — this world rules and fills, it does not round. **One class,
+  `.button--primary`, across every module.** Telga Pay carried a second
+  vocabulary — a teal 999px pill — and two primary treatments in one application
+  is two applications as far as a shopkeeper's hand is concerned.
+- **Both modules navigate with the same bottom bar.** Telga Vending has carried
+  it since D163; Telga Pay's only way out was a link reading "Telga launcher",
+  which is the control D168 asked to have removed from every screen. §18.0 is
+  explicit that these are two modules of one application, so they move alike.
 - **Active tab is inverted, not tinted.** Rank is inversion here, and inversion
   survives a monochrome screen where a tint does not.
 - **Console navigation** is a horizontally scrolling snap strip: fourteen
@@ -176,6 +201,17 @@ failure's ink** — §15 is explicit that a timeout is not a failure.
 
 Struck-and-re-entered is the ledger's own grammar: §13 invariant 8, corrections
 are authorised adjustment entries, never silent edits.
+
+**The card simulator's four outcomes borrow this vocabulary, and are not phases
+of it.** They were four pastel grounds — mint, rose, amber, grey — and the
+container's hue was the only thing separating a decline from a timeout, twenty
+lines above the system built to replace exactly that. They are ruled now:
+approved solid rubric, no-response **dashed indigo**, not-read dotted, declined
+double ink. Declined takes `double` because the table's "solid + struck" is a
+ledger-row device and needs a row to strike. The rule that binds is the one
+above: **a timeout does not borrow failure's ink**, because §15 says a timeout
+is not a failure and a screen that paints them alike teaches an operator to
+treat them alike.
 
 ## Browser surfaces
 

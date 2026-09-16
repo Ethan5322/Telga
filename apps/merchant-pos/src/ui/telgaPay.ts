@@ -17,8 +17,10 @@
 import { t } from '@telga/localization';
 import { page } from './chrome';
 import type { Chrome } from './chrome';
+import { bottomNav } from './dashboard';
 import { h } from './element';
 import type { El } from './element';
+import { amountWithUnit } from './money';
 import { slipCard } from './screens';
 import type { SlipStyle } from './screens';
 
@@ -54,7 +56,10 @@ export function payEntryScreen(props: PayEntryProps): El {
           'div',
           { 'data-testid': 'pay-todays-sales', class: 'pay__summary' },
           h('p', { class: 'pay__summary-label' }, t(locale, 'pay.todays_sales_label')),
-          h('p', { class: 'pay__summary-amount' }, props.todaysSalesFormatted),
+          // The unit rubricated beside the figure, as every other lead figure
+          // in Telga sets it — it was a 2rem number in a teal that measured
+          // 2.18:1 against the page.
+          h('p', { class: 'pay__summary-amount' }, ...amountWithUnit(props.todaysSalesFormatted)),
           props.todaysSalesCount !== undefined &&
             h(
               'p',
@@ -71,11 +76,15 @@ export function payEntryScreen(props: PayEntryProps): El {
       // The only tile here that changes a balance. Owner-only server-side.
       payTile('/pay/deposit', 'pay-deposit-link', '➕', t(locale, 'pay.deposit.label')),
     ),
-    h(
-      'p',
-      {},
-      h('a', { href: '/launcher', 'data-testid': 'back-to-launcher' }, t(locale, 'dashboard.back_to_launcher')),
-    ),
+    // Telga Vending's own bar, with Payments as the current section.
+    //
+    // What stood here was a single link reading "Telga launcher" — the control
+    // the founder's device review asked to have removed from every screen
+    // (D168), and simultaneously the only way out of Telga Pay. Both facts had
+    // to be answered at once: delete the link, and give the module the same
+    // four destinations the rest of the app has, so an operator returns to the
+    // counter the way they would from anywhere else.
+    bottomNav(locale, 'payments'),
   );
 }
 
@@ -121,7 +130,8 @@ export function payAmountScreen(props: PayAmountProps): El {
         method: 'get',
         action: '/pay/card/present',
         'data-testid': 'pay-amount-form',
-        class: 'pay__amount-form',
+        // `class: 'pay__amount-form'` was here and the stylesheet had no rule
+        // for it — a hook with nothing on it, shipped on every render.
       },
       // Cashback and purchase are the same flow with one extra field, so the
       // kind rides along rather than forking the screen.
@@ -153,7 +163,11 @@ export function payAmountScreen(props: PayAmountProps): El {
         'p',
         { class: 'pay__actions' },
         h('button', { type: 'reset', 'data-testid': 'pay-amount-clear' }, t(locale, 'voucher.pin.clear')),
-        h('button', { type: 'submit', class: 'pay__pill-button', 'data-testid': 'pay-now' }, t(locale, 'pay.pay_now')),
+        // `.button--primary`, not `.pay__pill-button`. That class was a teal
+        // 999px pill — a second primary vocabulary in a world whose design
+        // record says "a rubricated block seated on a heavy rule, one per
+        // screen. Not a pill: this world rules and fills, it does not round."
+        h('button', { type: 'submit', class: 'button--primary', 'data-testid': 'pay-now' }, t(locale, 'pay.pay_now')),
       ),
     ),
     h('p', {}, h('a', { href: '/pay', 'data-testid': 'pay-cancel' }, t(locale, 'voucher.action.cancel'))),
@@ -185,7 +199,15 @@ export function payCardScreen(props: PayCardProps): El {
   return page(
     chrome,
     t(locale, 'screen.pay_card'),
-    h('p', { class: 'pay__card-amount', 'data-testid': 'pay-card-amount' }, `ETB ${props.amount}`),
+    // Figure first, unit after and rubricated — the order every other amount in
+    // Telga is set in. This one read "ETB 30", which is the only place in the
+    // app the unit led, and it is the largest figure on the card screen.
+    h(
+      'p',
+      { class: 'pay__card-amount', 'data-testid': 'pay-card-amount' },
+      props.amount,
+      h('span', { class: 'balance__unit' }, 'ETB'),
+    ),
     h('p', { class: 'pay__card-icon', 'aria-hidden': 'true' }, '🤝📶'),
     h('p', { 'data-testid': 'pay-card-prompt', class: 'pay__card-prompt' }, t(locale, 'pay.card.prompt')),
     h(
@@ -276,9 +298,9 @@ export function payResultScreen(props: PayResultProps): El {
     h(
       'p',
       {},
+      // The launcher link that stood beside this went with D168; the result
+      // screen's job is to end the transaction, and Telga Pay is where it ends.
       h('a', { href: '/pay', 'data-testid': 'pay-done' }, t(locale, 'screen.pay_entry')),
-      ' · ',
-      h('a', { href: '/launcher', 'data-testid': 'back-to-launcher' }, t(locale, 'dashboard.back_to_launcher')),
     ),
   );
 }
@@ -383,7 +405,7 @@ export function payDepositScreen(props: PayDepositProps): El {
         'button',
         {
           type: 'submit',
-          class: 'pay__pill-button',
+          class: 'button--primary',
           'data-once': 'deposit',
           'data-testid': 'deposit-confirm',
         },

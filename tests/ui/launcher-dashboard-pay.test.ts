@@ -503,19 +503,56 @@ describe('the Telga vending dashboard', () => {
     expect(harness.driver.findTransactionsByMerchant(MERCHANT_A).length).toBe(before);
   });
 
-  it('offers no link back to the launcher', async () => {
+  it('offers no link back to the launcher, on any screen', async () => {
     /**
      * Inverted by D168, not deleted.
      *
      * The founder's device review asked for the launcher link to be removed
-     * from every screen. The bottom navigation is how an operator moves around
-     * Telga Vending; a link out to a chooser is not a destination they asked
+     * **from every screen**. The bottom navigation is how an operator moves
+     * around Telga; a link out to a chooser is not a destination they asked
      * for, and the chooser it pointed at no longer stands in front of anything.
+     *
+     * **This guard used to check `/dashboard` alone** — one screen, for a rule
+     * stated about all of them. Telga Pay went on rendering it for a day
+     * afterwards on three screens, and it was Pay's *only* way out, so the
+     * removal had to bring the bottom bar with it rather than strand an
+     * operator inside the module. A rule about every screen is now asked of
+     * every screen.
      */
-    harness = makeUiHarness('dashboard-back-link');
-    const screen = await screenFor(harness, '/dashboard');
-    expect(screen?.html).not.toContain('data-testid="back-to-launcher"');
-    expect(screen?.html).not.toContain('href="/launcher"');
+    harness = makeUiHarness('no-launcher-link');
+    const session = await signInAs(harness.api);
+    const paths = ['/dashboard', '/dashboard/water', '/pay', '/pay/purchase', '/pay/deposit', '/transactions'];
+    for (const path of paths) {
+      const screen = await screenFor(harness, path, q(), session);
+      expect(screen?.html, `${path} still links to the launcher`).not.toContain('data-testid="back-to-launcher"');
+      expect(screen?.html, `${path} still links to the launcher`).not.toContain('href="/launcher"');
+    }
+  });
+
+  it('gives Telga Pay the same four destinations as Telga Vending', async () => {
+    // Two modules of one application that navigate differently read as two
+    // applications, which §18.0 spends a section refusing — and Pay had no
+    // navigation at all once its launcher link went.
+    harness = makeUiHarness('pay-bottom-nav');
+    const screen = await screenFor(harness, '/pay');
+    const html = screen?.html ?? '';
+    for (const id of ['prepaid', 'payments', 'reprint', 'settings']) {
+      expect(html, `Telga Pay is missing the ${id} destination`).toContain(`data-testid="dashboard-nav-${id}"`);
+    }
+    // Payments is where the operator is standing, so Payments is the current
+    // one — a bar that marks the wrong tab is worse than no bar.
+    expect(html).toMatch(/data-testid="dashboard-nav-payments"[^>]*aria-current="page"/);
+  });
+
+  it('never marks two destinations as current at once', async () => {
+    harness = makeUiHarness('nav-single-current');
+    const session = await signInAs(harness.api);
+    for (const path of ['/dashboard', '/pay']) {
+      const html = (await screenFor(harness, path, q(), session))?.html ?? '';
+      const bar = /<nav class="dashboard__bottom-nav"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+      expect(bar, `${path} renders no bottom bar`).not.toBe('');
+      expect((bar.match(/aria-current="page"/g) ?? []).length, `${path} marks more than one tab`).toBe(1);
+    }
   });
 });
 
@@ -647,6 +684,12 @@ describe('Telga Pay — UI only', () => {
     const entry = await screenFor(harness, '/pay');
     expect(entry?.html).toMatch(/href="\/pay\/purchase"/);
     expect(entry?.html).toMatch(/href="\/pay\/cashback"/);
-    expect(entry?.html).toMatch(/href="\/launcher"/);
+    // The way out of Telga Pay used to be a link reading "Telga launcher" —
+    // asserted here, and asked to be removed from every screen by D168. Two
+    // guards in one file disagreed about the same control for a day. It is the
+    // shared bottom bar now, so the module still has a way out and it is the
+    // same one the rest of the app uses.
+    expect(entry?.html).not.toMatch(/href="\/launcher"/);
+    expect(entry?.html).toMatch(/href="\/dashboard"/);
   });
 });

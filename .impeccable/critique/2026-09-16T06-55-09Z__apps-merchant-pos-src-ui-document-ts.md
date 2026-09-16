@@ -10,6 +10,7 @@ target_fingerprint: "sha256:19039690777ba7cee705e348d143f9a2a5bd90d400b32d501214
 target_path: "C:\\Users\\mule\\OneDrive\\Desktop\\Telga\\apps\\merchant-pos\\src\\ui\\document.ts"
 timestamp: 2026-09-16T06-55-09Z
 slug: apps-merchant-pos-src-ui-document-ts
+closed: true
 ---
 **Method: dual-agent** (A: design review, isolated · B: detector + live browser evidence, isolated)
 

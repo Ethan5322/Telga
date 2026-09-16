@@ -23,6 +23,7 @@ export * from './ui/screens';
 export * from './ui/launcher';
 export * from './ui/dashboard';
 export * from './ui/logo';
+export * from './ui/money';
 export * from './ui/menu';
 export * from './ui/menuScreens';
 export * from './ui/lockScreen';

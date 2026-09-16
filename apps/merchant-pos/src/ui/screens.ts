@@ -26,6 +26,7 @@ import type { Chrome } from './chrome';
 import { h } from './element';
 import type { El, Node } from './element';
 import { telgaLogo } from './logo';
+import { amountWithUnit } from './money';
 import { recoveryPanel, referenceBlock, statusBlock, supportBlock, fundsBlock } from './status';
 import { renderRemote } from './states';
 
@@ -106,9 +107,11 @@ function balanceTable(balance: BalanceDto, locale: Locale): El {
     { 'data-testid': 'balance-table', 'aria-label': t(locale, 'screen.balance') },
     h(
       'p',
-      { class: 'balance__lead' },
-      h('span', { 'data-testid': 'balance-available' }, balance.available.formatted),
-      h('span', { class: 'balance__unit' }, balance.available.currency),
+      { class: 'balance__lead', 'data-testid': 'balance-available' },
+      // `formatted` already carries the currency, so appending it again printed
+      // "100.00 ETB ETB". The unit is rubricated by splitting the string the
+      // formatter produced, never by adding a second one — see ui/money.ts.
+      ...amountWithUnit(balance.available.formatted),
     ),
     h('p', { class: 'balance__caption' }, t(locale, 'balance.available')),
     h(

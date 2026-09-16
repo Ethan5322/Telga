@@ -80,6 +80,7 @@ publication by `.gitignore`.
 - [[Splash Profit and Corporate Settings]] — **Mermaid: app entry** · the cover screen, moving profit to the selling balance, the owner PIN, and the shop's identity on every slip
 - [[Launcher Menu and Shop Settings]] — **Mermaid: the way in** · the real logo and its animation, the three-bar menu, the balance "+", shifts, customers, and every settings section
 - [[Bulk Printing and Sign Out]] — **Mermaid: one PIN, N vouchers** · the broken recipient chain, batch printing, and what each kind of sign-out costs
+- [[Guards That Read Themselves]] — seven times a test checked the file instead of the screen, and how to tell the next one apart
 - [[State To UI Mapping]] — **Mermaid: state to screen** · what a merchant may see and do — what prints, and what must never print
 
 ## 05 Operations

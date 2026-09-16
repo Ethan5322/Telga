@@ -605,12 +605,24 @@ dd { margin: 0; }
 
 /* Available: the chip is filled and the tile is seated on its family's rule.
    The one place in this app where a block of colour is allowed to be the
-   loudest thing, because finding these two among sixteen is the whole job. */
-.dashboard__tile[data-status="AVAILABLE"] .dashboard__tile-icon {
+   loudest thing, because finding these two among sixteen is the whole job.
+
+   THE SELECTOR SAID AVAILABLE. The markup has always said IMPLEMENTED -
+   ServiceStatus is 'IMPLEMENTED' | 'COMING_SOON' and serviceTileEl writes
+   it straight into the attribute. So these two rules matched nothing, and
+   Vouchers and Airtime - the only two services that work - shipped drawn like
+   the fourteen that do not, minus the badge. The entire point of the colour
+   pass was making those two findable.
+
+   It survived because the test that guarded it read the stylesheet and compared
+   it against itself. A guard has to read the rendered markup, and
+   tests/ui/service-families.test.ts now does: it renders the dashboard and
+   asserts every data-status value it finds has a rule to match it. */
+.dashboard__tile[data-status="IMPLEMENTED"] .dashboard__tile-icon {
   background: var(--family-ink, var(--telga-vellum-ink));
   color: var(--telga-vellum-ground-pale);
 }
-.dashboard__tile[data-status="AVAILABLE"] {
+.dashboard__tile[data-status="IMPLEMENTED"] {
   border-bottom: var(--telga-size-rule-heavy) solid var(--family-ink, var(--telga-vellum-ink));
 }
 
@@ -622,8 +634,11 @@ dd { margin: 0; }
   box-shadow: inset 0 0 0 var(--telga-size-rule-hair) var(--family-ink, var(--telga-vellum-rule));
 }
 
-.dashboard__tile-icon { background: var(--telga-vellum-ground-deep); }
-.dashboard__launcher-link { text-align: center; font-size: 0.85rem; }
+/* A third .dashboard__tile-icon { background: ground-deep } stood here,
+   repeating what the base rule above already sets. Duplicated at lower
+   specificity than the family rules, it read like an override that had stopped
+   working - which is what sent this pass looking, and what it found instead was
+   the AVAILABLE/IMPLEMENTED mismatch above. */
 
 /* The Balance / Profit pill row, side by side, pill-shaped, matching the
    reference. Profit's *value* is always the honest "not yet available"
@@ -921,7 +936,13 @@ dd { margin: 0; }
 .card__gesture { display: flex; flex-direction: column; align-items: center; gap: 0.45rem;
   flex: 1 1 7rem; max-width: 10rem; padding: 1rem 0.5rem; cursor: pointer;
   border: 2px solid var(--line); border-radius: var(--r-md); background: var(--card); }
-.card__gesture:has(.card__gesture-radio:checked) { border-color: var(--brand); background: #E8F4F3; }
+/* Chosen, not tinted. #E8F4F3 was the released reference world's pale teal;
+   a seated option in this world sinks into the ground rather than picking up a
+   wash of a colour nothing else uses. */
+.card__gesture:has(.card__gesture-radio:checked) {
+  border-color: var(--telga-vellum-rubric);
+  background: var(--telga-vellum-ground-deep);
+}
 .card__gesture-radio { position: absolute; opacity: 0; width: 0; height: 0; }
 .card__gesture-art { position: relative; display: block; width: 62px; height: 42px; }
 .card__gesture-card { position: absolute; inset: 0; border-radius: 6px;
@@ -958,13 +979,39 @@ dd { margin: 0; }
 .card__sim-scheme { font-size: 0.75rem; color: var(--ink-soft); }
 .card__sim-label { font-size: 0.85rem; text-align: right; }
 
-/* The outcome. One line, large, in the tone of what happened. */
-.card__result { text-align: center; padding: 1.5rem 1rem; border-radius: var(--r-lg);
-  margin-bottom: var(--gap); }
-.card__result--approved { background: #E6F5EC; border: 2px solid #7FBF9A; }
-.card__result--declined { background: #FBE9E7; border: 2px solid #E2A29B; }
-.card__result--no_response { background: #FFF4DA; border: 2px solid #E8C878; }
-.card__result--not_read { background: var(--card-sunken); border: 2px solid var(--line); }
+/* --- the card outcome ----------------------------------------------------
+
+   Four pastel grounds stood here - mint, rose, amber and grey - with six hex
+   literals between them. They were the last of the released reference world
+   still saying what happened, and they said it by **hue alone**: the container
+   was the only thing that separated a decline from a timeout.
+
+   Section 22 asks for text plus icon plus colour, and DESIGN.md gives this
+   world its own answer: *"a phase is a name, a rule pattern and an ink"* -
+   three carriers, and the pattern is the one that survives a monochrome screen.
+   So the ground is the page, and the outcome is ruled above and below.
+
+   The patterns are borrowed from the phase table rather than invented: dashed
+   for something unresolved, solid for something settled. **No response is
+   indigo, never the failure ink** - section 15 is explicit that a timeout is
+   not a failure, and a screen that paints them alike teaches an operator to
+   treat them alike.
+
+   declined takes double, the one pattern the table leaves free here: the
+   table's "solid + struck" is a ledger-row device and needs a row to strike. */
+.card__result {
+  text-align: center;
+  padding: var(--telga-space-lg) var(--telga-space-md);
+  margin-bottom: var(--telga-space-md);
+  background: var(--telga-vellum-ground-pale);
+  border: 0;
+  border-radius: 0;
+  border-block: var(--telga-size-rule-heavy) solid var(--telga-vellum-ink);
+}
+.card__result--approved    { border-block-style: solid;  border-block-color: var(--telga-vellum-rubric); }
+.card__result--declined    { border-block-style: double; border-block-color: var(--telga-vellum-ink); }
+.card__result--no_response { border-block-style: dashed; border-block-color: var(--telga-vellum-indigo); }
+.card__result--not_read    { border-block-style: dotted; border-block-color: var(--telga-vellum-rule); }
 .card__result-mark { line-height: 0; margin-bottom: 0.5rem; }
 .card__result-headline { font-size: 1.3rem; font-weight: 800; margin: 0; }
 .card__result-warning { margin: 0.75rem auto 0; max-width: 32rem; font-weight: 700; }
@@ -991,10 +1038,23 @@ dd { margin: 0; }
 .slip__barcode-text { display: block; font-size: 0.7rem; letter-spacing: 0.16em;
   margin-top: 0.25rem; }
 
-/* Running low. Amber, above the pills, so it is met before the tiles. */
-.dashboard__alert { margin: 0 0 var(--gap); padding: 0.8rem 1rem;
-  border-radius: var(--r-md); background: #FFF4DA; color: #6B4A00;
-  border: 1px solid #E8C878; font-weight: 600; }
+/* Running low. Above the pills, so it is met before the tiles.
+
+   It was a rounded amber card built from three hex literals — #FFF4DA,
+   #6B4A00 and #E8C878 — one of which is ochre-ink written out by hand.
+   The element already carries data-tone="CAUTION", and --tone is already
+   declared as the caution ink, so the band now reads its colour from the tone
+   vocabulary the rest of the app shares rather than from a fourth amber nobody
+   can find. Ruled top and bottom, the way this world separates things. */
+.dashboard__alert {
+  margin: 0 0 var(--telga-space-md);
+  padding: var(--telga-space-sm) var(--telga-space-md);
+  background: var(--telga-vellum-ground-pale);
+  color: var(--tone, var(--telga-vellum-ochre-ink));
+  border-block: var(--telga-size-rule-heavy) solid var(--tone, var(--telga-vellum-ochre-ink));
+  border-radius: 0;
+  font-weight: 600;
+}
 
 /* A hidden balance. A details element, so it reveals with no script at all. */
 .dashboard__reveal { display: inline; }
@@ -1135,47 +1195,121 @@ dd { margin: 0; }
   .slip { position: absolute; inset: 0 auto auto 0; box-shadow: none; border: none; margin: 0; }
 }
 
-/* Telga Pay: a teal accent, matching the reference card-simulator's own
-   colour, used only for this module's buttons and summary — see
-   ui/telgaPay.ts. */
-:root { --pay-accent: #0f9b8e; }
-.pay__banner { border: 2px solid var(--pay-accent); border-radius: 0.6rem; padding: var(--gap); font-weight: 600; }
-.pay__summary { text-align: center; margin-block: var(--gap); }
-.pay__summary-label { margin: 0; opacity: 0.75; font-size: 0.9rem; }
-.pay__summary-amount { margin: 0.1rem 0; font-size: 2rem; font-weight: 700; color: var(--pay-accent); }
-.pay__summary-count { margin: 0; opacity: 0.75; font-size: 0.9rem; }
-.pay__tiles { display: flex; gap: var(--gap); justify-content: center; }
-.pay__tile { flex-direction: column; gap: 0.4rem; }
+/* --- Telga Pay -----------------------------------------------------------
+
+   THE TEAL IS GONE. This module was accented with --pay-accent: #0f9b8e,
+   taken from the reference card simulator - the same released reference world
+   that gave the app #122E30, white rounded cards and black pills, and which
+   PRODUCT.md records as an anti-reference rather than a constraint. It was the
+   last part of that world still colouring a whole module, and it was measured
+   rather than argued about:
+
+     teal on the page ground            2.18:1   FAIL (needs 4.5)
+     white glyph on a teal chip         3.44:1   FAIL (needs 4.5)
+
+   Both carried real content: the 2rem figure for today's sales, and the
+   tap/insert/swipe controls the card screen exists for.
+
+   WHAT REPLACES IT IS NOT A NEW INK. Telga Pay is money, and DESIGN.md
+   already assigns the money family its ink - ochre-ink, the same one the
+   dashboard's Account tile draws. So the eight-ink cap is untouched, nothing is
+   invented, and the colour now says something a reader can check:
+
+     ochre-ink on the page ground       5.11:1
+     pale ground on an ochre-ink fill   5.98:1
+
+   --pay-ink is a local alias for it, exactly as --family-ink is on a
+   dashboard tile, so one declaration names this module's family. */
+:root { --pay-ink: var(--telga-vellum-ochre-ink); }
+
+.pay__banner {
+  border: var(--telga-size-rule-major) solid var(--pay-ink);
+  border-radius: var(--telga-size-radius-md);
+  padding: var(--telga-space-md);
+  font-weight: 600;
+}
+.pay__summary { text-align: center; margin-block: var(--telga-space-md); }
+/* A real ink, not opacity. A browser compounds opacity: 0.75 on ink-thin
+   down to 3.06:1; the ink itself is 4.89:1 and is the value the rest of the
+   system already uses for a secondary line. */
+.pay__summary-label,
+.pay__summary-count {
+  margin: 0;
+  color: var(--telga-vellum-ink-thin);
+  font-size: var(--telga-type-sm);
+}
+/* The one figure on this screen, set like every other lead figure in Telga:
+   display face, tabular, the unit rubricated beside it by .balance__unit. */
+.pay__summary-amount {
+  margin: 0.1rem 0;
+  font-family: var(--telga-type-display);
+  font-size: var(--telga-type-amount);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  color: var(--telga-vellum-ink);
+}
+.pay__tiles { display: flex; gap: var(--telga-space-md); justify-content: center; }
+.pay__tile { flex-direction: column; gap: 0.4rem; text-decoration: none; color: var(--telga-vellum-ink); }
+/* The mark sits on its family's fill, cut square like every other surface in
+   this world rather than punched into a circle. Sized and shaped to match the
+   launcher's tile mark, which is the same gesture one screen earlier. */
 .pay__tile-icon {
-  width: 3.5rem; height: 3.5rem; border-radius: 50%; background: var(--pay-accent); color: #fff;
+  width: 3.25rem; height: 3.25rem;
+  border-radius: var(--telga-size-radius-md);
+  background: var(--pay-ink); color: var(--telga-vellum-ground-pale);
   display: flex; align-items: center; justify-content: center; font-size: 1.5rem;
 }
-.pay__tile-label { font-size: 0.85rem; font-weight: 600; }
+.pay__tile:active .pay__tile-icon { filter: brightness(0.92); }
+.pay__tile-label { font-size: var(--telga-type-sm); font-weight: 600; }
 .pay__amount-display {
-  display: flex; align-items: baseline; justify-content: center; gap: 0.5rem; padding: 1.5rem 0;
+  display: flex; align-items: baseline; justify-content: center;
+  gap: 0.5rem; padding: var(--telga-space-lg) 0;
 }
-.pay__amount-currency { font-size: 1.2rem; font-weight: 600; opacity: 0.75; }
+.pay__amount-currency {
+  font-size: var(--telga-type-lg); font-weight: 600; color: var(--telga-vellum-rubric);
+}
 .pay__amount-display input {
-  font-size: 2.5rem; font-weight: 700; border: none; border-bottom: 2px solid var(--pay-accent);
+  font-family: var(--telga-type-display);
+  font-size: 2.5rem; font-weight: 700;
+  border: none; border-bottom: var(--telga-size-rule-heavy) solid var(--telga-vellum-ink);
+  border-radius: 0;
   width: 8rem; text-align: center; background: transparent; color: inherit;
+  font-variant-numeric: tabular-nums;
 }
-.pay__actions { display: flex; gap: var(--gap); justify-content: center; }
-.pay__pill-button { background: var(--pay-accent); color: #fff; border-color: var(--pay-accent); border-radius: 999px; font-weight: 700; }
-.pay__card-amount { text-align: center; font-size: 2.2rem; font-weight: 700; margin-bottom: 0; }
+.pay__actions { display: flex; gap: var(--telga-space-md); justify-content: center; }
+.pay__card-amount {
+  text-align: center; font-family: var(--telga-type-display);
+  font-size: var(--telga-type-amount); font-weight: 700; margin-bottom: 0;
+  font-variant-numeric: tabular-nums;
+}
 .pay__card-icon { text-align: center; font-size: 2.5rem; margin-block: 0.25rem; }
 .pay__card-prompt { text-align: center; font-weight: 600; }
-.pay__card-methods { display: flex; gap: var(--gap); justify-content: center; flex-wrap: wrap; }
-.pay__card-methods a { border-color: var(--pay-accent); color: var(--pay-accent); border-radius: 0.5rem; }
+.pay__card-methods { display: flex; gap: var(--telga-space-md); justify-content: center; flex-wrap: wrap; }
+/* Tap, insert and swipe: the three controls this screen exists for, so they are
+   outlined blocks on the family ink rather than tinted text. */
+.pay__card-methods a {
+  border: var(--telga-size-rule-major) solid var(--pay-ink);
+  color: var(--pay-ink);
+  border-radius: var(--telga-size-radius-md);
+  text-decoration: none;
+  font-weight: 600;
+  justify-content: center;
+}
 .pay__card-badges { display: flex; gap: 0.5rem; justify-content: center; }
 .pay__card-badge {
-  border: 1px solid currentColor; border-radius: 0.3rem; padding: 0.2rem 0.6rem; font-size: var(--telga-type-xs);
+  border: var(--telga-size-rule-hair) solid currentColor; border-radius: var(--telga-size-radius-sm);
+  padding: 0.2rem 0.6rem; font-size: var(--telga-type-xs);
   font-weight: 700; letter-spacing: 0.03em;
 }
 
 /* The "practise a different result" links are visually separated from the
    tap/insert/swipe methods, so an operator cannot mistake a
    training-outcome shortcut for a real card action. */
-.pay__practice { border-top: 1px dashed currentColor; padding-top: var(--gap); margin-top: var(--gap); text-align: center; }
+.pay__practice {
+  border-top: var(--telga-size-rule-hair) dashed var(--telga-vellum-ink-thin);
+  padding-top: var(--telga-space-md); margin-top: var(--telga-space-md); text-align: center;
+}
 
 /* ==========================================================================
    The scribal shell
@@ -1490,9 +1624,54 @@ textarea,
    This comment names no selector for the same reason — a guard that cannot
    tell a rule from a warning about the rule fires on its own documentation,
    which has happened four times in this repository. */
-input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+/* :where(), so this is a FLOOR a screen can raise rather than a rule that beats
+   every screen.
+
+   It was three chained :not()s, which carry their arguments' specificity: 0,3,1
+   against .pay__amount-display input at 0,1,1. So Telga Pay's amount keypad -
+   designed at 2.5rem, the largest figure on the screen an operator types a sale
+   into - rendered at 16px, and had since the day it was written. :where()
+   contributes nothing, so the floor holds where nothing contradicts it and
+   loses to any screen that says otherwise. */
+input:not(:where([type="checkbox"], [type="radio"], [type="hidden"])) {
   min-height: var(--telga-size-touch-min);
   font-size: 16px;
+  /* THE TYPE SYSTEM HAS TO BE ASKED FOR HERE. font-family is not inherited by
+     form controls: a UA picks its own, so every field in this app - sign-in,
+     the recipient's number, the PIN, the Pay keypad, the note - rendered in
+     Arial while the page around it was set in Ethiopic. The whole reason the
+     scale is 17px is Amharic legibility, and Amharic typed into a field was the
+     one place it never applied. */
+  font-family: var(--telga-type-body);
+  color: var(--telga-vellum-ink);
+}
+
+/* --- a labelled field ----------------------------------------------------
+   .field wraps a label and its control on nine screens - sign-in, the PIN,
+   settings, registration, the Telga Pay note - and had no rule anywhere except
+   inside .lock. A block div containing an inline label and an inline-flex
+   input puts both on one line with nothing between them, which is what every
+   form in this app was doing. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--telga-space-xs);
+  margin-block: var(--telga-space-md);
+}
+.field label { font-weight: 600; }
+.field__hint,
+.notice {
+  margin: 0;
+  font-size: var(--telga-type-sm);
+  color: var(--telga-vellum-ink-thin);
+}
+/* Ruled above and below, not given a coloured left edge. The side accent is the
+   category's default gesture for a callout and the craft floor refuses it above
+   a hairline; this world rules and fills. */
+.notice {
+  border-block: var(--telga-size-rule-hair) solid var(--telga-vellum-rule);
+  padding: var(--telga-space-sm) 0;
+  color: var(--telga-vellum-ink);
 }
 
 /* --- browser surfaces ----------------------------------------------------

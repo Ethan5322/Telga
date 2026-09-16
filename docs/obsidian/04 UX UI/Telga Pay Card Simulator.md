@@ -16,6 +16,7 @@ related:
   - "[[English Strings]]"
   - "[[Decision Log]]"
   - "[[Top Up Slips and Settings]]"
+  - "[[Guards That Read Themselves]]"
 depends_on:
   - "[[Telga Launcher and Dashboard]]"
 implements: []

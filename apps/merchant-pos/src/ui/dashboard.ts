@@ -37,6 +37,7 @@ import { page } from './chrome';
 import type { Chrome } from './chrome';
 import { h } from './element';
 import type { El } from './element';
+import { amountWithUnit } from './money';
 import { renderRemote } from './states';
 import { isEnabled } from '@telga/domain';
 
@@ -170,15 +171,40 @@ function navItem(href: string, testId: string, icon: string, label: string, acti
   );
 }
 
-function bottomNav(locale: Locale): El {
+/** Which of the four destinations the operator is standing in. */
+export type BottomNavSection = 'prepaid' | 'payments' | 'reprint' | 'settings';
+
+/**
+ * The four places an operator goes, drawn identically wherever they are.
+ *
+ * **Exported because Telga Pay had no navigation at all.** Telga Vending has
+ * carried this bar since D163; `/pay` carried a single link reading
+ * *"Telga launcher"* — the exact control the founder's device review (D168)
+ * asked to have removed from every screen, and Pay's only way out. Deleting it
+ * on its own would have stranded an operator inside Telga Pay with no route
+ * back to the counter, so the bar goes where the link was.
+ *
+ * It is the same component rather than a second one for the ordinary reason:
+ * two modules of one application that navigate differently read as two
+ * applications, which §18.0 spends a section refusing.
+ */
+export function bottomNav(locale: Locale, active: BottomNavSection = 'prepaid'): El {
   return h(
     'nav',
     { class: 'dashboard__bottom-nav', 'aria-label': 'Telga dashboard sections' },
-    navItem('/dashboard', 'dashboard-nav-prepaid', '🛒', t(locale, 'dashboard.nav.prepaid'), true),
+    navItem('/dashboard', 'dashboard-nav-prepaid', '🛒', t(locale, 'dashboard.nav.prepaid'), active === 'prepaid'),
     // Payments only while `card.simulated` is on — the `/pay` tree is refused
     // outright when it is off, so this would be a dead tab on the bottom bar.
     ...(isEnabled('card.simulated')
-      ? [navItem('/pay', 'dashboard-nav-payments', '💳', t(locale, 'dashboard.nav.payments'), false)]
+      ? [
+          navItem(
+            '/pay',
+            'dashboard-nav-payments',
+            '💳',
+            t(locale, 'dashboard.nav.payments'),
+            active === 'payments',
+          ),
+        ]
       : []),
     // `/settings`, not `/`. `/` is the legacy POS home whose primary action
     // opens the old single-screen sale form, so this tile — sitting on the
@@ -192,12 +218,12 @@ function bottomNav(locale: Locale): El {
     // Reprint now has a real backend — receipt lookup plus `recordReprint`
     // wiring — so this opens the transaction list, where each completed sale
     // carries its own Reprint action.
-    navItem('/transactions', 'dashboard-nav-reprint', '🖨️', t(locale, 'dashboard.nav.reprint'), false),
+    navItem('/transactions', 'dashboard-nav-reprint', '🖨️', t(locale, 'dashboard.nav.reprint'), active === 'reprint'),
     // Settings lives in the bottom navigation rather than the service grid:
     // the twelve-tile arrangement is the accepted visual design, and a
     // thirteenth tile would change it. It is also not a service a merchant
     // sells — it belongs beside the other places they *go*.
-    navItem('/settings', 'dashboard-nav-settings', '⚙️', t(locale, 'settings.tile.label'), false),
+    navItem('/settings', 'dashboard-nav-settings', '⚙️', t(locale, 'settings.tile.label'), active === 'settings'),
   );
 }
 
@@ -274,15 +300,34 @@ export function dashboardScreen(props: DashboardProps): El {
                 ? // Hidden, not removed: `<details>` reveals it with no script,
                   // so the figure is one tap away on a machine whose browser
                   // the shop does not control.
+                  //
+                  // Built from the SAME two spans as the shown balance below.
+                  // It used to be one inline run inside `.dashboard__hidden`, a
+                  // class with no rule anywhere — so a shop that turned "hide
+                  // balance" on got a body-size line reading "Balance ••••••"
+                  // where every other shop got a small caption above a 2rem
+                  // figure. One setting, two different screens.
                   h(
                     'span',
-                    { class: 'dashboard__hidden' },
-                    `${t(locale, 'dashboard.balance.pill')} `,
+                    { class: 'dashboard__balance-group' },
                     h(
-                      'details',
-                      { class: 'dashboard__reveal', 'data-testid': 'balance-hidden' },
-                      h('summary', {}, '••••••'),
-                      h('span', { 'data-testid': 'balance-revealed' }, balance.available.formatted),
+                      'span',
+                      { class: 'dashboard__balance-caption' },
+                      t(locale, 'dashboard.balance.pill'),
+                    ),
+                    h(
+                      'span',
+                      { class: 'dashboard__balance-figure' },
+                      h(
+                        'details',
+                        { class: 'dashboard__reveal', 'data-testid': 'balance-hidden' },
+                        h('summary', {}, '••••••'),
+                        h(
+                          'span',
+                          { 'data-testid': 'balance-revealed' },
+                          ...amountWithUnit(balance.available.formatted),
+                        ),
+                      ),
                     ),
                   )
                 : // Caption and figure as separate spans, so the figure can
@@ -296,11 +341,15 @@ export function dashboardScreen(props: DashboardProps): El {
                       { class: 'dashboard__balance-caption' },
                       t(locale, 'dashboard.balance.pill'),
                     ),
+                    // The figure, then its unit in red ink. `formatted` already
+                    // ends with the currency, so appending `currency` beside it
+                    // printed "100.00 ETB ETB" on the one number this screen
+                    // exists for. `amountWithUnit` splits the string the
+                    // formatter produced instead of adding to it.
                     h(
                       'span',
                       { class: 'dashboard__balance-figure', 'data-testid': 'dashboard-balance' },
-                      balance.available.formatted,
-                      h('span', { class: 'balance__unit' }, balance.available.currency),
+                      ...amountWithUnit(balance.available.formatted),
                     ),
                   ),
             ),
@@ -342,15 +391,13 @@ export function dashboardScreen(props: DashboardProps): El {
           ),
       }),
     ),
-    bottomNav(locale),
-    h(
-      'p',
-      { class: 'dashboard__launcher-link' },
-      // The launcher link is gone — founder device review, 2026-09-15. The
-      // bottom navigation is how an operator moves; a link out to a chooser
-      // they never asked for is not a destination.
-      h('a', { href: '/dashboard', 'data-testid': 'back-to-dashboard' }, t(locale, 'voucher.action.home')),
-    ),
+    bottomNav(locale, 'prepaid'),
+    // A "Home" link pointing at `/dashboard` stood here, on `/dashboard`. It
+    // was what replaced the launcher link the founder asked to have removed
+    // (D168) — and replacing a link to somewhere with a link to nowhere is not
+    // removing it. The first tab of the bar above is `/dashboard` and already
+    // carries `aria-current="page"`; a control that reloads the screen you are
+    // standing on is one a shopkeeper presses once and never trusts again.
   );
 }
 
@@ -374,12 +421,11 @@ export function comingSoonScreen(props: ComingSoonProps): El {
     h(
       'p',
       {},
+      // One way back, not two to the same place. `coming-soon-back` and
+      // `back-to-dashboard` both pointed at `/dashboard` and sat either side of
+      // a separator, so this screen offered an operator a choice between two
+      // identical doors.
       h('a', { href: '/dashboard', 'data-testid': 'coming-soon-back' }, t(locale, 'voucher.action.back')),
-      ' · ',
-      // The launcher link is gone — founder device review, 2026-09-15. The
-      // bottom navigation is how an operator moves; a link out to a chooser
-      // they never asked for is not a destination.
-      h('a', { href: '/dashboard', 'data-testid': 'back-to-dashboard' }, t(locale, 'voucher.action.home')),
     ),
   );
 }

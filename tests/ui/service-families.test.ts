@@ -178,12 +178,53 @@ describe('colour is never the only carrier', () => {
    * shopkeeper who cannot separate green from red must still see which two
    * tiles work.
    */
-  it('separates available from coming soon by fill, not only by hue', () => {
+  /**
+   * **The failure this test was written wrong for, and what it now does.**
+   *
+   * The first version of it read the stylesheet, pulled the block for
+   * `[data-status="AVAILABLE"]`, and asserted that block filled the chip with
+   * the family ink. It did. It passed for a day.
+   *
+   * The markup has never said `AVAILABLE`. `ServiceStatus` is
+   * `'IMPLEMENTED' | 'COMING_SOON'`, `serviceTileEl` writes it straight into the
+   * attribute, and so the two rules that pick out Vouchers and Airtime — the
+   * only two services that work — **matched nothing**. They shipped drawn like
+   * the fourteen that do not. The entire point of the colour pass was making
+   * those two findable, and a green test sat on top of it.
+   *
+   * This repository has now recorded the same lesson six times: *a guard must
+   * read the code, never the prose about the code.* This was a seventh shape of
+   * it — the guard read **one half** of the code and never checked that the
+   * other half agreed. So the test starts from the statuses the **source emits**
+   * and requires a rule for each, which is a question the stylesheet cannot
+   * answer on its own.
+   */
+  it('draws every status the dashboard actually emits', () => {
     const css = STYLES();
-    const available = /\[data-status="AVAILABLE"\] \.dashboard__tile-icon \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    const emitted = [...new Set([...DASHBOARD.matchAll(/status: '([A-Z_]+)'/g)].map((m) => m[1]))];
+
+    expect(emitted.length, 'the source should emit at least two statuses').toBeGreaterThan(1);
+    for (const status of emitted) {
+      expect(
+        css,
+        `the dashboard renders data-status="${status}" and no rule matches it`,
+      ).toContain(`[data-status="${status}"]`);
+    }
+
+    // And nothing in the stylesheet may select a status the source never emits:
+    // a rule matching nothing is the defect above, wearing the other hat.
+    const selected = [...new Set([...css.matchAll(/\[data-status="([A-Z_]+)"\]/g)].map((m) => m[1]))];
+    for (const status of selected) {
+      expect(emitted, `the stylesheet paints data-status="${status}", which nothing renders`).toContain(status);
+    }
+  });
+
+  it('separates a working service from a coming-soon one by fill, not only by hue', () => {
+    const css = STYLES();
+    const working = /\[data-status="IMPLEMENTED"\] \.dashboard__tile-icon \{([^}]*)\}/.exec(css)?.[1] ?? '';
     const soon = /\[data-status="COMING_SOON"\] \.dashboard__tile-icon \{([^}]*)\}/.exec(css)?.[1] ?? '';
 
-    expect(available, 'a working service is filled with its family ink').toContain('--family-ink');
+    expect(working, 'a working service is filled with its family ink').toContain('--family-ink');
     expect(soon, 'a coming-soon service holds a ring instead').toContain('inset');
     // The shape difference survives a monochrome screen; the hue does not.
     expect(soon).toContain('ground-deep');

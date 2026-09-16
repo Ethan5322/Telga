@@ -14,6 +14,7 @@ related:
   - "[[Screen Inventory]]"
   - "[[English Strings]]"
   - "[[Amharic Strings]]"
+  - "[[Guards That Read Themselves]]"
 depends_on: []
 implements: []
 validates: []
