@@ -34,8 +34,21 @@ android {
         applicationId "et.mulesoo.telga"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Bumped from 1 / "1.0" for the shell fix of 2026-09-16 (D168 follow-up,
+        // commit 513d6a0): the connect screen no longer paints before the
+        // redirect resolves.
+        //
+        // WHY THE NUMBER MOVES AT ALL, when a sideload does not require it.
+        // The founder's report was "the app shows the old version", and
+        // 05 Operations/Is This The Current Build exists because a defect still
+        // in the code and a defect already fixed look identical on a phone.
+        // A version a person can read in Settings -> Apps -> Telga answers that
+        // in seconds; a build that always says 1.0 cannot answer it at all.
+        //
+        // Play also requires versionCode to increase on every upload, so a
+        // build that ships without moving it is one that cannot be published.
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
