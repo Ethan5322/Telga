@@ -309,7 +309,9 @@ export function loginScreen(props: LoginProps): El {
     h(
       'p',
       { class: 'login__back' },
-      h('a', { href: '/launcher', 'data-testid': 'login-back-to-launcher' }, t(locale, 'settings.back')),
+      // No link back to the launcher. The founder's device review, 2026-09-15:
+      // the launcher must not be reachable or visible anywhere in the normal
+      // flow. Sign-in has nothing behind it to go back to.
     ),
   );
 }

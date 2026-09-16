@@ -122,7 +122,7 @@ import {
   sessionExpiredScreen,
 } from './ui/authScreens';
 import type { AuthChrome } from './ui/authScreens';
-import { launcherAppsScreen, launcherScreen } from './ui/launcher';
+import { launcherAppsScreen } from './ui/launcher';
 import {
   amountScreen,
   dataCategoryScreen,
@@ -1210,10 +1210,23 @@ export async function renderScreen(
    * opening the APK never reached the launcher at all** — it existed, it was
    * correct, and the only way to it was typing the address by hand.
    */
+  /**
+   * The "Tap Telga to Open" card is gone — founder device review, 2026-09-15.
+   *
+   * It was a screen showing Telga as one button, which opened a screen showing
+   * what is inside Telga. Built exactly as the founder described on 2026-09-14,
+   * used on hardware, and judged to earn nothing for the extra tap.
+   *
+   * These three paths still **answer**, and deliberately so. `/` is the Android
+   * shell's default address, `/splash` is in old bookmarks, and `/launcher` is
+   * what every previous build redirected to after sign-in. Making them 404
+   * would strand installed apps at a dead page; they open the chooser instead,
+   * which is where each of them was trying to go.
+   */
   if (path === '/launcher' || path === '/splash' || path === '/') {
     return {
       status: 200,
-      html: htmlDocument(renderToHtml(launcherScreen({ chrome })), chrome, nonce),
+      html: htmlDocument(renderToHtml(launcherAppsScreen({ chrome })), chrome, nonce),
     };
   }
 
@@ -2466,18 +2479,25 @@ function settingsErrorFor(locale: Locale, code: string | null): string | undefin
  * sign-in.
  */
 export function safeReturnTo(value: string | undefined | null): string {
-  // The launcher, not the dashboard: signing in opens Telga, and Telga is
-  // what the operator then chooses a module from.
-  if (typeof value !== 'string' || value.length === 0) return '/launcher';
-  if (!value.startsWith('/')) return '/launcher';
-  if (value.startsWith('//')) return '/launcher';
-  if (value.includes(':')) return '/launcher';
+  /**
+   * Sign-in opens the **chooser**, not a card that opens the chooser.
+   *
+   * Founder device review, 2026-09-15: *"after a successful sign-in, go
+   * DIRECTLY to the Choose Telga service screen — do not show a Tap Telga to
+   * Open intermediate screen."*
+   */
+  if (typeof value !== 'string' || value.length === 0) return '/launcher/apps';
+  if (!value.startsWith('/')) return '/launcher/apps';
+  if (value.startsWith('//')) return '/launcher/apps';
+  if (value.includes(':')) return '/launcher/apps';
   // The launcher used to be a pre-sign-in screen, and returning to it after
   // signing in was a loop. It is now the **destination**: login is the first
   // screen and the launcher is what opens after it, so both are allowed
   // through. `/splash` no longer exists and is normalised to the launcher
   // rather than silently sending an old bookmark to the dashboard.
-  if (value === '/splash') return '/launcher';
+  // Old addresses normalise forward rather than being refused: an APK in a
+  // shop's hands still asks for these.
+  if (value === '/splash' || value === '/launcher') return '/launcher/apps';
   return value;
 }
 

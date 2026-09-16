@@ -177,6 +177,11 @@ describe('the login screen', () => {
     //
     // `login-activate-cta` is on this screen because a device that has never
     // activated has no key, cannot sign in, and so can reach no other screen.
+    //
+    // `login-back-to-launcher` was the last entry until D168. The founder's
+    // device review asked for the launcher link to be gone from every screen,
+    // and sign-in in particular has nothing behind it to return to: it is the
+    // first screen. The order above is now exactly the founder's own list.
     expect(order).toEqual([
       'login-user',
       'login-pin',
@@ -185,7 +190,6 @@ describe('the login screen', () => {
       'login-submit',
       'login-register-cta',
       'login-activate-cta',
-      'login-back-to-launcher',
     ]);
   });
 

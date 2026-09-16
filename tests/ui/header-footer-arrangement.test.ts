@@ -193,6 +193,50 @@ describe('sign out is in one place', () => {
   });
 });
 
+describe('the device review of 2026-09-15', () => {
+  /**
+   * The founder reviewed every screen on real hardware and asked for the
+   * scaffolding to come off all of them at once. These assert the four global
+   * rules on the everyday screens, so "I removed it from the one I looked at"
+   * cannot happen again — which is exactly how the sign-in clock survived.
+   */
+  it('shows no training banner anywhere', async () => {
+    harness = makeUiHarness('review-banner');
+    const session = await signInAs(harness.api);
+    for (const path of EVERYDAY) {
+      const html = await screenAt(harness, path, session);
+      // The rendered element, and the class it used — the stylesheet is
+      // inlined into every page, so a surviving CSS rule would read as a
+      // surviving banner and hide the opposite mistake just as well.
+      expect(html, `${path} must not carry the training banner`).not.toContain(
+        'banner--training',
+      );
+      expect(html, `${path} must not say TRAINING on screen`).not.toContain(
+        'data-testid="training-banner"',
+      );
+      expect(html, `${path} must not print the environment`).not.toContain('Environment:');
+    }
+  });
+
+  it('offers no way back to the launcher', async () => {
+    harness = makeUiHarness('review-launcher-link');
+    const session = await signInAs(harness.api);
+    for (const path of EVERYDAY) {
+      const html = await screenAt(harness, path, session);
+      expect(html, `${path} must not link to the launcher`).not.toContain('href="/launcher"');
+    }
+  });
+
+  it('draws no decorative band above the screen', async () => {
+    // It was `main::before`, so it appeared on every page at once — which is
+    // what made an ornament read as a defect.
+    harness = makeUiHarness('review-band');
+    const session = await signInAs(harness.api);
+    const html = await screenAt(harness, '/dashboard', session);
+    expect(html).not.toContain('repeating-linear-gradient(135deg, var(--telga-vellum-rubric)');
+  });
+});
+
 describe('settings carries what the footer lost', () => {
   it('names the operator, the shop, the device and the last sync', async () => {
     // Removing the strip without rehoming it would delete information a

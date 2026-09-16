@@ -119,61 +119,63 @@ describe('login is the first screen', () => {
     expect(login.body.toLowerCase()).toContain('training');
   });
 
-  it('lands on the launcher after signing in, not on a dashboard', () => {
-    // `safeReturnTo`'s default is what an operator gets with no explicit
-    // destination. It used to be `/dashboard`, which skipped Telga entirely.
-    expect(safeReturnTo(undefined)).toBe('/launcher');
-    expect(safeReturnTo('')).toBe('/launcher');
-    // An old `/splash` bookmark normalises to the launcher rather than being
-    // silently redirected somewhere else.
-    expect(safeReturnTo('/splash')).toBe('/launcher');
-    // And the launcher is now a legitimate destination, not a loop to break.
-    expect(safeReturnTo('/launcher')).toBe('/launcher');
+  it('lands on the service chooser after signing in', () => {
+    // The default an operator gets with no explicit destination. It was
+    // `/dashboard` once, which skipped Telga entirely; then `/launcher`, a card
+    // that opened the chooser; and now the chooser itself — founder device
+    // review, 2026-09-15 (D168).
+    expect(safeReturnTo(undefined)).toBe('/launcher/apps');
+    expect(safeReturnTo('')).toBe('/launcher/apps');
+    // Old addresses normalise FORWARD rather than being refused. An APK
+    // already in a shop's hands asks for both of these, and a 404 would strand
+    // it at a dead page with no way on.
+    expect(safeReturnTo('/splash')).toBe('/launcher/apps');
+    expect(safeReturnTo('/launcher')).toBe('/launcher/apps');
     // Off-site destinations are still refused.
-    expect(safeReturnTo('//evil.example')).toBe('/launcher');
-    expect(safeReturnTo('https://evil.example')).toBe('/launcher');
+    expect(safeReturnTo('//evil.example')).toBe('/launcher/apps');
+    expect(safeReturnTo('https://evil.example')).toBe('/launcher/apps');
   });
 });
 
-describe('the launcher is one Telga button', () => {
-  it('offers Telga and nothing else', async () => {
-    harness = makeUiHarness('entry-one-button');
+describe('the middle screen is gone', () => {
+  /**
+   * Three tests here asserted a screen that showed Telga as a single button,
+   * carried the printed mark, and said "Tap Telga to open". It was built to the
+   * founder's own description and removed after they used it (D168).
+   *
+   * Inverted rather than deleted. A deleted test leaves nothing saying the new
+   * rule holds — and this session already found a defect that survived a fix
+   * because a test was guarding the old behaviour rather than the new one.
+   */
+  it('opens the chooser at /launcher, not a card that opens the chooser', async () => {
+    harness = makeUiHarness('entry-no-middle');
     const port = await start(harness);
     const session = await signInAs(harness.api);
 
     const launcher = await get(port, '/launcher', session.cookieHeader);
-    expect(launcher.status).toBe(200);
-    expect(launcher.body).toContain('data-testid="launcher-telga-button"');
+    expect(launcher.status, 'the address still answers').toBe(200);
 
-    // The modules are NOT on this page. That is the whole point of the change:
-    // Telga is one thing you open, and a second choice here would undo it.
-    expect(launcher.body).not.toContain('data-testid="launcher-tile-telga"');
-    expect(launcher.body).not.toContain('data-testid="launcher-tile-telgapay"');
+    // The card is gone...
+    expect(launcher.body).not.toContain('data-testid="launcher-telga-button"');
+    expect(launcher.body).not.toContain('Tap Telga to open');
+    // ...and what answers is the chooser itself.
+    expect(launcher.body).toContain('data-testid="launcher-tile-telga"');
   });
 
-  it('carries the real mark — the same artwork printed on a slip', async () => {
-    // A drawn substitute was tried here and rejected: it read as a diagram of
-    // the logo rather than the logo. The button an operator opens Telga with
-    // and the mark on the paper they hand a customer are now the same thing.
-    harness = makeUiHarness('entry-mark');
+  it('answers the Android shell default address the same way', async () => {
+    // `/` is what the Android shell opens by default, and `/splash` is in old
+    // bookmarks. Both go where they were trying to go rather than 404.
+    harness = makeUiHarness('entry-root');
     const port = await start(harness);
     const session = await signInAs(harness.api);
 
-    const launcher = await get(port, '/launcher', session.cookieHeader);
-    const at = launcher.body.indexOf('data-testid="launcher-telga-button"');
-    const button = launcher.body.slice(at, launcher.body.indexOf('</a>', at));
-    expect(button).toContain('/assets/telga-logo.png');
-    expect(button).toContain('data-testid="telga-logo"');
-  });
-
-  it('says what the button does', async () => {
-    harness = makeUiHarness('entry-cue');
-    const port = await start(harness);
-    const session = await signInAs(harness.api);
-
-    const launcher = await get(port, '/launcher', session.cookieHeader);
-    expect(launcher.body).toContain('Tap Telga to open');
-    expect(hrefOf(launcher.body, 'launcher-telga-button')).toBe('/launcher/apps');
+    for (const path of ['/', '/splash']) {
+      const screen = await get(port, path, session.cookieHeader);
+      expect(screen.status, `${path} must answer`).toBe(200);
+      expect(screen.body, `${path} must open the chooser`).toContain(
+        'data-testid="launcher-tile-telga"',
+      );
+    }
   });
 });
 
@@ -186,11 +188,19 @@ describe('the modules are on their own page', () => {
     const apps = await get(port, '/launcher/apps', session.cookieHeader);
     expect(apps.status).toBe(200);
     expect(apps.body).toContain('data-testid="launcher-tile-telga"');
-    // No emoji. They were placeholders standing in for an icon set PRODUCT.md
-    // records does not exist, and the `icon` parameter is gone from tile() so
-    // no caller can reintroduce one. The module's name carries the tile.
-    expect(apps.body).not.toContain('📱');
-    expect(apps.body).not.toContain('💳');
+    /**
+     * One mark each — reversed on the founder's device review (D168).
+     *
+     * This asserted **no** emoji, on the reasoning that a glyph standing in for
+     * a missing icon set is a placeholder that ships. That holds for a
+     * catalogue of twelve services, where a row of emoji becomes noise. It does
+     * not hold for **two** cards a shopkeeper chooses between all day: two
+     * marks are an identifier, twelve are a placeholder.
+     *
+     * They are `aria-hidden`, so a screen reader announces the name alone.
+     */
+    expect(apps.body, 'the vending mark').toContain('\u{1F3EA}');
+    expect(apps.body, 'the card mark').toContain('\u{1F4B3}');
     // Telga Pay came back on by founder decision **D124**, so its tile is drawn
     // again. The rule this pair has always enforced is unchanged: a tile
     // appears only when the screen behind it answers. A tile leading to a 404
@@ -235,12 +245,14 @@ describe('the modules are on their own page', () => {
     expect(pay.status, '/pay must be served').toBe(200);
   });
 
-  it('offers a way back to the launcher', async () => {
+  it('offers no way back, because there is nothing behind it', async () => {
+    // The BACK button led to the card this review removed. A button returning
+    // an operator to a screen that no longer exists is worse than no button.
     harness = makeUiHarness('entry-back');
     const port = await start(harness);
     const session = await signInAs(harness.api);
 
     const apps = await get(port, '/launcher/apps', session.cookieHeader);
-    expect(hrefOf(apps.body, 'launcher-apps-back')).toBe('/launcher');
+    expect(apps.body).not.toContain('data-testid="launcher-apps-back"');
   });
 });

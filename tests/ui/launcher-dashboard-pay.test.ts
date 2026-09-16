@@ -128,25 +128,27 @@ describe('post-login destination', () => {
   // and the launcher behind it — so the default is the launcher once more, but
   // for the opposite reason: it is now the screen you *open Telga from*, not
   // the one you passed through on the way in.
-  it('safeReturnTo defaults to the launcher, which is where signing in lands', () => {
-    expect(safeReturnTo(undefined)).toBe('/launcher');
-    expect(safeReturnTo(null)).toBe('/launcher');
-    expect(safeReturnTo('')).toBe('/launcher');
-    expect(safeReturnTo('not-a-path')).toBe('/launcher');
+  it('safeReturnTo defaults to the chooser, which is where signing in lands', () => {
+    // D168: the default moved from the launcher card to the chooser itself,
+    // after the founder used the card on hardware and removed it.
+    expect(safeReturnTo(undefined)).toBe('/launcher/apps');
+    expect(safeReturnTo(null)).toBe('/launcher/apps');
+    expect(safeReturnTo('')).toBe('/launcher/apps');
+    expect(safeReturnTo('not-a-path')).toBe('/launcher/apps');
     // Off-site destinations are still refused — unchanged, and the reason this
     // function exists.
-    expect(safeReturnTo('//evil.example.com')).toBe('/launcher');
-    expect(safeReturnTo('https://evil.example.com')).toBe('/launcher');
-    // `/splash` no longer exists; an old bookmark normalises to the launcher.
-    expect(safeReturnTo('/splash')).toBe('/launcher');
-    // And the launcher is a legitimate destination now, not a loop to break.
-    expect(safeReturnTo('/launcher')).toBe('/launcher');
+    expect(safeReturnTo('//evil.example.com')).toBe('/launcher/apps');
+    expect(safeReturnTo('https://evil.example.com')).toBe('/launcher/apps');
+    // Old addresses normalise FORWARD. An APK already installed asks for both
+    // of these, so they go where they were trying to go rather than 404.
+    expect(safeReturnTo('/splash')).toBe('/launcher/apps');
+    expect(safeReturnTo('/launcher')).toBe('/launcher/apps');
     // An explicit, safe returnTo is still honoured.
     expect(safeReturnTo('/sell')).toBe('/sell');
     expect(safeReturnTo('/pay')).toBe('/pay');
   });
 
-  it('a real login lands on the launcher, not straight into a module', async () => {
+  it('a real login lands on the chooser, not straight into a module', async () => {
     harness = makeUiHarness('launcher-login-redirect');
     await provisionOperator(harness.api);
     const deviceSecret = await enrolTestDevice(harness.api);
@@ -168,7 +170,9 @@ describe('post-login destination', () => {
     });
 
     expect(response.status).toBe(303);
-    expect(response.location).toBe('/launcher');
+    // The chooser itself, not a card that opens it. D168 removed the middle
+    // screen after the founder used it on hardware.
+    expect(response.location).toBe('/launcher/apps');
   });
 
   it('/launcher needs a session — it is no longer the screen before sign-in', async () => {
@@ -484,7 +488,10 @@ describe('the Telga vending dashboard', () => {
     expect(screen?.status).toBe(200);
     expect(screen?.html).toContain('data-testid="coming-soon-message"');
     expect(screen?.html).toContain('href="/dashboard"');
-    expect(screen?.html).toContain('href="/launcher"');
+    // No launcher link. D168 removed it from every screen; this one offered
+    // the only way out of a service that does not exist yet, so it keeps a
+    // way home — to the dashboard, which is where an operator works.
+    expect(screen?.html).not.toContain('href="/launcher"');
     expect(harness.driver.findTransactionsByMerchant(MERCHANT_A).length).toBe(before);
   });
 
@@ -496,11 +503,19 @@ describe('the Telga vending dashboard', () => {
     expect(harness.driver.findTransactionsByMerchant(MERCHANT_A).length).toBe(before);
   });
 
-  it('has a working link back to /launcher', async () => {
+  it('offers no link back to the launcher', async () => {
+    /**
+     * Inverted by D168, not deleted.
+     *
+     * The founder's device review asked for the launcher link to be removed
+     * from every screen. The bottom navigation is how an operator moves around
+     * Telga Vending; a link out to a chooser is not a destination they asked
+     * for, and the chooser it pointed at no longer stands in front of anything.
+     */
     harness = makeUiHarness('dashboard-back-link');
     const screen = await screenFor(harness, '/dashboard');
-    expect(screen?.html).toContain('data-testid="back-to-launcher"');
-    expect(screen?.html).toContain('href="/launcher"');
+    expect(screen?.html).not.toContain('data-testid="back-to-launcher"');
+    expect(screen?.html).not.toContain('href="/launcher"');
   });
 });
 

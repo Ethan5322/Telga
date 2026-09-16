@@ -321,7 +321,10 @@ export function dashboardScreen(props: DashboardProps): El {
     h(
       'p',
       { class: 'dashboard__launcher-link' },
-      h('a', { href: '/launcher', 'data-testid': 'back-to-launcher' }, t(locale, 'dashboard.back_to_launcher')),
+      // The launcher link is gone — founder device review, 2026-09-15. The
+      // bottom navigation is how an operator moves; a link out to a chooser
+      // they never asked for is not a destination.
+      h('a', { href: '/dashboard', 'data-testid': 'back-to-dashboard' }, t(locale, 'voucher.action.home')),
     ),
   );
 }
@@ -348,7 +351,10 @@ export function comingSoonScreen(props: ComingSoonProps): El {
       {},
       h('a', { href: '/dashboard', 'data-testid': 'coming-soon-back' }, t(locale, 'voucher.action.back')),
       ' · ',
-      h('a', { href: '/launcher', 'data-testid': 'coming-soon-home' }, t(locale, 'dashboard.back_to_launcher')),
+      // The launcher link is gone — founder device review, 2026-09-15. The
+      // bottom navigation is how an operator moves; a link out to a chooser
+      // they never asked for is not a destination.
+      h('a', { href: '/dashboard', 'data-testid': 'back-to-dashboard' }, t(locale, 'voucher.action.home')),
     ),
   );
 }

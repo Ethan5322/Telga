@@ -91,43 +91,22 @@ export class RefusedNonTrainingModeError extends Error {
 }
 
 /**
- * The banner every screen carries.
+ * The training banner used to live here, and is deliberately gone.
  *
- * `role="status"` rather than `role="alert"`: it is a standing condition, not an
- * interruption, and an alert would be announced over whatever the operator is
- * doing every time a screen re-renders.
+ * D164 removed it from `page()` on the founder's instruction, asked twice. The
+ * **function** stayed — exported, compiled, drawing the exact block somebody
+ * had asked to have removed, one import from returning. The founder then
+ * reviewed the app on a device and listed it again, which is what a reader
+ * would reasonably conclude from a file that still contains it.
+ *
+ * Deleted on the same reasoning as `identityBar` (D167): dead code that renders
+ * a removed thing is not removed.
+ *
+ * **The printed slip keeps its own banner**, and that is not this one.
+ * `slipCard` draws `TRAINING — NO REAL VALUE` itself so no caller can print a
+ * slip without it — CLAUDE.md §8, unchanged. The operator reads the screen and
+ * knows what they installed; the slip is read by a customer who does not.
  */
-export function trainingBanner(chrome: Chrome): El {
-  return h(
-    'div',
-    {
-      'data-testid': TRAINING_BANNER_TEST_ID,
-      role: 'status',
-      'aria-live': 'polite',
-      'data-tone': 'CAUTION',
-      class: 'banner banner--training',
-    },
-    h('strong', { class: 'banner__title' }, t(chrome.locale, 'mode.training')),
-    /**
-     * The environment, the merchant and the mode are no longer printed here.
-     *
-     * Founder, 2026-09-14: every page said testing mode and said it loudly, and
-     * on a shop's screen that reads as an unfinished product rather than as a
-     * safeguard. The line itself stays — §8 requires simulated funds to run
-     * under a clearly labelled banner, and the person who needs it is the
-     * shopkeeper holding a customer's money, not us.
-     *
-     * What went is the repetition: three lines became one. All three facts are
-     * in Settings, on the account block, which is where the founder asked for
-     * things a person looks up rather than reads constantly.
-     *
-     * The test id moves with the data rather than being left on an empty
-     * element — a hook that points at nothing is worse than no hook.
-     */
-    chrome.locale === 'am' &&
-      h('span', { class: 'banner__warning', 'data-testid': 'amharic-review-warning' }, AMHARIC_REVIEW_WARNING),
-  );
-}
 
 /**
  * Wrap a screen.

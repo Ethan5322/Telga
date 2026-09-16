@@ -331,17 +331,15 @@ button[type="submit"] {
 /* One line, not a block. It was a three-line bordered panel taking roughly
    90px of every screen; the requirement is that it is unmissable, not that it
    is large. The rule under it does the separating that the border did. */
-.banner--training {
-  display: flex; align-items: baseline; gap: var(--telga-space-sm);
-  flex-wrap: wrap;
-  padding: var(--telga-space-sm) var(--telga-space-lg);
-  border: 0;
-  border-bottom: var(--telga-size-rule-major) solid var(--telga-vellum-ochre-ink);
-  background: var(--telga-vellum-ground-pale);
-  font-weight: 700;
-  font-size: var(--telga-type-sm);
-  letter-spacing: 0.02em;
-}
+/* The training-mode banner rule was here, and went on 2026-09-15 with the
+   element it styled. Nothing renders it any more, and a rule for a block that
+   no longer exists is the CSS equivalent of the dead function that drew it.
+
+   The class name is deliberately not written out above. This stylesheet is
+   inlined into every page, comments included, so a test asserting the banner
+   is absent from the rendered HTML would match this note and fail — which it
+   did, on the first run. It is also a reminder worth keeping: every character
+   in this block is sent to a shop's phone on every page load. */
 .banner__title { white-space: nowrap; }
 .banner__detail, .banner__warning { font-weight: 400; font-size: 0.9rem; }
 main { padding-block: var(--gap); }
@@ -359,7 +357,7 @@ section { border-top: 1px solid currentColor; padding-block: var(--gap); }
 [data-tone="NEGATIVE"] { --tone: var(--telga-vellum-ink); }
 [data-tone="CAUTION"]  { --tone: var(--telga-vellum-ochre-ink); }
 [data-tone="PROGRESS"] { --tone: var(--telga-vellum-indigo); }
-[data-tone] .status__headline, [data-tone].banner--training { color: var(--tone, inherit); }
+[data-tone] .status__headline { color: var(--tone, inherit); }
 ul.actions { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: var(--gap); }
 a, button { min-height: 3rem; min-width: 3rem; padding: 0.75rem 1rem; display: inline-flex; align-items: center; }
 button { font: inherit; border: 2px solid currentColor; background: transparent; cursor: pointer; }
@@ -379,27 +377,79 @@ dd { margin: 0; }
    They were a flex basis of 12rem with wrap, which at 390px totals 396px — so on
    the phone this ships to they stacked, and the founder asked for two parallel
    buttons. A two-column grid is parallel by construction and cannot wrap. */
+/* --- the two service cards ------------------------------------------------
+
+   These are the first thing a shopkeeper sees after signing in, and for a
+   while they will be the only two buttons that matter. The founder reviewed
+   them on hardware and called the styling unfinished.
+
+   What was wrong: two centred text blocks in a hairline box, side by side,
+   with nothing saying they were doors rather than labels. They read as a
+   caption on a card, not as the choice the screen exists to offer.
+
+   What they are now: full-width rows, each a mark, a name, a line of
+   explanation and a chevron. Stacked rather than side by side, because two
+   items in a row halves the width of each and a phone in portrait is tall. */
 .launcher__tiles {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--telga-space-lg);
+  grid-template-columns: 1fr;
+  gap: var(--telga-space-md);
   align-items: stretch;
 }
 .launcher__tile {
-  display: flex;
-  min-height: 9.5rem;
-  flex-direction: column;
-  justify-content: center;
-  gap: var(--telga-space-xs);
-  padding: var(--telga-space-lg) var(--telga-space-md);
+  display: grid;
+  /* mark, text, chevron. The text column takes the slack. */
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--telga-space-md);
+  min-height: 5.5rem;
+  padding: var(--telga-space-md) var(--telga-space-lg);
   border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule);
-  border-radius: var(--telga-size-radius-md);
+  /* A left edge in the rubric ink. The one place a colour is allowed to carry
+     identity here, and it is doubled by the mark and the name beside it, so
+     nothing is said by hue alone. */
+  border-left: 4px solid var(--telga-vellum-rubric);
+  border-radius: var(--telga-size-radius-lg);
   background: var(--telga-vellum-ground-pale);
   color: var(--telga-vellum-ink);
-  text-align: center;
+  text-align: left;
   text-decoration: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
-.launcher__tile:active { background: var(--telga-vellum-ground-deep); }
+/* Pressed, not hovered: this is a touch screen on a counter. The card sinks
+   by a hair, which is the whole of the Android motion language it needs. */
+.launcher__tile:active {
+  background: var(--telga-vellum-ground-deep);
+  transform: translateY(1px);
+  box-shadow: none;
+}
+.launcher__tile:focus-visible {
+  outline: var(--telga-size-rule-major) solid var(--telga-vellum-indigo);
+  outline-offset: 2px;
+}
+/* Somebody who has asked for less movement gets none. */
+@media (prefers-reduced-motion: reduce) {
+  .launcher__tile { transition: none; }
+  .launcher__tile:active { transform: none; }
+}
+.launcher__tile-mark {
+  font-size: 2rem;
+  line-height: 1;
+  width: 3.25rem;
+  height: 3.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--telga-size-radius-md);
+  background: var(--telga-vellum-ground-deep);
+}
+.launcher__tile-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.launcher__tile-go {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--telga-vellum-ink-thin);
+}
 .launcher__tile-label {
   font-family: var(--telga-type-display);
   font-size: var(--telga-type-lg);
@@ -416,11 +466,8 @@ dd { margin: 0; }
   overflow-wrap: anywhere;
 }
 
-/* A single narrow phone in portrait still gets two columns; below that the
-   label would break mid-word, so they stack rather than clip. */
-@media (max-width: 22rem) {
-  .launcher__tiles { grid-template-columns: 1fr; }
-}
+/* The cards stack at every width now, so there is no narrow-phone override to
+   make: two side-by-side columns were what made the labels break mid-word. */
 
 /* --- the launcher's single Telga button -----------------------------------
    Screen one of two: Telga as one thing you open. It is the only control on
@@ -483,21 +530,37 @@ dd { margin: 0; }
    Colour lives on the icon badge, not the card, so the card stays legible
    text-on-white the way the reference does. */
 .dashboard__merchant { font-size: 0.85rem; opacity: 0.75; margin: 0 0 var(--gap); }
+/* --- the service grid -----------------------------------------------------
+
+   Founder device review, 2026-09-15: the dashboard needed scrolling to see the
+   balance, and the balance is the figure a shopkeeper checks before every
+   sale. It must be on the screen with the services, not below them.
+
+   The tiles carry the shrink, because twelve of them were the tallest thing on
+   the page: 5.25rem became 4.25rem, the icon chip 2.25rem became 1.9rem, and
+   four columns become five on anything wider than a small phone. Nothing is
+   removed and nothing is hidden — the founder asked for the tiles to stay
+   exactly where they are (D163).
+
+   The 48px touch floor is NOT crossed: a tile is 4.25rem tall and at least a
+   quarter of the width of a 320px screen, which is 68px by 80px. Shrinking
+   past that would trade a scroll for a mis-tap on a counter. */
 .dashboard__grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem;
 }
 @media (max-width: 26rem) { .dashboard__grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 30rem) { .dashboard__grid { grid-template-columns: repeat(5, 1fr); } }
 .dashboard__tile {
-  flex-direction: column; align-items: center; justify-content: flex-start; gap: 0.3rem;
+  flex-direction: column; align-items: center; justify-content: flex-start; gap: 0.2rem;
   background: var(--telga-vellum-ground-pale); color: var(--telga-vellum-ink); border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule); border-radius: 0.7rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.12); text-align: center; position: relative;
-  padding: 0.5rem 0.25rem; min-height: 5.25rem;
+  padding: 0.4rem 0.2rem; min-height: 4.25rem;
 }
 .dashboard__tile-icon {
-  font-size: 1.35rem; width: 2.25rem; height: 2.25rem; border-radius: 50%;
+  font-size: 1.15rem; width: 1.9rem; height: 1.9rem; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; background: var(--telga-vellum-ground-deep);
 }
-.dashboard__tile-label { font-size: 0.7rem; font-weight: 600; line-height: 1.1; }
+.dashboard__tile-label { font-size: 0.65rem; font-weight: 600; line-height: 1.05; }
 .dashboard__tile-badge { font-size: 0.6rem; opacity: 0.7; line-height: 1; }
 .dashboard__tile[data-status="COMING_SOON"] { opacity: 0.72; }
 /* The icon chips were ten pastels — blue, red, purple, yellow, green, cyan,
@@ -1069,24 +1132,21 @@ body {
   border-bottom: var(--telga-size-rule-major) solid var(--telga-vellum-ink);
 }
 
-/* --- the harag band ------------------------------------------------------
-   The interlace a scribe rules across the head of a section, drawn from the
-   three structural inks. It is the one ornament in this world and it is
-   structural: it says a new section begins. */
-main::before {
-  content: "";
-  display: block;
-  height: 10px;
-  /* Full bleed. A harag runs the width of the folio; one inset by the page
-     padding reads as a decorative strip rather than a ruled opening, which is
-     what it looked like in the first render. */
-  margin: 0 calc(var(--telga-space-lg) * -1) var(--telga-space-lg);
-  background:
-    repeating-linear-gradient(135deg, var(--telga-vellum-rubric) 0 6px, transparent 6px 12px),
-    repeating-linear-gradient(45deg, var(--telga-vellum-indigo) 0 6px, transparent 6px 12px),
-    var(--telga-vellum-ochre);
-  border-block: var(--telga-size-rule-hair) solid var(--telga-vellum-ink);
-}
+/* --- the harag band, removed 2026-09-15 ---------------------------------
+   A ten-pixel interlace ruled across the head of every screen, drawn from the
+   three structural inks: the one ornament in this visual world (D162).
+
+   The founder reviewed the app on a real device and asked for it to go:
+   *"the decorative colorful striped line that appears below the hamburger menu
+   on multiple screens — it looks unprofessional."*
+
+   It was a main::before pseudo-element, so it was on every page at once — which is what made
+   it read as a defect rather than as ornament. A band that announces a new
+   section on every screen announces nothing, and a shop counter is not a folio.
+
+   What replaces it is nothing. The rule below the app bar already separates
+   the chrome from the screen, and one quiet line does the job the band was
+   drawn to do. */
 
 /* The page, not a card. */
 main {
