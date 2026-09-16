@@ -40,6 +40,38 @@ const CERTAINTY_TEXT: Readonly<Record<TransactionViewModel['certainty'], string>
  * a `data-tone` attribute is a colour hook, so the icon and the label carry the
  * meaning on their own.
  */
+/**
+ * A transaction state, as one of the six scribal phases.
+ *
+ * `DESIGN.md` gives every phase a name, a rule pattern and an ink, so a state
+ * survives a monochrome thermal print and a reader who cannot separate red from
+ * green. This is the mapping from the state machine to that vocabulary.
+ *
+ * **`PENDING` and `PROCESSING` are deliberately not `failed`.** Section 15 is
+ * explicit that a timeout is not a failure, and the visual grammar has to say
+ * the same thing: an unfinished line stops short of the margin, it does not get
+ * struck through.
+ */
+function phaseOf(state: string): string {
+  switch (state) {
+    case 'SUCCESSFUL':
+      return 'settled';
+    case 'FAILED':
+    case 'REJECTED':
+      return 'failed';
+    case 'REVERSED':
+    case 'REVERSAL_REQUIRED':
+      return 'reversed';
+    case 'UNDER_REVIEW':
+      return 'review';
+    case 'PENDING':
+      return 'pending';
+    default:
+      // CREATED, VALIDATED, RESERVED, SUBMITTED, PROCESSING - in flight.
+      return 'working';
+  }
+}
+
 export function statusBlock(view: TransactionViewModel, locale: Locale = 'en'): El {
   return h(
     'section',
@@ -56,6 +88,25 @@ export function statusBlock(view: TransactionViewModel, locale: Locale = 'en'): 
         { 'data-testid': 'do-not-retry', role: 'alert', class: 'instruction instruction--urgent' },
         t(locale, 'status.pending.do_not_retry'),
       ),
+    /**
+     * The rule that steps.
+     *
+     * `DESIGN.md` calls this the signature interaction: *"A settling entry
+     * moves its rule to the margin in one whole-line step with a single
+     * overshoot; a pending one halts short of the margin."* It was implemented
+     * and used by nothing. It is used here because this is the screen where an
+     * operator is actually waiting for an answer.
+     *
+     * Its own element rather than a border on the section, because
+     * `data-phase` already carries the recovery panel's separate vocabulary and
+     * two meanings on one attribute is how a signal stops being one.
+     */
+    h('div', {
+      class: 'status__rule',
+      'data-phase': phaseOf(view.state),
+      'data-testid': 'status-rule',
+      'aria-hidden': 'true',
+    }),
     h(
       'p',
       { class: 'status__headline' },

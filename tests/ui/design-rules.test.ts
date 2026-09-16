@@ -230,6 +230,42 @@ describe('no two navigation entries share a destination', () => {
   });
 });
 
+describe('no backtick reaches a template literal', () => {
+  /**
+   * **The tenth occurrence earned this test.**
+   *
+   * `document.ts` holds the whole stylesheet and the whole client script as
+   * template literals. A backtick inside either one ends the string, and the
+   * failure surfaces hundreds of lines later as `',' expected` — a parser
+   * error pointing at valid code, with nothing naming the real cause.
+   *
+   * It keeps happening for one reason: the natural way to write a comment
+   * about CSS or JS is to put the identifier in backticks. Every author does
+   * it, including every previous author of a comment warning about it.
+   *
+   * Nine of the ten were caught by a build that failed. This catches the tenth
+   * with the file and the reason.
+   */
+  const LITERALS = ['CLIENT_SCRIPT', 'STYLES'] as const;
+
+  for (const name of LITERALS) {
+    it(`keeps ${name} free of backticks`, () => {
+      const source = read(DOCUMENT_TS);
+      const at = source.indexOf(`const ${name}`);
+      expect(at, `${name} must exist for this guard to mean anything`).toBeGreaterThan(-1);
+
+      const open = source.indexOf('= `', at) + 3;
+      const body = source.slice(open, source.indexOf('`;', open));
+
+      expect(
+        body.includes('`'),
+        `A backtick inside ${name} ends the literal. Reword the comment — ` +
+          'write the identifier without backticks.',
+      ).toBe(false);
+    });
+  }
+});
+
 describe('the design system the detector reads is the one that ships', () => {
   /**
    * `.impeccable/design.json` is loaded by the detector as design-system

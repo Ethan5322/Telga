@@ -228,10 +228,46 @@ const CLIENT_SCRIPT = `
       // renew the idle window, or a screen left open would never time out.
       headers: { accept: 'application/json', 'x-telga-background': '1' }
     }).then(function (r) { return r.json(); }).then(function (body) {
-      if (body && body.ok && body.data && body.data.state !== state) { window.location.reload(); return; }
+      if (body && body.ok && body.data && body.data.state !== state) { settle(body.data.state); return; }
       setTimeout(check, interval);
     }).catch(function () { setTimeout(check, interval); });
   }
+
+  // --- showing the answer before changing the screen ----------------------
+  //
+  // The state machine's six phases, as the scribal vocabulary. Kept in step
+  // with phaseOf in status.ts; both exist because the server renders the
+  // first phase and the client renders only the change to it.
+  function phaseOf(next) {
+    if (next === 'SUCCESSFUL') return 'settled';
+    if (next === 'FAILED' || next === 'REJECTED') return 'failed';
+    if (next === 'REVERSED' || next === 'REVERSAL_REQUIRED') return 'reversed';
+    if (next === 'UNDER_REVIEW') return 'review';
+    if (next === 'PENDING') return 'pending';
+    return 'working';
+  }
+
+  function settle(next) {
+    var rule = document.querySelector('[data-testid="status-rule"]');
+    // No announcement is written here. Pre-rendering the four possible outcomes
+    // put the words "Transaction successful" into a pending screen's markup,
+    // which section 15 forbids in substance and a test forbids in fact. The
+    // reload that follows is itself announced, and it carries the server's own
+    // translated sentence.
+    if (!rule) { window.location.reload(); return; }
+
+    // The step: the rule reaches the margin and takes its ink. One movement,
+    // and the words above it do not move.
+    rule.setAttribute('data-phase', phaseOf(next));
+    rule.parentNode && rule.parentNode.setAttribute('data-settling', 'true');
+
+    // Then hand over to the server for the parts only it can render - the
+    // slip, the code, the actions. Long enough to read the change, short
+    // enough that nobody waits on it.
+    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setTimeout(function () { window.location.reload(); }, reduced ? 450 : 900);
+  }
+
   setTimeout(check, interval);
 })();
 `;
@@ -405,10 +441,11 @@ dd { margin: 0; }
   min-height: 5.5rem;
   padding: var(--telga-space-md) var(--telga-space-lg);
   border: var(--telga-size-rule-hair) solid var(--telga-vellum-rule);
-  /* A left edge in the rubric ink. The one place a colour is allowed to carry
-     identity here, and it is doubled by the mark and the name beside it, so
-     nothing is said by hue alone. */
-  border-left: 4px solid var(--telga-vellum-rubric);
+  /* A rubricated left edge was here at 4px. Both the design detector and the
+     craft floor refuse a coloured side accent above 1px on a list item - it is
+     the category's default gesture, not this world's. This world rules and
+     fills: the hairline below does the separating, and the mark and the name
+     carry the identity. */
   border-radius: var(--telga-size-radius-lg);
   background: var(--telga-vellum-ground-pale);
   color: var(--telga-vellum-ink);
@@ -1239,18 +1276,81 @@ main {
   border-bottom: var(--telga-size-rule-hair) solid var(--telga-vellum-rule);
 }
 
-.ledger__row[data-phase="pending"] {
-  border-bottom: 0;
-  position: relative;
-}
-.ledger__row[data-phase="pending"]::after {
+/* Every row draws its rule the same way, which is what lets one step into
+   another. Pending stopped at 62% with an ::after while settled used the row's
+   own border-bottom - two mechanisms with no shared property, so the step could
+   never happen however long the duration was. */
+.ledger__row { position: relative; border-bottom: 0; }
+.ledger__row::after {
   content: "";
   position: absolute;
   left: 0;
   bottom: 0;
-  width: 62%;
-  border-bottom: var(--telga-size-rule-hair) dashed var(--telga-vellum-indigo);
+  width: 100%;
+  border-bottom: var(--telga-size-rule-hair) solid var(--telga-vellum-rule);
+  /* The step. One movement with a single overshoot - a scribe lifts the hand
+     and sets it down - and it is the RULE that moves, never the words above it. */
+  transition:
+    width var(--telga-motion-short) var(--telga-motion-overshoot),
+    border-bottom-color var(--telga-motion-short) var(--telga-motion-standard);
 }
+
+/* Unfinished, and it says so by stopping short of the margin. */
+.ledger__row[data-phase="pending"]::after,
+.ledger__row[data-phase="working"]::after {
+  width: 62%;
+  border-bottom-style: dashed;
+  border-bottom-color: var(--telga-vellum-indigo);
+}
+.ledger__row[data-phase="working"]::after { border-bottom-style: dotted; }
+
+/* Settled: the line reaches the margin and takes the red ink. */
+.ledger__row[data-phase="settled"]::after {
+  width: 100%;
+  border-bottom-width: var(--telga-size-rule-major);
+  border-bottom-color: var(--telga-vellum-rubric);
+}
+.ledger__row[data-phase="review"]::after {
+  width: 100%;
+  border-bottom-style: double;
+  border-bottom-color: var(--telga-vellum-ochre-ink);
+}
+/* Failed reaches the margin too. Nothing was left unfinished - the answer
+   arrived and it was no. Section 15 is explicit that a timeout is not a
+   failure, so pending must never look like this. */
+.ledger__row[data-phase="failed"]::after,
+.ledger__row[data-phase="reversed"]::after {
+  width: 100%;
+  border-bottom-color: var(--telga-vellum-ink);
+}
+
+/* The same stepped rule, on the transaction screen - the one place somebody is
+   actually watching for it. Drawn as its own element so it can change phase in
+   place without the surrounding text moving. */
+.status__rule {
+  position: relative;
+  height: var(--telga-size-rule-major);
+  margin-block: var(--telga-space-sm) var(--telga-space-md);
+}
+.status__rule::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  border-bottom: var(--telga-size-rule-major) solid var(--telga-vellum-rule);
+  transition:
+    width var(--telga-motion-medium) var(--telga-motion-overshoot),
+    border-bottom-color var(--telga-motion-medium) var(--telga-motion-standard);
+}
+/* Unfinished: the line stops short of the margin and says so. */
+.status__rule[data-phase="pending"]::after { width: 62%; border-bottom-style: dashed; border-bottom-color: var(--telga-vellum-indigo); }
+.status__rule[data-phase="working"]::after { width: 48%; border-bottom-style: dotted; border-bottom-color: var(--telga-vellum-indigo); }
+/* Answered: the line reaches the margin. Settled takes the red ink. */
+.status__rule[data-phase="settled"]::after { width: 100%; border-bottom-color: var(--telga-vellum-rubric); }
+.status__rule[data-phase="review"]::after  { width: 100%; border-bottom-style: double; border-bottom-color: var(--telga-vellum-ochre-ink); }
+.status__rule[data-phase="failed"]::after,
+.status__rule[data-phase="reversed"]::after { width: 100%; border-bottom-color: var(--telga-vellum-ink); }
 
 /* A row an operator has worked carries a scribal strike that persists. */
 .ledger__row[data-worked="true"] { color: var(--telga-vellum-ink-thin); }
@@ -1363,19 +1463,38 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
    The signature movement: a settling entry steps its rule to the margin in one
    whole-line movement with a single overshoot. Nothing glides continuously; a
    scribe lifts the hand and sets it down. */
-@keyframes telga-rule-step {
-  from { transform: scaleX(0); }
-  to   { transform: scaleX(1); }
+/* The row's ::after carries the step as a width transition (see the ledger row
+   rules above), so the movement happens whenever data-phase changes - whether
+   that is a fresh render or the poll resolving a sale in place.
+
+   This was an animation on .ledger__row itself: scaleX(0) to scaleX(1) with
+   transform-origin left. That scaled the ENTIRE ROW, so an operator watching a
+   sale settle saw the amount and the recipient squash horizontally and snap
+   back. The rule steps; the words do not move. */
+
+/* One authored moment, and it belongs to the entry that just settled: the ink
+   deepens once as the line reaches the margin, then holds. Not a loop, not a
+   pulse - a scribe finishing a line does it once. */
+@keyframes telga-settle-mark {
+  from { background: color-mix(in srgb, var(--telga-vellum-rubric) 14%, transparent); }
+  to   { background: transparent; }
+}
+.ledger__row[data-settling="true"],
+[data-settling="true"] {
+  animation: telga-settle-mark var(--telga-motion-medium, 320ms) var(--telga-motion-standard);
 }
 
-.ledger__row[data-phase="settled"] {
-  animation: telga-rule-step var(--telga-motion-short) var(--telga-motion-overshoot);
-  transform-origin: left center;
-}
+/* Android's Remove animations setting arrives here.
 
-/* Android's Remove animations setting arrives here. */
+   Reduced motion is FEWER AND GENTLER, not none: the rule still reaches the
+   margin and still takes the red ink, because that is the answer the operator
+   has been waiting for. What goes is the travel and the wash - the state
+   change stays completely legible, it simply arrives rather than moves. */
 @media (prefers-reduced-motion: reduce) {
-  .ledger__row[data-phase="settled"] { animation: none; }
+  .ledger__row::after { transition: none; }
+  .ledger__row[data-settling="true"],
+  [data-settling="true"] { animation: none; }
+  .status__rule::after { transition: none; }
   * { transition: none !important; animation: none !important; }
 }
 

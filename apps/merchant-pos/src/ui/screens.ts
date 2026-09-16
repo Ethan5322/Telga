@@ -321,6 +321,24 @@ export function transactionDetailScreen(props: DetailProps): El {
             'data-poll-max':
               view.refresh === 'POLL_UNTIL_RESOLVED' ? props.polling?.maxPolls : undefined,
           },
+          /**
+           * There is no pre-rendered announcement here, and that is deliberate.
+           *
+           * Four `data-announce-*` attributes once carried the possible
+           * outcomes so the poll could read back whichever one arrived, in the
+           * operator's language, without inventing a string in JavaScript.
+           * `tests/ui/flow.test.ts` refused it: the markup of a **pending**
+           * screen then contained the sentence "Transaction successful".
+           *
+           * Section 15 turns on pending never reading as success. A document
+           * that carries the sentence is one stray selector away from saying
+           * it.
+           *
+           * The resolution ends in a page load, and a page load is announced —
+           * so a screen-reader user gets the outcome from the authoritative
+           * screen, correctly translated, a moment after the rule steps. The
+           * live region was duplicating an announcement that already happens.
+           */
           statusBlock(view, locale),
           fundsBlock(view, locale),
           referenceBlock(view, locale),
