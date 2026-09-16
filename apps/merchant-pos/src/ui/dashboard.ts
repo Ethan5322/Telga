@@ -46,7 +46,8 @@ export interface ServiceTile {
   readonly id: string;
   readonly labelKey: Parameters<typeof t>[1];
   readonly icon: string;
-  readonly colour: string;
+  /** Which family of services this belongs to. Names its ink. */
+  readonly family: string;
   readonly status: ServiceStatus;
   readonly href: string;
 }
@@ -62,18 +63,18 @@ export const DASHBOARD_SERVICES: readonly ServiceTile[] = Object.freeze([
   // Airtime enters the approved voucher sequence, not the legacy single-screen
   // `/sell` form. `/sell` stays reachable and unchanged in behaviour, but it is
   // a direct airtime-to-cellphone flow and is no longer what this tile means.
-  { id: 'vouchers', labelKey: 'screen.vouchers', icon: '🎟️', colour: 'red', status: 'IMPLEMENTED', href: '/vouchers' },
-  { id: 'airtime', labelKey: 'voucher.product.airtime', icon: '📱', colour: 'blue', status: 'IMPLEMENTED', href: '/vouchers/airtime' },
-  { id: 'data', labelKey: 'dashboard.service.data', icon: '📶', colour: 'purple', status: 'COMING_SOON', href: '/dashboard/data' },
-  { id: 'electricity', labelKey: 'dashboard.service.electricity', icon: '⚡', colour: 'yellow', status: 'COMING_SOON', href: '/dashboard/electricity' },
-  { id: 'water', labelKey: 'dashboard.service.water', icon: '💧', colour: 'cyan', status: 'COMING_SOON', href: '/dashboard/water' },
-  { id: 'dstv', labelKey: 'dashboard.service.dstv', icon: '📺', colour: 'navy', status: 'COMING_SOON', href: '/dashboard/dstv' },
-  { id: 'telecom', labelKey: 'dashboard.service.telecom', icon: '☎️', colour: 'green', status: 'COMING_SOON', href: '/dashboard/telecom' },
-  { id: 'traffic', labelKey: 'dashboard.service.traffic', icon: '🚗', colour: 'orange', status: 'COMING_SOON', href: '/dashboard/traffic' },
-  { id: 'lottery', labelKey: 'dashboard.service.lottery', icon: '🎰', colour: 'red', status: 'COMING_SOON', href: '/dashboard/lottery' },
-  { id: 'tickets', labelKey: 'dashboard.service.tickets', icon: '🎫', colour: 'sky', status: 'COMING_SOON', href: '/dashboard/tickets' },
-  { id: 'fuel', labelKey: 'dashboard.service.fuel', icon: '⛽', colour: 'charcoal', status: 'COMING_SOON', href: '/dashboard/fuel' },
-  { id: 'account', labelKey: 'dashboard.service.account', icon: '💰', colour: 'green', status: 'COMING_SOON', href: '/dashboard/account' },
+  { id: 'vouchers', labelKey: 'screen.vouchers', icon: '🎟️', family: 'sell', status: 'IMPLEMENTED', href: '/vouchers' },
+  { id: 'airtime', labelKey: 'voucher.product.airtime', icon: '📱', family: 'sell', status: 'IMPLEMENTED', href: '/vouchers/airtime' },
+  { id: 'data', labelKey: 'dashboard.service.data', icon: '📶', family: 'sell', status: 'COMING_SOON', href: '/dashboard/data' },
+  { id: 'electricity', labelKey: 'dashboard.service.electricity', icon: '⚡', family: 'utility', status: 'COMING_SOON', href: '/dashboard/electricity' },
+  { id: 'water', labelKey: 'dashboard.service.water', icon: '💧', family: 'utility', status: 'COMING_SOON', href: '/dashboard/water' },
+  { id: 'dstv', labelKey: 'dashboard.service.dstv', icon: '📺', family: 'media', status: 'COMING_SOON', href: '/dashboard/dstv' },
+  { id: 'telecom', labelKey: 'dashboard.service.telecom', icon: '☎️', family: 'sell', status: 'COMING_SOON', href: '/dashboard/telecom' },
+  { id: 'traffic', labelKey: 'dashboard.service.traffic', icon: '🚗', family: 'transport', status: 'COMING_SOON', href: '/dashboard/traffic' },
+  { id: 'lottery', labelKey: 'dashboard.service.lottery', icon: '🎰', family: 'media', status: 'COMING_SOON', href: '/dashboard/lottery' },
+  { id: 'tickets', labelKey: 'dashboard.service.tickets', icon: '🎫', family: 'transport', status: 'COMING_SOON', href: '/dashboard/tickets' },
+  { id: 'fuel', labelKey: 'dashboard.service.fuel', icon: '⛽', family: 'transport', status: 'COMING_SOON', href: '/dashboard/fuel' },
+  { id: 'account', labelKey: 'dashboard.service.account', icon: '💰', family: 'money', status: 'COMING_SOON', href: '/dashboard/account' },
 
   // --- added 2026-08-29, from research rather than assumption ---------------
   //
@@ -97,10 +98,10 @@ export const DASHBOARD_SERVICES: readonly ServiceTile[] = Object.freeze([
   // has a provider agreement, a price, or a commission behind it, and none may
   // become IMPLEMENTED until a real route, backend, validation and result path
   // exist — the rule at the top of this file.
-  { id: 'internet', labelKey: 'dashboard.service.internet', icon: '🌐', colour: 'sky', status: 'COMING_SOON', href: '/dashboard/internet' },
-  { id: 'school', labelKey: 'dashboard.service.school', icon: '🎓', colour: 'navy', status: 'COMING_SOON', href: '/dashboard/school' },
-  { id: 'insurance', labelKey: 'dashboard.service.insurance', icon: '🛡️', colour: 'purple', status: 'COMING_SOON', href: '/dashboard/insurance' },
-  { id: 'govfees', labelKey: 'dashboard.service.govfees', icon: '🏛️', colour: 'charcoal', status: 'COMING_SOON', href: '/dashboard/govfees' },
+  { id: 'internet', labelKey: 'dashboard.service.internet', icon: '🌐', family: 'sell', status: 'COMING_SOON', href: '/dashboard/internet' },
+  { id: 'school', labelKey: 'dashboard.service.school', icon: '🎓', family: 'official', status: 'COMING_SOON', href: '/dashboard/school' },
+  { id: 'insurance', labelKey: 'dashboard.service.insurance', icon: '🛡️', family: 'official', status: 'COMING_SOON', href: '/dashboard/insurance' },
+  { id: 'govfees', labelKey: 'dashboard.service.govfees', icon: '🏛️', family: 'official', status: 'COMING_SOON', href: '/dashboard/govfees' },
 ]);
 
 export interface DashboardProps {
@@ -136,7 +137,11 @@ function serviceTileEl(locale: Locale, tile: ServiceTile): El {
     'a',
     {
       href: tile.href,
-      class: `dashboard__tile dashboard__tile--${tile.colour}`,
+      class: 'dashboard__tile',
+      // The family names the ink; the status names its strength. Both are
+      // attributes rather than classes so the stylesheet can combine them
+      // without a class per pair.
+      'data-family': tile.family,
       'data-testid': `service-tile-${tile.id}`,
       'data-status': tile.status,
     },

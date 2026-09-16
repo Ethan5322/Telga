@@ -105,6 +105,30 @@ export const VELLUM = Object.freeze({
    */
   ochreInk: '#6B4A00',
   /** A minor rule: the faint ruling a scribe lays down before writing. */
+  /**
+   * --- family inks -------------------------------------------------------
+   *
+   * Added 2026-09-16 (D169) on the founder's instruction to add colour and
+   * make the working services easy to spot. Each names a **family** of
+   * services; a tile's strength - filled against outlined - names whether it
+   * works yet.
+   *
+   * This is deliberately not the ten pastels removed on 2026-09-13. Those
+   * encoded nothing and were decoration; a hue that names a family can be
+   * read, and a hue that names nothing cannot. Colour is never the only
+   * carrier: a live tile is filled where a pending one is outlined, and a
+   * Coming Soon tile still says so in words.
+   *
+   * Every one is a pigment this tradition actually ground. A hue chosen from
+   * a web palette would be a sixth material in a world built from three.
+   */
+  /** Copper green. Utilities: electricity, water, fuel. */
+  verdigris: '#2F5D4A',
+  /** A kermes lake. Media and entertainment: DStv, lottery, tickets. */
+  plum: '#6B2D5C',
+  /** Burnt earth. Transport and travel. */
+  sienna: '#7A3B18',
+
   rule: '#A8916A',
 });
 
@@ -139,6 +163,17 @@ export const LEATHER = Object.freeze({
   indigo: '#7A93C8',
   ochre: '#D9A83C',
   /** A tooled line. */
+    /**
+   * The family inks again, lightened for the leather ground.
+   *
+   * Nothing on the console draws them yet. They exist so that a rule shared
+   * between the two surfaces cannot resolve to nothing - CSS drops an
+   * undefined custom property silently and carries on, which is the failure
+   * mode a stylesheet is worst at reporting.
+   */
+  verdigris: '#7FB39C',
+  plum: '#C08BB5',
+  sienna: '#D19A6B',
   rule: '#5A4231',
 });
 

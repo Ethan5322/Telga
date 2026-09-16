@@ -576,6 +576,52 @@ dd { margin: 0; }
    encoded nothing: no tile's meaning could be read from its colour, so the
    rainbow was decoration carrying a tenth of a palette each. One ground for
    all of them; the label is what distinguishes a tile, as it always was. */
+/* --- service families ----------------------------------------------------
+
+   Founder, 2026-09-16: add colour, and make the services that actually work
+   easy to spot among the fourteen that do not.
+
+   TWO AXES, and both are readable:
+
+   HUE names the family - selling, utilities, official paper, media, money.
+   STRENGTH names availability - a working service is FILLED, a Coming Soon one
+   is an outline on the plain ground.
+
+   This is not the ten pastels that were removed on 2026-09-13. Those gave every
+   tile its own hue and so encoded nothing; a reader could not say what blue
+   meant because it meant nothing. A hue that names a family can be read.
+
+   COLOUR IS NEVER THE ONLY CARRIER. Filled against outlined is a shape
+   difference, and a Coming Soon tile still says so in words. Section 22:
+   status is text plus icon plus colour, never colour alone. Somebody who
+   cannot separate green from red still sees which tiles are solid. */
+
+.dashboard__tile[data-family="sell"]     { --family-ink: var(--telga-vellum-rubric); }
+.dashboard__tile[data-family="utility"]  { --family-ink: var(--telga-vellum-verdigris); }
+.dashboard__tile[data-family="official"] { --family-ink: var(--telga-vellum-indigo); }
+.dashboard__tile[data-family="media"]    { --family-ink: var(--telga-vellum-plum); }
+.dashboard__tile[data-family="money"]    { --family-ink: var(--telga-vellum-ochre-ink); }
+.dashboard__tile[data-family="transport"] { --family-ink: var(--telga-vellum-sienna); }
+
+/* Available: the chip is filled and the tile is seated on its family's rule.
+   The one place in this app where a block of colour is allowed to be the
+   loudest thing, because finding these two among sixteen is the whole job. */
+.dashboard__tile[data-status="AVAILABLE"] .dashboard__tile-icon {
+  background: var(--family-ink, var(--telga-vellum-ink));
+  color: var(--telga-vellum-ground-pale);
+}
+.dashboard__tile[data-status="AVAILABLE"] {
+  border-bottom: var(--telga-size-rule-heavy) solid var(--family-ink, var(--telga-vellum-ink));
+}
+
+/* Coming soon: the same hue, holding a ring rather than filling. The family is
+   still legible - a shop can see that water and electricity belong together -
+   but nothing competes with the two tiles that work. */
+.dashboard__tile[data-status="COMING_SOON"] .dashboard__tile-icon {
+  background: var(--telga-vellum-ground-deep);
+  box-shadow: inset 0 0 0 var(--telga-size-rule-hair) var(--family-ink, var(--telga-vellum-rule));
+}
+
 .dashboard__tile-icon { background: var(--telga-vellum-ground-deep); }
 .dashboard__launcher-link { text-align: center; font-size: 0.85rem; }
 

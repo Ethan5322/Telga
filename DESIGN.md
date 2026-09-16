@@ -41,10 +41,32 @@ file does not declare fails a test** — CSS resolves an undefined custom
 property to nothing and carries on, which is the failure mode a stylesheet is
 worst at reporting.
 
-### Colour — capped at five inks per surface
+### Colour — capped at eight inks per surface
 
 No intermediate tones are invented. A lighter or darker value is a *named
 ground*, so it can be counted.
+
+**Raised from five on 2026-09-16 — [[Decision Log]] D169.** Three family inks
+were added: `verdigris`, `plum` and `sienna`. The cap was never about the
+number; it was about every ink having a job that can be read. A colour that
+names nothing is what the ten pastels were removed for on 2026-09-13, and that
+judgment is unchanged.
+
+**The six family inks name a family of services; their strength names
+availability.** A working service is filled with its family's ink; a
+`COMING_SOON` one holds the same ink as a ring on the sunken ground. Fourteen
+of the sixteen dashboard services are not available yet, and finding the two
+that are is the job this does.
+
+`sell` rubric · `utility` verdigris · `official` indigo · `media` plum ·
+`money` ochreInk · `transport` sienna.
+
+**Families cannot be told apart in monochrome, and do not need to be.** Every
+family ink must clear 4.5:1 against the pale ground, which caps its luminance
+near 0.12 — six colours inside a band that narrow cannot separate by lightness.
+The **label** carries what a tile is. What must survive monochrome is
+availability, and it does: filled against ringed, plus the words "Coming soon".
+`tests/ui/service-families.test.ts` holds both halves.
 
 **Vellum (merchant app)**
 
