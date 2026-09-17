@@ -125,11 +125,78 @@ export function checkRegistrationThrottle(
   source: string,
   now: string,
 ): ThrottleVerdict {
+  return checkThrottle(ports, source, now, REGISTRATION_WINDOW_MS, REGISTRATION_MAX_PER_WINDOW);
+}
+
+/** The shared mechanism. Prune, count, compare — the numbers are the caller's. */
+function checkThrottle(
+  ports: ThrottlePorts,
+  source: string,
+  now: string,
+  windowMs: number,
+  maxPerWindow: number,
+): ThrottleVerdict {
   const nowMs = Date.parse(now);
   ports.pruneRegistrationAttempts(
     new Date(nowMs - REGISTRATION_ATTEMPT_RETENTION_MS).toISOString(),
   );
-  const since = new Date(nowMs - REGISTRATION_WINDOW_MS).toISOString();
+  const since = new Date(nowMs - windowMs).toISOString();
   const recent = ports.countRegistrationAttemptsSince(source, since);
-  return { allowed: recent < REGISTRATION_MAX_PER_WINDOW, source };
+  return { allowed: recent < maxPerWindow, source };
+}
+
+// --- sign-in, per source ----------------------------------------------------
+//
+// Security audit of 2026-09-17, finding **M3**.
+//
+// `login()` already limits attempts **per user id** — `sessions.ts`, and its
+// comment is right that the user id "is what an attacker varies least". What it
+// does not bound is an attacker who varies the id: one guess against each of a
+// thousand operator ids spends nobody's budget, because each id has its own.
+//
+// That is not a credential risk here. Signing in needs an operator id, a PIN, a
+// device id **and** a 256-bit device key, so guessing is not the threat. It is a
+// **volume** bound: without it, one source can ask this endpoint an unlimited
+// number of questions, each costing a database read.
+//
+// ## Only failures are counted, and that is what makes it safe
+//
+// A shop signs in successfully many times a day — an idle timeout on each of
+// several tills, a shift change, a device restart — and several tills behind one
+// shop's wi-fi share an address. A limit that counted *every* sign-in would
+// eventually refuse a real counter at its busiest, which is the worst possible
+// moment and exactly the failure mode this must not introduce.
+//
+// An attacker's attempts are almost all failures; a real shop's are almost all
+// successes. Counting only failures separates them without needing to tell them
+// apart.
+
+/**
+ * How many **failed** sign-ins one source may make, and over what window.
+ *
+ * Thirty an hour. A shop with four tills, each locking out at four wrong PINs
+ * (§18.1), produces sixteen failures in its worst realistic hour; thirty leaves
+ * room above that and still ends unbounded probing from one address.
+ *
+ * **A training figure, like the registration one above.** A production limit
+ * belongs with a security review and real traffic to size it against. It is
+ * deliberately generous: the per-user-id limit is what stops guessing, and this
+ * only stops the endpoint being free to hammer.
+ */
+export const LOGIN_FAILURE_WINDOW_MS = 60 * 60 * 1000;
+export const LOGIN_FAILURE_MAX_PER_WINDOW = 30;
+
+/**
+ * May this source attempt a sign-in?
+ *
+ * Additive: it does not replace, weaken or touch the per-user-id limit in
+ * `sessions.ts`, which still refuses first and still owns the lockout §18.1
+ * describes.
+ */
+export function checkLoginThrottle(
+  ports: ThrottlePorts,
+  source: string,
+  now: string,
+): ThrottleVerdict {
+  return checkThrottle(ports, source, now, LOGIN_FAILURE_WINDOW_MS, LOGIN_FAILURE_MAX_PER_WINDOW);
 }

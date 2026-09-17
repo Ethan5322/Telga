@@ -185,7 +185,7 @@ import { registrationSubmittedScreen, vendorRegistrationScreen } from './ui/regi
 import { deviceActivatedScreen, deviceActivationScreen } from './ui/activationScreens';
 import { complaintScreen, complaintSentScreen } from './ui/complaintScreens';
 import { reversalScreen, reversalSentScreen } from './ui/reversalScreens';
-import { checkRegistrationThrottle, registrationSource } from './registration';
+import { checkLoginThrottle, checkRegistrationThrottle, registrationSource } from './registration';
 import { newNonce, securityHeaders } from './transport/headers';
 
 /** What `/api/training/deposits/orders/open` returns. */
@@ -3178,6 +3178,48 @@ async function route(
       return;
     }
     const returnTo = safeReturnTo(form['returnTo']);
+
+    /**
+     * A bound on how often one source may fail to sign in — audit finding M3.
+     *
+     * `login()` limits attempts per **user id**, which is what stops somebody
+     * guessing one operator's PIN. It does not bound an attacker who varies the
+     * id instead: a guess against each of a thousand ids spends nobody's budget.
+     *
+     * **Only failures are counted.** A busy shop signs in successfully many
+     * times a day and several tills share one address, so counting every
+     * sign-in would eventually refuse a real counter at its busiest. An
+     * attacker's attempts are almost all failures and a shop's are almost all
+     * successes, which separates them without having to tell them apart.
+     *
+     * Prefixed `login:`, like `activate:` above, so sign-ins and registrations
+     * cannot spend each other's budget.
+     */
+    const loginAt = options.api.now();
+    const loginSource = registrationSource(transport, facts, options.api.recipientSalt);
+    const loginThrottle = {
+      countRegistrationAttemptsSince: (src: string, since: string): number =>
+        options.api.driver.countRegistrationAttemptsSince(`login:${src}`, since),
+      recordRegistrationAttempt: (
+        src: string,
+        outcome: 'RECORDED' | 'REFUSED',
+        when: string,
+      ): void => options.api.driver.recordRegistrationAttempt(`login:${src}`, outcome, when),
+      pruneRegistrationAttempts: (before: string): number =>
+        options.api.driver.pruneRegistrationAttempts(before),
+    };
+
+    if (!checkLoginThrottle(loginThrottle, loginSource, loginAt).allowed) {
+      // The same refusal a per-user-id rate limit gives, and the same screen
+      // text: a caller learns that they are being throttled, never which of the
+      // two limits caught them or whether the id they tried exists.
+      response.writeHead(303, {
+        location: `/login?error=RATE_LIMITED&returnTo=${encodeURIComponent(returnTo)}`,
+      });
+      response.end();
+      return;
+    }
+
     const result = await login(
       options.api,
       {
@@ -3189,6 +3231,9 @@ async function route(
       options.api.newId('corr'),
     );
     if (!result.ok) {
+      // Recorded here and nowhere else: a successful sign-in costs a shop
+      // nothing, so a real counter never walks into this limit.
+      loginThrottle.recordRegistrationAttempt(loginSource, 'REFUSED', loginAt);
       // Post/redirect/get, so a refused attempt is not resubmitted by a refresh
       // and the PIN never survives in the browser's form state.
       response.writeHead(303, {
