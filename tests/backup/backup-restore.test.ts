@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  AppendOnlyProtectionMissingError,
   BackupTooLargeError,
   ChecksumMismatchError,
   DestinationExistsError,
@@ -49,6 +50,24 @@ function configFor(...roots: readonly string[]): BackupRestoreConfig {
 function scratch(name: string): string {
   scratchDir = mkdtempSync(join(tmpdir(), `telga-backup-test-${name}-`));
   return scratchDir;
+}
+
+/**
+ * Remove the ledger's UPDATE guard from a database, optionally putting
+ * something else in its place.
+ *
+ * Applied to the **source**, never to a finished backup: a backup edited after
+ * the fact fails its manifest checksum first, which is a different protection
+ * doing its job and would mask the one under test.
+ */
+function dropUpdateTrigger(file: string, replacement?: string): void {
+  const db = new SqliteLedgerDriver({ file });
+  try {
+    db.unsafeConnection.exec('DROP TRIGGER ledger_entries_forbid_update');
+    if (replacement !== undefined) db.unsafeConnection.exec(replacement);
+  } finally {
+    db.close();
+  }
 }
 
 describe('backup', () => {
@@ -388,6 +407,65 @@ describe('restore', () => {
     } finally {
       restored.close();
     }
+  });
+
+  /**
+   * Security audit of 2026-09-17, finding **M2**.
+   *
+   * `verifyAppendOnly` proves the ledger triggers are live by attempting an
+   * UPDATE and requiring it to be refused. The attempt was wrapped in a bare
+   * `catch`, so **every** error read as a refusal — a locked database, a
+   * dropped column, a `better-sqlite3` upgrade, a typo in the statement. The
+   * one check whose whole job is to be trustworthy was the one that could not
+   * fail.
+   *
+   * These two hold the distinction the fix introduces: a missing protection is
+   * caught, and an unrelated failure is no longer mistaken for a protection
+   * that worked.
+   */
+  it('refuses a restore whose append-only trigger is missing', async () => {
+    harness = makeHarness('restore-trigger-dropped', { fundBirr: 100 });
+    const dir = scratch('trigger-dropped');
+
+    // Tampered at SOURCE, before the backup is taken. Editing the backup file
+    // afterwards trips the manifest checksum first — which is that protection
+    // working, and not the one under test here.
+    dropUpdateTrigger(harness.file);
+    const backup = await backupOf(harness, dir);
+
+    const target = join(dir, 'restored.sqlite');
+    await expect(
+      runRestore({ mode: 'TRAINING', backupPath: backup, targetPath: target, config: configFor(dir) }),
+    ).rejects.toThrow(AppendOnlyProtectionMissingError);
+  });
+
+  it('does not read an unrelated error as proof the protection works', async () => {
+    // The exact shape the bare `catch` could not tell apart: the UPDATE is
+    // refused, but by something that is **not** the append-only trigger. Under
+    // the old code this resolved successfully with `appendOnlyVerified: true`.
+    harness = makeHarness('restore-other-error', { fundBirr: 100 });
+    const dir = scratch('other-error');
+
+    dropUpdateTrigger(harness.file, `
+      CREATE TRIGGER ledger_entries_unrelated_guard
+      BEFORE UPDATE ON ledger_entries
+      BEGIN
+        SELECT RAISE(ABORT, 'some entirely different constraint');
+      END;
+    `);
+    const backup = await backupOf(harness, dir);
+
+    const target = join(dir, 'restored.sqlite');
+    const attempt = runRestore({
+      mode: 'TRAINING',
+      backupPath: backup,
+      targetPath: target,
+      config: configFor(dir),
+    });
+
+    // It must fail, and it must fail as *that* error rather than being
+    // swallowed — reporting the real reason is the whole point.
+    await expect(attempt).rejects.toThrow(/some entirely different constraint/);
   });
 
   it('revokes every session on restore', async () => {

@@ -131,7 +131,34 @@ function loadManifest(backupPath: string): BackupManifest {
   return JSON.parse(readFileSync(manifestPath, 'utf8')) as BackupManifest;
 }
 
-/** Confirms the append-only triggers are active without leaving a trace: the attempt itself must throw. */
+/**
+ * Confirms the append-only triggers are active without leaving a trace: the
+ * attempt itself must throw.
+ *
+ * ## The check used to be able to pass for the wrong reason
+ *
+ * Security audit of 2026-09-17, finding M2. This was:
+ *
+ *     try { conn.exec(`UPDATE ... WHERE id = '${row.id}'`); }
+ *     catch { refused = true; }
+ *
+ * Two faults, and the second is the one that matters.
+ *
+ * **The id was concatenated into SQL.** Not externally reachable — it comes
+ * from `SELECT id FROM ledger_entries` two lines above — but it is the only
+ * string-built statement in the repository, and it sits in the restore path.
+ *
+ * **The `catch` was bare, so every error read as success.** A locked database,
+ * a dropped table, a typo in the statement, a `better-sqlite3` upgrade that
+ * changes an API — each one would have set `refused = true` and reported that
+ * the append-only protection was working. The check that most needs to be
+ * trustworthy was the one that could not fail.
+ *
+ * So the refusal is now identified by **what the trigger itself raises**
+ * (`002_ledger_append_only`), and anything else is rethrown. A verification
+ * that cannot tell "the trigger stopped me" from "something else went wrong"
+ * is not a verification.
+ */
 function verifyAppendOnly(driver: SqliteLedgerDriver): void {
   const row = driver.unsafeConnection.prepare('SELECT id FROM ledger_entries LIMIT 1').get() as
     | { id: string }
@@ -140,13 +167,30 @@ function verifyAppendOnly(driver: SqliteLedgerDriver): void {
 
   let refused = false;
   try {
-    driver.unsafeConnection.exec(`UPDATE ledger_entries SET amount_minor = amount_minor WHERE id = '${row.id}'`);
-  } catch {
+    // Parameterised, and a no-op update either way: the trigger fires BEFORE
+    // UPDATE, so nothing is written even in the failure case this detects.
+    driver.unsafeConnection
+      .prepare('UPDATE ledger_entries SET amount_minor = amount_minor WHERE id = ?')
+      .run(row.id);
+  } catch (error) {
+    if (!isAppendOnlyRefusal(error)) throw error;
     refused = true;
   }
   if (!refused) {
     throw new AppendOnlyProtectionMissingError();
   }
+}
+
+/**
+ * Was this the trigger refusing, or something else going wrong?
+ *
+ * Matched on the phrase `002_ledger_append_only` raises rather than on an error
+ * class, because `RAISE(ABORT, ...)` surfaces as an ordinary SQLite error and
+ * the message is the only thing that distinguishes it.
+ */
+function isAppendOnlyRefusal(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('append-only');
 }
 
 /**
