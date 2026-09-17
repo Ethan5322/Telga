@@ -14,6 +14,7 @@
  * else exits non-zero before a database is opened.
  */
 
+import { randomUUID } from 'node:crypto';
 import { providerId as makeProviderId, productId, timestamp } from '@telga/domain';
 import { simulatedCatalog } from '@telga/api';
 import { assertMigrationsApplied, SqliteLedgerDriver } from '@telga/persistence';
@@ -222,7 +223,33 @@ export async function run(
       catalog: simulatedCatalog([
         { id: productId('AIRTIME'), label: 'Airtime (simulated)', available: true },
       ]),
-      recipientSalt: env.TELGA_RECIPIENT_SALT ?? 'cli-salt-not-a-production-secret',
+      /**
+       * The salt recipient hashes are derived with.
+       *
+       * Security audit of 2026-09-17, finding **L3**. The fallback here was the
+       * literal `'cli-salt-not-a-production-secret'`. Its name says what it is
+       * for and the deployment does set `TELGA_RECIPIENT_SALT`, so nothing was
+       * ever wrong in production — but a **known** salt is the one thing a
+       * recipient hash cannot survive. A phone number carries perhaps seven or
+       * eight decimal digits of real entropy behind a fixed Ethiopian prefix,
+       * so a salt anybody can read off GitHub turns every stored hash back into
+       * the number it came from.
+       *
+       * It is inert twice over today: this worker recovers sales and never
+       * creates one, so it never reaches `hashRecipient` at all, and nothing
+       * anywhere queries `recipient_hash`. That is exactly why it was worth
+       * removing now rather than later — it is a trap set for whoever wires
+       * this worker to a path that does hash, and it would look harmless right
+       * up until it wasn't.
+       *
+       * A fresh value per run, which is what `apps/merchant-pos/src/cli.ts`
+       * already chose deliberately: *"a salt that survives a restart would be a
+       * secret this file has no business holding."* Not a hard refusal when the
+       * variable is missing, because the child-process tests spawn this CLI and
+       * a worker that will not start without a secret it never uses would be a
+       * worse trade than one that starts with an unguessable one.
+       */
+      recipientSalt: env.TELGA_RECIPIENT_SALT ?? randomUUID(),
       mode: 'TRAINING',
       shutdown,
       logger,
