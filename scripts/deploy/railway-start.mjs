@@ -301,6 +301,35 @@ start('pos', [
   '--tls-termination', 'TRUSTED_PROXY',
   '--trust-proxy', posTrust,
   '--allowed-hosts', allowedHosts,
+  /**
+   * HSTS. Security audit of 2026-09-17, finding H1.
+   *
+   * `--hsts` defaults to `false` (`apps/merchant-pos/src/cli.ts`), and this
+   * file never passed it — so the live deployment served every other security
+   * header correctly and no `Strict-Transport-Security` at all. Verified
+   * against `https://telga.pro/login` rather than inferred: CSP, COOP, CORP,
+   * permissions-policy, referrer-policy and nosniff were all present, and that
+   * one was missing.
+   *
+   * What it costs to leave off: a merchant who types `telga.pro` makes one
+   * plaintext request before the redirect. On shop wi-fi that is the
+   * SSL-strip window, on a device carrying a device key and about to be given
+   * a PIN.
+   *
+   * 15552000 seconds is 180 days, the `--hsts-max-age` default and the figure
+   * the preload list asks for. `includeSubDomains` is deliberately NOT sent:
+   * `admin.telga.pro` serves the operations console from a separate process
+   * (§18.0), and committing every present and future subdomain to HTTPS for
+   * 180 days is a decision to take deliberately rather than as a side effect
+   * of turning this on.
+   *
+   * Safe to send here because the header is emitted only when the client
+   * actually used HTTPS — `headers.ts` requires `scheme.scheme === 'https'`,
+   * which behind this proxy comes from the trusted `X-Forwarded-Proto` above.
+   * An HTTP fallback therefore never receives it and cannot be locked out.
+   */
+  '--hsts', 'true',
+  '--hsts-max-age', '15552000',
 ]);
 
 if (serveConsole) {
